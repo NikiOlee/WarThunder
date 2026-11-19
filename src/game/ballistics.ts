@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { resolveHit, type HitPart, type HitResolution } from './damage';
+import { BARREL_HITBOX_BOUNDS, resolveHit, type HitPart, type HitResolution } from './damage';
 import { audio } from './audio';
 import type { Tank } from './tank';
 import type { GameWorld, ObstacleBox } from './world';
@@ -189,8 +189,12 @@ const HULL_BOXES: HitBox[] = [
 ];
 // Turret-space hitbox (rotates with turretGroup!)
 const TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.35, 0.0, -1.85), max: new THREE.Vector3(1.35, 1.15, 1.6) };
-// Gun-pivot-space hitbox (elevates & rotates with barrel!)
-const BARREL_BOX: HitBox = { part: 'barrel', min: new THREE.Vector3(-0.17, -0.17, 0.2), max: new THREE.Vector3(0.17, 0.17, 4.7) };
+// Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
+const BARREL_BOX: HitBox = {
+  part: 'barrel',
+  min: new THREE.Vector3(BARREL_HITBOX_BOUNDS.min.x, BARREL_HITBOX_BOUNDS.min.y, BARREL_HITBOX_BOUNDS.min.z),
+  max: new THREE.Vector3(BARREL_HITBOX_BOUNDS.max.x, BARREL_HITBOX_BOUNDS.max.y, BARREL_HITBOX_BOUNDS.max.z),
+};
 
 function slab(o: THREE.Vector3, d: THREE.Vector3, len: number, box: HitBox) {
   let tmin = 0;
@@ -429,7 +433,7 @@ export class BallisticsSystem {
       if (gl > 1e-7) {
         gd.multiplyScalar(1 / gl);
         const r = slab(ga, gd, gl, BARREL_BOX);
-        if (r && (!best || r.t < best.t)) {
+        if (r && (!best || r.t < best.t + (best.part === 'turret' ? 0.12 : 0))) {
           best = { t: r.t, n: r.n, part: 'barrel', tank: t, ld: gd.clone(), frame: 'gun' };
         }
       }

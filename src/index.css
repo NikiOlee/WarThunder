@@ -95,7 +95,9 @@ body.menu #gunMark,
 body.menu #hitcam,
 body.menu #scope,
 body.menu #dead,
-body.menu #scoreboard {
+body.menu #scoreboard,
+body.menu #roundBanner,
+body.menu #spectatorBar {
   display: none !important;
 }
 
@@ -492,7 +494,11 @@ select {
 }
 
 #bPlay {
-  flex: 2;
+  flex: 1.8;
+}
+
+#bModes {
+  flex: 1;
 }
 
 #bMaps {
@@ -1181,4 +1187,118 @@ select {
   .sb-cols {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- mode selector & locked settings ---- */
+.modecard {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 16px 18px;
+  margin: 10px 0;
+  border: 2px solid #4f5a40;
+  background: rgba(24, 30, 19, 0.9);
+  color: #d6d3bd;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.modecard:hover {
+  border-color: #b9b48a;
+  background: rgba(34, 42, 26, 0.92);
+}
+
+.modecard.sel {
+  border-color: #ffd27a;
+  box-shadow: 0 0 18px rgba(255, 210, 122, 0.42), inset 0 0 0 1px rgba(255, 210, 122, 0.35);
+  color: #fff;
+}
+
+.modecard .m-badge {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #ffd27a;
+}
+
+.modecard .mname {
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: #ffd27a;
+  margin-bottom: 6px;
+}
+
+.modecard .mdesc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #c9c7b0;
+}
+
+.row.locked {
+  opacity: 0.62;
+}
+
+.row-note {
+  font-size: 11px;
+  color: #ffb47a;
+  padding: 2px 0 8px;
+  border-bottom: 1px solid rgba(120, 130, 100, 0.18);
+}
+
+/* ---- round banner & spectator hud ---- */
+#roundBanner {
+  left: 50%;
+  top: 26%;
+  transform: translate(-50%, -50%);
+  padding: 16px 30px;
+  background: rgba(14, 18, 12, 0.92);
+  border: 1px solid #ffd27a;
+  box-shadow: 0 0 32px rgba(0, 0, 0, 0.85);
+  text-align: center;
+  z-index: 9;
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: 3px;
+  color: #ffd27a;
+  white-space: nowrap;
+}
+
+#spectatorBar {
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  padding: 10px 22px;
+  background: rgba(10, 14, 10, 0.88);
+  border: 1px solid #8a8c5a;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.75);
+  text-align: center;
+  z-index: 8;
+  min-width: 340px;
+}
+
+.spec-title {
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: #ffd27a;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.spec-target {
+  font-size: 15px;
+  color: #fff;
+  margin-bottom: 3px;
+}
+
+.spec-target b {
+  color: #8fe36a;
+}
+
+.spec-hint {
+  font-size: 11px;
+  color: #9aa58a;
+  letter-spacing: 1px;
 }

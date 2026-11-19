@@ -21,6 +21,7 @@ export interface ConsoleGameAPI {
   set: (k: keyof GameSettings, v: unknown) => void;
   showFps: (on: boolean) => void;
   onConsole: (open: boolean) => void;
+  canOpen: () => boolean;
 }
 
 export class GameConsole {
@@ -68,6 +69,7 @@ export class GameConsole {
     else this.openIt();
   }
   openIt(): void {
+    if (!this.game.canOpen()) return;
     this.open = true;
     this.root.style.display = 'flex';
     this.input.value = '';

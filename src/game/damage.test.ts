@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks } from './tanks';
-import { resolveHit } from './damage';
+import { BARREL_HITBOX_BOUNDS, isPointInBarrelZone, resolveHit } from './damage';
 
 test('T-55 default spec has 50 km/h speed, 4s reload, 400m max range, and is default hangar tank', () => {
   const tanks = getAllTanks();
@@ -82,4 +82,20 @@ test('Fuel tank weakspot hit causes instant lethal destruction (oneshot)', () =>
   const fuelRearHit = resolveHit('hull', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, shell, 440, 'fuel', t55);
   assert.equal(fuelRearHit.result, 'fuel');
   assert.ok(fuelRearHit.damage >= t55.maxHp);
+});
+
+test('Expanded zone around barrel and muzzle counts as barrel hit', () => {
+  const t55 = getTankSpec('t55');
+  const shell = { muzzleVelocity: t55.muzzleVelocity, penetrationMm: t55.penetrationMm };
+
+  // Zone around muzzle tip and barrel shaft (+/- 0.3m lateral, ahead of muzzle z=4.75, collar z=-0.2)
+  assert.ok(BARREL_HITBOX_BOUNDS.max.x >= 0.35);
+  assert.equal(isPointInBarrelZone(0.32, 0.25, 2.5), true);
+  assert.equal(isPointInBarrelZone(0.0, 0.0, 4.75), true);
+  assert.equal(isPointInBarrelZone(-0.2, 0.1, -0.2), true);
+
+  // Grazing shot along the barrel zone still resolves as 'barrel' damage
+  const barrelHit = resolveHit('barrel', { x: 1, y: 0, z: 0 }, { x: -0.25, y: 0, z: -0.96 }, shell, 480, 'barrel', t55);
+  assert.equal(barrelHit.result, 'barrel');
+  assert.ok(barrelHit.damage > 0);
 });

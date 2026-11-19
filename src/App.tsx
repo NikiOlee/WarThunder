@@ -110,6 +110,14 @@ export default function App() {
       </div>
       <div id="dmgStat" className="hud" />
       <div id="msg" className="hud" />
+      <div id="roundBanner" className="hud hidden" data-testid="round-banner" />
+      <div id="spectatorBar" className="hud hidden" data-testid="spectator-bar">
+        <div className="spec-title">РЕЖИМ НАБЛЮДАТЕЛЯ</div>
+        <div className="spec-target">
+          Наблюдение: <b id="specTargetName">—</b> <span id="specTargetHp" />
+        </div>
+        <div className="spec-hint">ЛКМ / ← → / A D — сменить союзника · МЫШЬ — обзор</div>
+      </div>
       <div id="dead" />
 
       <div id="scoreboard" className="hidden" data-testid="scoreboard">
@@ -151,6 +159,9 @@ export default function App() {
             <button type="button" className="btn" id="bPlay" data-start="true">
               ИГРАТЬ
             </button>
+            <button type="button" className="btn" id="bModes">
+              РЕЖИМЫ
+            </button>
             <button type="button" className="btn" id="bMaps">
               КАРТЫ
             </button>
@@ -172,12 +183,12 @@ export default function App() {
           <button type="button" className="btn dim" id="bCtl">
             УПРАВЛЕНИЕ
           </button>
-          <div className="info">
+          <div className="info" id="menuModeInfo">
             Режим «Бой до 100 киллов»: вы и 3 союзника против 4 ботов на танках Т-55.
             <br />
             +50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу.
             <br />
-            Таблица счёта: TAB · Консоль: клавиша ~ (Ё)
+            Таблица счёта: TAB · Таран на скорости: -20 ХП
           </div>
         </div>
 
@@ -233,6 +244,16 @@ export default function App() {
           <div id="mapCards" />
           <div className="foot">
             <button type="button" className="btn dim" id="bMapsBack">
+              ГОТОВО
+            </button>
+          </div>
+        </div>
+
+        <div id="modePanel" className="panel hidden" data-testid="mode-panel">
+          <h2>ВЫБОР РЕЖИМА</h2>
+          <div id="modeCards" />
+          <div className="foot">
+            <button type="button" className="btn dim" id="bModesBack">
               ГОТОВО
             </button>
           </div>

@@ -45,6 +45,10 @@ export function spawnPoint(team: 'A' | 'B', index: number) {
   return team === 'A' ? MAP!.spawnA(index) : MAP!.spawnB(index);
 }
 
+export function getEffectiveBotSkill(configuredSkill: number, allowBotAccuracy: boolean): number {
+  return allowBotAccuracy ? configuredSkill : 1.0;
+}
+
 export class Bot {
   world: GameWorld;
   ballistics: BallisticsSystem;
@@ -65,6 +69,7 @@ export class Bot {
   noiseYaw = 0;
   noiseElev = 0;
   noiseT = 0;
+  baseSkill: number;
   skill: number;
   private _a = new THREE.Vector3();
   private _b = new THREE.Vector3();
@@ -102,7 +107,8 @@ export class Bot {
     this.thinkT = Math.random() * 0.5;
     this.obj = this._newObjective();
     this.lastPos = this.tank.root.position.clone();
-    this.skill = rnd(0.7, 1.15) * settings.botSkill;
+    this.baseSkill = rnd(0.7, 1.15);
+    this.skill = this.baseSkill;
   }
 
   private _newObjective() {
@@ -153,14 +159,20 @@ export class Bot {
     this.target = best;
   }
 
-  update(dt: number, enemies: Tank[], fx: Parameters<Tank['update']>[2]): void {
+  update(
+    dt: number,
+    enemies: Tank[],
+    fx: Parameters<Tank['update']>[2],
+    options: { respawns?: boolean; allowBotAccuracy?: boolean } = {},
+  ): void {
     const t = this.tank;
+    this.skill = this.baseSkill * getEffectiveBotSkill(settings.botSkill, !!options.allowBotAccuracy);
     this.marker.visible = t.alive;
     if (!t.alive) {
       t.update(dt, null, fx);
       t.updateTurret(dt, t.turretWorldYaw, t.gunElev);
       this.deadT += dt;
-      if (this.deadT > 14) this.respawn();
+      if (options.respawns !== false && this.deadT > 14) this.respawn();
       return;
     }
     this.thinkT -= dt;

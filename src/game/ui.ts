@@ -2,7 +2,7 @@ import { settings, setSetting, setKeyBind, resetSettings, KEY_LABELS, keyName, s
 import { audio } from './audio';
 import { getAllTanks, getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
 import { getSilver, isTankOwned, purchaseTank } from './economy';
-import { getModeDef } from './modes';
+import { getAllModes, getModeDef } from './modes';
 
 interface SettingItem {
   k?: keyof GameSettings;
@@ -67,9 +67,10 @@ export interface MapDef {
 export interface MatchEndSummary {
   won: boolean;
   modeName: string;
-  teamAKills: number;
-  teamBKills: number;
-  targetKills: number;
+  scoreLabel: string;
+  teamAScore: number;
+  teamBScore: number;
+  targetGoal: number;
   playerKills: number;
   playerDeaths: number;
   matchSilverEarned: number;
@@ -86,6 +87,7 @@ export interface UIHandlers {
   getMap: () => string;
   setMap: (id: string) => void;
   getModeId: () => string;
+  setModeId: (id: string) => void;
   onSelectTank: (tankId: string) => void;
   onHangarToggle: (open: boolean) => void;
 }
@@ -98,6 +100,7 @@ export function createUI(h: UIHandlers) {
     pause: $('pausePanel'),
     settings: $('settingsPanel'),
     maps: $('mapPanel'),
+    modes: $('modePanel'),
     hangar: $('hangarScreen'),
     matchEnd: $('matchEndPanel'),
   };
@@ -135,6 +138,16 @@ export function createUI(h: UIHandlers) {
       const activeTank = getTankSpec(getSelectedTankId());
       const activeMode = getModeDef(h.getModeId());
       $('mapName').textContent = `Режим: ${activeMode.name} · Карта: ${activeMap ? activeMap.name : ''} · Танк: ${activeTank.name}`;
+      const infoEl = $('menuModeInfo');
+      if (infoEl) {
+        const extra =
+          activeMode.id === 'training'
+            ? 'Консоль (~ / Ё) и настройка точности ботов активны. Серебро не начисляется.'
+            : activeMode.id === 'rounds5v5'
+              ? '+50 серебра за килл · +500 за победу в матче · После смерти — режим наблюдателя.'
+              : '+50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу.';
+        infoEl.innerHTML = `${activeMode.shortDesc}<br />${extra}<br />Таблица счёта: TAB · Таран на скорости: -20 ХП`;
+      }
     } else if (which === 'hangar') {
       renderHangar();
     }
@@ -161,6 +174,15 @@ export function createUI(h: UIHandlers) {
   $('bNew').onclick = () => {
     click();
     h.play(true);
+  };
+  $('bModes').onclick = () => {
+    click();
+    renderModes();
+    show('modes');
+  };
+  $('bModesBack').onclick = () => {
+    click();
+    show('main');
   };
   $('bMaps').onclick = () => {
     click();
@@ -229,9 +251,9 @@ export function createUI(h: UIHandlers) {
   ui.showMatchEnd = (s: MatchEndSummary) => {
     $('meTitle').textContent = s.won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
     $('meTitle').style.color = s.won ? '#8fe36a' : '#ff6a4a';
-    $('meSub').textContent = `${s.modeName.toUpperCase()} · ${s.teamAKills} : ${s.teamBKills}`;
+    $('meSub').textContent = `${s.modeName.toUpperCase()} · ${s.teamAScore} : ${s.teamBScore}`;
     $('meSummary').innerHTML = `
-      <div class="me-row"><span>Счёт команд (до ${s.targetKills})</span><b>МЫ ${s.teamAKills} : ${s.teamBKills} ВРАГИ</b></div>
+      <div class="me-row"><span>${s.scoreLabel} (до ${s.targetGoal})</span><b>МЫ ${s.teamAScore} : ${s.teamBScore} ВРАГИ</b></div>
       <div class="me-row"><span>Уничтожено вами</span><b>${s.playerKills}</b></div>
       <div class="me-row"><span>Потерь вашей техники</span><b>${s.playerDeaths}</b></div>
       <div class="me-row silver"><span>Награда за победу</span><b>${s.victorySilver > 0 ? '+' + s.victorySilver + ' серебра' : '0 серебра'}</b></div>
@@ -363,9 +385,31 @@ export function createUI(h: UIHandlers) {
     }
   }
 
+  function renderModes(): void {
+    const box = $('modeCards');
+    box.innerHTML = '';
+    const activeId = h.getModeId();
+    for (const m of getAllModes()) {
+      const sel = activeId === m.id;
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'modecard' + (sel ? ' sel' : '');
+      card.dataset.modeId = m.id;
+      card.innerHTML = `<div class="mname">${m.name}</div><div class="mdesc">${m.shortDesc}</div>${sel ? '<span class="m-badge">ВЫБРАНО</span>' : ''}`;
+      card.onclick = () => {
+        if (h.getModeId() === m.id) return;
+        click();
+        h.setModeId(m.id);
+        renderModes();
+      };
+      box.appendChild(card);
+    }
+  }
+
   function renderSettings(): void {
     const tabs = $('tabs');
     const body = $('tabBody');
+    const activeMode = getModeDef(h.getModeId());
     tabs.innerHTML = '';
     for (const id in TABS) {
       const b = document.createElement('button');
@@ -392,8 +436,9 @@ export function createUI(h: UIHandlers) {
         continue;
       }
       const key = it.k!;
+      const isLockedBotSkill = key === 'botSkill' && !activeMode.allowBotAccuracy;
       const row = document.createElement('div');
-      row.className = 'row';
+      row.className = 'row' + (isLockedBotSkill ? ' locked' : '');
       const lab = document.createElement('label');
       lab.textContent = it.l || '';
       row.appendChild(lab);
@@ -403,17 +448,23 @@ export function createUI(h: UIHandlers) {
         inp.min = String(it.min);
         inp.max = String(it.max);
         inp.step = String(it.step);
-        inp.value = String(settings[key]);
+        inp.dataset.settingKey = String(key);
+        const curVal = isLockedBotSkill ? 1 : Number(settings[key]);
+        inp.value = String(curVal);
+        inp.disabled = isLockedBotSkill;
         const val = document.createElement('span');
         val.className = 'val';
         const fmt = (v: number) => (it.pct ? Math.round(v * 100) + '%' : (+v).toFixed(2).replace(/\.?0+$/, ''));
-        val.textContent = fmt(Number(settings[key]));
+        val.textContent = isLockedBotSkill ? '1 (фикс.)' : fmt(curVal);
         inp.oninput = () => {
+          if (isLockedBotSkill) return;
           const v = parseFloat(inp.value);
           val.textContent = fmt(v);
           setSetting(key, v as never);
         };
-        inp.onchange = () => audio.ui('click');
+        inp.onchange = () => {
+          if (!isLockedBotSkill) audio.ui('click');
+        };
         row.append(inp, val);
       } else if (it.t === 'check') {
         const inp = document.createElement('input');
@@ -440,6 +491,13 @@ export function createUI(h: UIHandlers) {
         row.appendChild(sel);
       }
       body.appendChild(row);
+      if (isLockedBotSkill) {
+        const note = document.createElement('div');
+        note.className = 'row-note';
+        note.dataset.testid = 'bot-skill-locked-note';
+        note.textContent = 'Настройка точности ботов доступна только в режиме «Тренировка».';
+        body.appendChild(note);
+      }
     }
   }
 

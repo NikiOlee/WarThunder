@@ -11,7 +11,8 @@ import { GameConsole, type ConsoleGameAPI } from './console';
 import { createUI } from './ui';
 import { getSelectedTankId, DEFAULT_TANK_ID } from './tanks';
 import { addSilver, computeKillReward, getSilver } from './economy';
-import { DEFAULT_MODE_ID, evaluateMatchState, getModeDef, sortScoreboardRows, type ScoreboardRow } from './modes';
+import { DEFAULT_MODE_ID, evaluateMatchState, evaluateRoundState, getModeDef, sortScoreboardRows, type ScoreboardRow } from './modes';
+import { resolveTankCollisionPair } from './collision';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -92,8 +93,58 @@ export function initGame(mountEl: HTMLElement): () => void {
   ballistics.addTarget(tank);
 
   const bots: Bot[] = [];
-  for (let i = 0; i < 3; i++) bots.push(new Bot(scene, world, ballistics, 'A', i + 1));
-  for (let i = 0; i < 4; i++) bots.push(new Bot(scene, world, ballistics, 'B', i));
+  const tankIds = new Map<Tank, string>();
+  let nextTankSeq = 1;
+  const getTankId = (t: Tank) => {
+    let id = tankIds.get(t);
+    if (!id) {
+      id = t.isPlayer ? 'player' : `bot_${nextTankSeq++}`;
+      tankIds.set(t, id);
+    }
+    return id;
+  };
+  getTankId(tank);
+
+  function syncTeamRoster(teamSize: number) {
+    const wantAllies = Math.max(0, teamSize - 1);
+    const wantEnemies = Math.max(1, teamSize);
+
+    const removeExtra = (team: 'A' | 'B', keep: number) => {
+      let seen = 0;
+      for (let i = 0; i < bots.length; ) {
+        if (bots[i].team !== team) {
+          i++;
+          continue;
+        }
+        seen++;
+        if (seen > keep) {
+          scene.remove(bots[i].tank.root);
+          ballistics.targets = ballistics.targets.filter((t) => t !== bots[i].tank);
+          bots.splice(i, 1);
+        } else {
+          i++;
+        }
+      }
+    };
+
+    removeExtra('A', wantAllies);
+    removeExtra('B', wantEnemies);
+
+    while (bots.filter((b) => b.team === 'A').length < wantAllies) {
+      const idx = bots.filter((b) => b.team === 'A').length + 1;
+      const b = new Bot(scene, world, ballistics, 'A', idx);
+      getTankId(b.tank);
+      bots.push(b);
+    }
+    while (bots.filter((b) => b.team === 'B').length < wantEnemies) {
+      const idx = bots.filter((b) => b.team === 'B').length;
+      const b = new Bot(scene, world, ballistics, 'B', idx);
+      getTankId(b.tank);
+      bots.push(b);
+    }
+  }
+
+  syncTeamRoster(getModeDef(DEFAULT_MODE_ID).teamSize);
   const allTanks = () => [tank, ...bots.map((b) => b.tank)];
   const tanksOf = (team: 'A' | 'B') => allTanks().filter((t) => t.team === team);
 
@@ -130,6 +181,17 @@ export function initGame(mountEl: HTMLElement): () => void {
   let matchEnded = false;
   let teamAKills = 0;
   let teamBKills = 0;
+  let teamARounds = 0;
+  let teamBRounds = 0;
+  let roundNum = 1;
+  let roundPhase: 'active' | 'intermission' = 'active';
+  let roundEndT = 0;
+  let pendingRoundMatchWinner: { winner: 'A' | 'B'; victorySilver: number } | null = null;
+  let spectating = false;
+  let spectateIdx = 0;
+  let spectateTarget: Tank | null = null;
+  let simTime = 0;
+  const ramCooldowns = new Map<string, number>();
   let matchSilverEarned = 0;
   let scoreboardOpen = false;
   let mode: 'third' | 'sniper' | 'binoc' = 'third';
@@ -187,11 +249,14 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function updateHelp() {
     const K = settings.keys;
+    const activeMode = getModeDef(currentModeId);
     const n = (c: string) => (c || '').replace('Key', '').replace('Space', 'ПРОБЕЛ').replace('ShiftLeft', 'SHIFT').replace('Backquote', '~');
     $('help').innerHTML =
       `<b>${n(K.forward)}/${n(K.back)}</b> газ/реверс &nbsp; <b>${n(K.left)}/${n(K.right)}</b> поворот &nbsp; <b>${n(K.brake)}</b> тормоз<br>` +
       `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> огонь &nbsp; <b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>TAB</b> счёт<br>` +
-      `<b>КОЛЕСО</b> зум &nbsp; <b>${n(K.comp)}</b> баллист. комп. &nbsp; <b>${n(K.console)}</b> консоль &nbsp; <b>ESC</b> пауза`;
+      `<b>КОЛЕСО</b> зум &nbsp; <b>${n(K.comp)}</b> баллист. комп.` +
+      (activeMode.allowConsole ? ` &nbsp; <b>${n(K.console)}</b> консоль` : '') +
+      ` &nbsp; <b>ESC</b> пауза`;
   }
 
   const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', '*']);
@@ -234,33 +299,62 @@ export function initGame(mountEl: HTMLElement): () => void {
     battleStarted = false;
   }
 
-  function newBattle() {
-    const chosenTankId = getSelectedTankId();
+  function updateModeScoreHud() {
     const activeMode = getModeDef(currentModeId);
+    $('alive').textContent = tanksOf('A').filter((t) => t.alive).length + ' v ' + tanksOf('B').filter((t) => t.alive).length;
+    if (activeMode.roundsToWin > 0) {
+      $('modeTitleHud').textContent = `${activeMode.name.toUpperCase()} · РАУНД ${roundNum}`;
+      $('teamAKills').textContent = String(teamARounds);
+      $('teamBKills').textContent = String(teamBRounds);
+      $('modeGoalHud').textContent = `/ ${activeMode.roundsToWin}`;
+    } else if (activeMode.targetKills > 0) {
+      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      $('teamAKills').textContent = String(teamAKills);
+      $('teamBKills').textContent = String(teamBKills);
+      $('modeGoalHud').textContent = `/ ${activeMode.targetKills}`;
+    } else {
+      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      $('teamAKills').textContent = String(teamAKills);
+      $('teamBKills').textContent = String(teamBKills);
+      $('modeGoalHud').textContent = '· СВОБОДНЫЙ БОЙ';
+    }
+  }
+
+  function showRoundBanner(text: string | null, color = '#ffd27a') {
+    const elB = $('roundBanner');
+    if (!text) {
+      elB.classList.add('hidden');
+      return;
+    }
+    elB.textContent = text;
+    elB.style.color = color;
+    elB.classList.remove('hidden');
+  }
+
+  function startRound(isFirstRound: boolean) {
+    const chosenTankId = getSelectedTankId();
     ballistics.clear();
+    ramCooldowns.clear();
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, chosenTankId);
     tank.name = `ВЫ (${tank.spec.name})`;
-    tank.matchKills = 0;
-    tank.matchDeaths = 0;
+    if (isFirstRound) {
+      tank.matchKills = 0;
+      tank.matchDeaths = 0;
+    }
     $('mv').textContent = String(tank.stats.muzzleVelocity);
     for (const b of bots) {
       b.respawn();
-      b.tank.matchKills = 0;
-      b.tank.matchDeaths = 0;
+      if (isFirstRound) {
+        b.tank.matchKills = 0;
+        b.tank.matchDeaths = 0;
+      }
     }
-    kills = 0;
-    teamAKills = 0;
-    teamBKills = 0;
-    matchSilverEarned = 0;
-    matchEnded = false;
-    setScoreboardOpen(false);
+    spectating = false;
+    spectateTarget = null;
+    spectateIdx = 0;
+    $('spectatorBar').classList.add('hidden');
     playerDeadT = 0;
     $('dead').style.display = 'none';
-    $('silverToasts').innerHTML = '';
-    $('modeTitleHud').textContent = activeMode.name.toUpperCase();
-    $('modeGoalHud').textContent = `/ ${activeMode.targetKills}`;
-    $('teamAKills').textContent = '0';
-    $('teamBKills').textContent = '0';
     aim.yaw = 0;
     aim.elev = 0;
     cam.yaw = 0;
@@ -268,13 +362,45 @@ export function initGame(mountEl: HTMLElement): () => void {
     mode = 'third';
     binocFrozen = false;
     hitcam.hide();
+    roundPhase = 'active';
+    roundEndT = 0;
+    pendingRoundMatchWinner = null;
+    showRoundBanner(null);
+    msgT = 0;
+    $('msg').style.opacity = '0';
+    $('msg').textContent = '';
+    updateModeScoreHud();
+    const activeMode = getModeDef(currentModeId);
+    if (activeMode.roundsToWin > 0) {
+      showMsg(`РАУНД ${roundNum}`, '#ffd27a');
+    }
+  }
+
+  function newBattle() {
+    const activeMode = getModeDef(currentModeId);
+    syncTeamRoster(activeMode.teamSize);
+    if (!activeMode.allowConsole && gcon.open) {
+      gcon.close();
+    }
+    kills = 0;
+    teamAKills = 0;
+    teamBKills = 0;
+    teamARounds = 0;
+    teamBRounds = 0;
+    roundNum = 1;
+    matchSilverEarned = 0;
+    matchEnded = false;
+    setScoreboardOpen(false);
+    $('silverToasts').innerHTML = '';
     $('feed').innerHTML = '';
+    startRound(true);
     battleStarted = true;
   }
 
   function spawnBot(team: 'A' | 'B') {
     const idx = bots.filter((b) => b.team === team).length + (team === 'A' ? 1 : 0);
     const b = new Bot(scene, world, ballistics, team, idx);
+    getTankId(b.tank);
     const fwd = new THREE.Vector3(Math.sin(cam.yaw), 0, Math.cos(cam.yaw));
     const base =
       team === 'A'
@@ -351,6 +477,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         }, 120);
       }
     },
+    canOpen: () => state !== 'menu' && getModeDef(currentModeId).allowConsole,
   };
   const gcon = new GameConsole($('console'), game);
 
@@ -441,6 +568,14 @@ export function initGame(mountEl: HTMLElement): () => void {
     getMap: () => selectedMap,
     setMap: (id: string) => loadMap(id),
     getModeId: () => currentModeId,
+    setModeId: (id: string) => {
+      const def = getModeDef(id);
+      currentModeId = def.id;
+      if (!def.allowConsole && gcon.open) gcon.close();
+      battleStarted = false;
+      syncTeamRoster(def.teamSize);
+      updateHelp();
+    },
     onSelectTank: (tankId: string) => {
       if (!battleStarted) {
         tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
@@ -484,11 +619,31 @@ export function initGame(mountEl: HTMLElement): () => void {
   document.addEventListener('pointerlockchange', onPointerLockChange);
   document.addEventListener('pointerlockerror', onPointerLockError);
 
+  function getAliveAllies(): Tank[] {
+    return tanksOf('A').filter((t) => t.alive && t !== tank);
+  }
+
+  function cycleSpectateTarget(step: number) {
+    const allies = getAliveAllies();
+    if (allies.length === 0) {
+      spectateTarget = null;
+      return;
+    }
+    spectateIdx = (((spectateIdx + step) % allies.length) + allies.length) % allies.length;
+    spectateTarget = allies[spectateIdx];
+    $('specTargetName').textContent = spectateTarget.name;
+    $('specTargetHp').textContent = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ХП)`;
+  }
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (ui.rebinding) return;
     const K = settings.keys;
     if (e.code === K.console && state !== 'menu') {
       e.preventDefault();
+      if (!getModeDef(currentModeId).allowConsole) {
+        if (state === 'play') showMsg('Консоль работает только в режиме «Тренировка»', '#ffb43c');
+        return;
+      }
       gcon.toggle();
       return;
     }
@@ -512,6 +667,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (!locked && !fallback) tryLock();
     keys[e.code] = true;
     if (e.repeat) return;
+    if (spectating) {
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') cycleSpectateTarget(1);
+      else if (e.code === 'ArrowLeft' || e.code === 'KeyA') cycleSpectateTarget(-1);
+      return;
+    }
     if (e.code === K.sniper || (K.sniper === 'ShiftLeft' && e.code === 'ShiftRight')) setMode(mode === 'sniper' ? 'third' : 'sniper');
     else if (e.code === K.binoc) setMode(mode === 'binoc' ? 'third' : 'binoc');
     else if (e.code === K.comp) ballComp = !ballComp;
@@ -528,7 +688,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   };
   const onMouseMove = (e: MouseEvent) => {
     if (!locked || state !== 'play') return;
-    const s = 0.0022 * clamp(fovCur / 60, 0.06, 1) * settings.sens * (mode === 'third' ? 1 : settings.sensSniper);
+    const s = 0.0022 * clamp(fovCur / 60, 0.06, 1) * settings.sens * (mode === 'third' || spectating ? 1 : settings.sensSniper);
     cam.yaw -= e.movementX * s;
     cam.pitch -= e.movementY * s * (settings.invertY ? -1 : 1);
   };
@@ -539,6 +699,10 @@ export function initGame(mountEl: HTMLElement): () => void {
       return;
     }
     if (e.button !== 0) return;
+    if (spectating) {
+      cycleSpectateTarget(1);
+      return;
+    }
     if (mode === 'binoc') {
       snapTurretToView();
       setMode('third');
@@ -614,40 +778,51 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function updateCamera(dt: number) {
-    const fovTarget = mode === 'third' ? settings.fov : (mode === 'sniper' ? SNIPER_FOV : BINOC_FOV)[zoomIdx];
+    const activeCamMode = spectating ? 'third' : mode;
+    const fovTarget = activeCamMode === 'third' ? settings.fov : (activeCamMode === 'sniper' ? SNIPER_FOV : BINOC_FOV)[zoomIdx];
     fovCur += (fovTarget - fovCur) * Math.min(1, dt * 10);
     if (Math.abs(camera.fov - fovCur) > 1e-3) {
       camera.fov = fovCur;
       camera.updateProjectionMatrix();
     }
 
-    const lo = mode === 'third' ? -0.4 : -0.5;
-    const hi = mode === 'third' ? 1.2 : mode === 'sniper' ? 0.6 : 1.2;
+    const lo = activeCamMode === 'third' ? -0.4 : -0.5;
+    const hi = activeCamMode === 'third' ? 1.2 : activeCamMode === 'sniper' ? 0.6 : 1.2;
     cam.pitch = clamp(cam.pitch, lo, hi);
     if (cam.yaw > Math.PI) cam.yaw -= Math.PI * 2;
     else if (cam.yaw < -Math.PI) cam.yaw += Math.PI * 2;
     lookDir(_dir, cam.yaw, cam.pitch);
 
-    if (mode === 'third') {
+    if (spectating && spectateTarget) {
+      _pos.copy(spectateTarget.root.position);
+      _pos.y += 2.8;
+      camOrigin.copy(_pos).addScaledVector(_dir, -camDist);
+      camOrigin.y += 1.4;
+      const gy = world.heightAt(camOrigin.x, camOrigin.z) + 1.5;
+      if (camOrigin.y < gy) camOrigin.y = gy;
+      tank.root.visible = true;
+    } else if (activeCamMode === 'third') {
       _pos.copy(tank.root.position);
       _pos.y += 2.8;
       camOrigin.copy(_pos).addScaledVector(_dir, -camDist);
       camOrigin.y += 1.4;
       const gy = world.heightAt(camOrigin.x, camOrigin.z) + 1.5;
       if (camOrigin.y < gy) camOrigin.y = gy;
-    } else if (mode === 'sniper') {
+      tank.root.visible = true;
+    } else if (activeCamMode === 'sniper') {
       tank.sightWorld(camOrigin);
+      tank.root.visible = false;
     } else {
       tank.binocWorld(camOrigin);
       camOrigin.y += 0.5;
+      tank.root.visible = true;
     }
 
-    tank.root.visible = mode !== 'sniper';
-    computeAim(false);
+    if (!spectating) computeAim(false);
 
     lookDir(_rdir, cam.yaw, cam.pitch + kick);
     camera.position.copy(camOrigin);
-    if (mode === 'third' && shake > 0.001) {
+    if (activeCamMode === 'third' && shake > 0.001) {
       camera.position.add(_t.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(shake));
     }
     camera.lookAt(camera.position.x + _rdir.x, camera.position.y + _rdir.y, camera.position.z + _rdir.z);
@@ -864,10 +1039,15 @@ export function initGame(mountEl: HTMLElement): () => void {
       }
     }
 
-    el.cross.style.display = mode === 'third' ? 'block' : 'none';
-    const scoped = mode !== 'third';
+    el.cross.style.display = !spectating && mode === 'third' ? 'block' : 'none';
+    const scoped = !spectating && mode !== 'third';
     scopeCv.style.display = scoped ? 'block' : 'none';
     if (scoped) drawScope();
+
+    if (spectating) {
+      el.gun.style.display = 'none';
+      return;
+    }
 
     tank.muzzleWorld(_gm);
     tank.gunDirection(_gd);
@@ -942,7 +1122,13 @@ export function initGame(mountEl: HTMLElement): () => void {
   function renderScoreboard() {
     const activeMode = getModeDef(currentModeId);
     $('sbModeName').textContent = activeMode.name.toUpperCase();
-    $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (цель: ${activeMode.targetKills})`;
+    if (activeMode.roundsToWin > 0) {
+      $('sbTeamScore').textContent = `РАУНД ${roundNum} · МЫ ${teamARounds} : ${teamBRounds} ВРАГИ (до ${activeMode.roundsToWin})`;
+    } else if (activeMode.targetKills > 0) {
+      $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (цель: ${activeMode.targetKills})`;
+    } else {
+      $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (тренировка)`;
+    }
 
     const rows: ScoreboardRow[] = allTanks().map((t) => ({
       name: t.name,
@@ -983,6 +1169,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (matchEnded) return;
     matchEnded = true;
     state = 'matchEnd';
+    spectating = false;
+    $('spectatorBar').classList.add('hidden');
+    showRoundBanner(null);
     setScoreboardOpen(false);
     mouseDown = false;
     locked = false;
@@ -996,21 +1185,183 @@ export function initGame(mountEl: HTMLElement): () => void {
       audio.ui('victory');
     }
     const activeMode = getModeDef(currentModeId);
+    const isRounds = activeMode.roundsToWin > 0;
     msgEl.style.opacity = '0';
     el.kills.textContent = String(kills);
     document.body.dataset.state = 'matchEnd';
     ui.showMatchEnd({
       won: winner === 'A',
       modeName: activeMode.name,
-      teamAKills,
-      teamBKills,
-      targetKills: activeMode.targetKills,
+      scoreLabel: isRounds ? 'Счёт раундов' : 'Счёт команд',
+      teamAScore: isRounds ? teamARounds : teamAKills,
+      teamBScore: isRounds ? teamBRounds : teamBKills,
+      targetGoal: isRounds ? activeMode.roundsToWin : activeMode.targetKills,
       playerKills: kills,
       playerDeaths: tank.matchDeaths,
       matchSilverEarned,
       victorySilver,
       totalSilver: getSilver(),
     });
+  }
+
+  function handleTankDestroyed(target: Tank, owner: Tank | null, suffix = '') {
+    if (!matchEnded) {
+      const activeMode = getModeDef(currentModeId);
+      target.matchDeaths++;
+      if (owner && owner !== target && owner.team !== target.team) {
+        owner.matchKills++;
+        if (owner.team === 'A') teamAKills++;
+        else teamBKills++;
+      }
+
+      if (owner === tank && target.team === 'B') {
+        kills = tank.matchKills;
+        el.kills.textContent = String(kills);
+        if (activeMode.silverRewards) {
+          const reward = computeKillReward(kills);
+          addSilver(reward.totalSilver);
+          matchSilverEarned += reward.totalSilver;
+          ui.refreshSilver();
+          showSilverToast(reward.baseSilver, `Уничтожен ${target.name}`);
+          if (reward.streakBonus > 0 && reward.bonusLabel) {
+            showSilverToast(reward.streakBonus, reward.bonusLabel, true);
+          }
+          audio.ui('silver');
+        }
+      }
+
+      if (activeMode.roundsToWin > 0 && roundPhase === 'active') {
+        const aliveA = tanksOf('A').filter((t) => t.alive).length;
+        const aliveB = tanksOf('B').filter((t) => t.alive).length;
+        const rEval = evaluateRoundState(aliveA, aliveB, teamARounds, teamBRounds, activeMode.roundsToWin, activeMode.victoryRewardSilver);
+        if (rEval.roundEnded && rEval.roundWinner) {
+          teamARounds = rEval.teamARounds;
+          teamBRounds = rEval.teamBRounds;
+          roundPhase = 'intermission';
+          roundEndT = rEval.matchFinished ? 2.0 : 2.5;
+          spectating = false;
+          $('spectatorBar').classList.add('hidden');
+          $('dead').style.display = 'none';
+          const winTxt = rEval.roundWinner === 'A' ? 'ПОБЕДА В РАУНДЕ!' : 'РАУНД ПРОИГРАН';
+          showRoundBanner(`РАУНД ${roundNum}: ${winTxt} (${teamARounds} : ${teamBRounds})`, rEval.roundWinner === 'A' ? '#8fe36a' : '#ff6a4a');
+          if (rEval.matchFinished && rEval.matchWinner) {
+            pendingRoundMatchWinner = { winner: rEval.matchWinner, victorySilver: rEval.victorySilver };
+          }
+        }
+      }
+
+      updateModeScoreHud();
+      if (scoreboardOpen) renderScoreboard();
+
+      if (activeMode.targetKills > 0) {
+        const evalRes = evaluateMatchState(activeMode, teamAKills, teamBKills);
+        if (evalRes.finished && evalRes.winner) {
+          finishMatch(evalRes.winner, evalRes.victorySilver);
+        }
+      }
+    }
+    feed(`${owner ? owner.name : '?'}  >  ${target.name}${suffix}`, target.team === 'A' ? 'ally' : 'enemy');
+  }
+
+  function resolveTankCollisions() {
+    const list = allTanks();
+    const byId = new Map<string, Tank>();
+    for (const t of list) byId.set(getTankId(t), t);
+
+    const moved = new Set<Tank>();
+    const ramHitsToApply: Array<{ attacker: Tank; victim: Tank; damage: number }> = [];
+
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i];
+          const b = list[j];
+          const res = resolveTankCollisionPair(
+            {
+              id: getTankId(a),
+              x: a.root.position.x,
+              z: a.root.position.z,
+              heading: a.heading,
+              speed: a.speed,
+              alive: a.alive,
+              team: a.team,
+            },
+            {
+              id: getTankId(b),
+              x: b.root.position.x,
+              z: b.root.position.z,
+              heading: b.heading,
+              speed: b.speed,
+              alive: b.alive,
+              team: b.team,
+            },
+            simTime,
+            ramCooldowns,
+          );
+          if (!res.separated) continue;
+          if (res.dxA !== 0 || res.dzA !== 0) {
+            a.root.position.x += res.dxA;
+            a.root.position.z += res.dzA;
+            a.speed *= res.speedFactorA;
+            moved.add(a);
+          }
+          if (res.dxB !== 0 || res.dzB !== 0) {
+            b.root.position.x += res.dxB;
+            b.root.position.z += res.dzB;
+            b.speed *= res.speedFactorB;
+            moved.add(b);
+          }
+          for (const hit of res.ramHits) {
+            const attacker = byId.get(hit.attackerId);
+            const victim = byId.get(hit.victimId);
+            if (attacker && victim) ramHitsToApply.push({ attacker, victim, damage: hit.damage });
+          }
+        }
+      }
+    }
+
+    for (const t of moved) {
+      t.syncAfterCollision();
+    }
+
+    for (const r of ramHitsToApply) {
+      if (!r.victim.alive || r.victim.god) continue;
+      r.victim.hp -= r.damage;
+      const pt = r.victim.root.position;
+      audio.play('nopen', pt, 1.0);
+      for (let k = 0; k < 8; k++) {
+        ballistics.fx.emit({
+          additive: true,
+          x: pt.x + (Math.random() - 0.5) * 1.5,
+          y: pt.y + 1.1,
+          z: pt.z + (Math.random() - 0.5) * 1.5,
+          vx: (Math.random() - 0.5) * 10,
+          vy: 2 + Math.random() * 6,
+          vz: (Math.random() - 0.5) * 10,
+          life: 0.4,
+          s0: 0.35,
+          s1: 0.1,
+          r: 1,
+          g: 0.8,
+          b: 0.4,
+          a: 1,
+          grav: -15,
+        });
+      }
+      if (r.attacker === tank) {
+        showMsg(`ТАРАН! -${r.damage} ХП`, '#ffd27a');
+        audio.ui('tick');
+      }
+      if (r.victim === tank) {
+        shake = Math.max(shake, 0.7);
+        showMsg(`ТАРАН ПО ВАМ: -${r.damage} ХП`, '#ff6a4a');
+      }
+      if (r.victim.hp <= 0 && r.victim.alive) {
+        r.victim.destroy(false);
+        audio.play('bigexplosion', pt);
+        handleTankDestroyed(r.victim, r.attacker, ' [ТАРАН]');
+      }
+    }
   }
 
   ballistics.onTankHit((e) => {
@@ -1029,40 +1380,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       showMsg('ПО ВАМ ПОПАЛИ: ' + (RESULT_TXT[e.result] || ''), '#ff9a7a');
     }
     if (e.destroyed) {
-      if (!matchEnded) {
-        e.target.matchDeaths++;
-        if (e.owner && e.owner !== e.target && e.owner.team !== e.target.team) {
-          e.owner.matchKills++;
-          if (e.owner.team === 'A') teamAKills++;
-          else teamBKills++;
-        }
-        $('teamAKills').textContent = String(teamAKills);
-        $('teamBKills').textContent = String(teamBKills);
-
-        if (e.owner === tank && e.target.team === 'B') {
-          kills = tank.matchKills;
-          el.kills.textContent = String(kills);
-          const reward = computeKillReward(kills);
-          addSilver(reward.totalSilver);
-          matchSilverEarned += reward.totalSilver;
-          ui.refreshSilver();
-          showSilverToast(reward.baseSilver, `Уничтожен ${e.target.name}`);
-          if (reward.streakBonus > 0 && reward.bonusLabel) {
-            showSilverToast(reward.streakBonus, reward.bonusLabel, true);
-          }
-          audio.ui('silver');
-        }
-
-        if (scoreboardOpen) renderScoreboard();
-
-        const activeMode = getModeDef(currentModeId);
-        const evalRes = evaluateMatchState(activeMode, teamAKills, teamBKills);
-        if (evalRes.finished && evalRes.winner) {
-          finishMatch(evalRes.winner, evalRes.victorySilver);
-        }
-      }
       const suffix = e.result === 'fuel' ? ' [БЕНЗОБАК]' : '';
-      feed(`${e.owner ? e.owner.name : '?'}  >  ${e.target.name}${suffix}`, e.target.team === 'A' ? 'ally' : 'enemy');
+      handleTankDestroyed(e.target, e.owner, suffix);
     }
   });
 
@@ -1136,6 +1455,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
 
     dt *= flags.timeScale;
+    simTime += dt;
+    const activeMode = getModeDef(currentModeId);
     const K = settings.keys;
     const input = {
       throttle: (keys[K.forward] ? 1 : 0) - (keys[K.back] ? 1 : 0),
@@ -1148,30 +1469,77 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     const foes = { A: tanksOf('B'), B: tanksOf('A') };
     for (const b of bots) {
-      if (flags.ai) b.update(dt, foes[b.team], ballistics.fx);
-      else b.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
+      if (flags.ai) {
+        b.update(dt, foes[b.team], ballistics.fx, {
+          respawns: activeMode.respawns,
+          allowBotAccuracy: activeMode.allowBotAccuracy,
+        });
+      } else {
+        b.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
+      }
+    }
+
+    resolveTankCollisions();
+
+    if (activeMode.roundsToWin > 0 && roundPhase === 'intermission') {
+      roundEndT -= dt;
+      if (roundEndT <= 0) {
+        if (pendingRoundMatchWinner) {
+          finishMatch(pendingRoundMatchWinner.winner, pendingRoundMatchWinner.victorySilver);
+          return;
+        }
+        roundNum++;
+        startRound(false);
+      }
     }
 
     if (!tank.alive) {
-      playerDeadT += dt;
       mouseDown = false;
-      deadEl.style.display = 'flex';
-      deadEl.textContent = 'ВАШ ТАНК УНИЧТОЖЕН - ВОЗРОЖДЕНИЕ ЧЕРЕЗ ' + Math.max(0, Math.ceil(6 - playerDeadT));
-      if (playerDeadT > 6) {
-        tank.reset(world.spawnPlayer.x + 70, world.spawnPlayer.z, 0, getSelectedTankId());
-        aim.yaw = 0;
-        aim.elev = 0;
-        cam.yaw = 0;
-        playerDeadT = 0;
+      if (activeMode.respawns) {
+        playerDeadT += dt;
+        deadEl.style.display = 'flex';
+        deadEl.textContent = 'ВАШ ТАНК УНИЧТОЖЕН - ВОЗРОЖДЕНИЕ ЧЕРЕЗ ' + Math.max(0, Math.ceil(6 - playerDeadT));
+        if (playerDeadT > 6) {
+          tank.reset(world.spawnPlayer.x + 70, world.spawnPlayer.z, 0, getSelectedTankId());
+          aim.yaw = 0;
+          aim.elev = 0;
+          cam.yaw = 0;
+          playerDeadT = 0;
+          deadEl.style.display = 'none';
+        }
+      } else if (activeMode.spectatorOnDeath && roundPhase === 'active') {
         deadEl.style.display = 'none';
+        const allies = getAliveAllies();
+        if (allies.length > 0) {
+          spectating = true;
+          mode = 'third';
+          if (!spectateTarget || !spectateTarget.alive || spectateTarget.team !== 'A') {
+            spectateIdx = spectateIdx % allies.length;
+            spectateTarget = allies[spectateIdx];
+          }
+          $('spectatorBar').classList.remove('hidden');
+          $('specTargetName').textContent = spectateTarget.name;
+          $('specTargetHp').textContent = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ХП)`;
+        } else {
+          spectating = false;
+          $('spectatorBar').classList.add('hidden');
+        }
+      } else {
+        spectating = false;
+        deadEl.style.display = 'none';
+        $('spectatorBar').classList.add('hidden');
       }
+    } else {
+      spectating = false;
+      $('spectatorBar').classList.add('hidden');
     }
+
     if (msgT > 0) {
       msgT -= dt;
       if (msgT < 0.4) msgEl.style.opacity = String(Math.max(0, msgT / 0.4));
     }
 
-    if (mouseDown && locked && mode !== 'binoc' && !consoleOpen) {
+    if (!spectating && mouseDown && locked && mode !== 'binoc' && !consoleOpen) {
       const shot = tank.fire();
       if (shot) {
         ballistics.fire({ ...shot, owner: tank });
@@ -1182,9 +1550,10 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     ballistics.update(dt);
     updateCamera(dt);
-    world.update(camera.position, tank.root.position, dt);
+    const focusPos = spectating && spectateTarget ? spectateTarget.root.position : tank.root.position;
+    world.update(camera.position, focusPos, dt);
     ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
-    audio.engineUpdate(Math.abs(tank.speed) / tank.stats.maxSpeed, input.throttle, tank.alive);
+    audio.engineUpdate(Math.abs(tank.speed) / tank.stats.maxSpeed, input.throttle, tank.alive && !spectating);
     updateHud(dt);
     hitcam.draw(dt);
     render();

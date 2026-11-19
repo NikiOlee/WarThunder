@@ -33,6 +33,17 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
+// Gun-pivot local bounds expanded so the zone around the barrel & muzzle counts as barrel
+export const BARREL_HITBOX_BOUNDS = {
+  min: { x: -0.42, y: -0.42, z: -0.35 },
+  max: { x: 0.42, y: 0.42, z: 4.95 },
+} as const;
+
+export function isPointInBarrelZone(x: number, y: number, z: number): boolean {
+  const { min, max } = BARREL_HITBOX_BOUNDS;
+  return x >= min.x && x <= max.x && y >= min.y && y <= max.y && z >= min.z && z <= max.z;
+}
+
 /**
  * Directional armor & damage calculation for T-55 and future vehicles.
  * Local coordinates: +Z forward, -Z rear, +X left, -X right, +Y up.
@@ -65,11 +76,12 @@ export function resolveHit(
     };
   }
 
-  // Tracks & gun barrel
+  // Tracks & gun barrel (expanded barrel/muzzle zone rarely ricochets)
   if (part === 'trackL' || part === 'trackR' || part === 'barrel') {
     const cos = clamp(-(vdir.x * n.x + vdir.y * n.y + vdir.z * n.z), 0, 1);
     const ang = Math.acos(cos);
-    if (ang > 72 * DEG) {
+    const limit = part === 'barrel' ? 84 * DEG : 72 * DEG;
+    if (ang > limit) {
       return { result: 'ricochet', damage: 0, base: 0, angleDeg: ang / DEG };
     }
     return part === 'barrel'

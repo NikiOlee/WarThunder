@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addSilver, computeKillReward, getSilver, isTankOwned, setSilver } from './economy';
-import { evaluateMatchState, getModeDef, sortScoreboardRows } from './modes';
+import { evaluateMatchState, evaluateRoundState, getAllModes, getModeDef, sortScoreboardRows } from './modes';
 import { getTankSpec } from './tanks';
 
 test('T-55 is free (0 silver) and owned by default, while silver accumulates', () => {
@@ -44,11 +44,14 @@ test('Kill rewards give +50 per kill and +150 / +300 streak bonuses at 10 and 20
   assert.equal(k21.totalSilver, 50);
 });
 
-test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and awards +500 silver on player team victory', () => {
+test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and locks console & bot accuracy', () => {
   const mode = getModeDef('tdm100');
   assert.equal(mode.name, 'Бой до 100 киллов');
+  assert.equal(mode.teamSize, 4);
   assert.equal(mode.targetKills, 100);
   assert.equal(mode.victoryRewardSilver, 500);
+  assert.equal(mode.allowConsole, false);
+  assert.equal(mode.allowBotAccuracy, false);
 
   const ongoing = evaluateMatchState(mode, 99, 99);
   assert.equal(ongoing.finished, false);
@@ -64,6 +67,44 @@ test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and award
   assert.equal(winB.finished, true);
   assert.equal(winB.winner, 'B');
   assert.equal(winB.victorySilver, 0);
+});
+
+test('Training mode unlocks console and bot accuracy, while 5v5 rounds mode enables spectator and round wins', () => {
+  const all = getAllModes();
+  assert.equal(all.length, 3);
+
+  const training = getModeDef('training');
+  assert.equal(training.name, 'Тренировка');
+  assert.equal(training.allowConsole, true);
+  assert.equal(training.allowBotAccuracy, true);
+  assert.equal(training.silverRewards, false);
+  assert.equal(evaluateMatchState(training, 500, 500).finished, false);
+
+  const rounds = getModeDef('rounds5v5');
+  assert.equal(rounds.teamSize, 5);
+  assert.equal(rounds.respawns, false);
+  assert.equal(rounds.spectatorOnDeath, true);
+  assert.equal(rounds.allowConsole, false);
+  assert.equal(rounds.allowBotAccuracy, false);
+  assert.equal(rounds.roundsToWin, 3);
+
+  // Mid-round: both sides alive
+  const rMid = evaluateRoundState(3, 2, 1, 1, rounds.roundsToWin, rounds.victoryRewardSilver);
+  assert.equal(rMid.roundEnded, false);
+
+  // Round win (all enemies destroyed)
+  const rWin = evaluateRoundState(2, 0, 1, 1, rounds.roundsToWin, rounds.victoryRewardSilver);
+  assert.equal(rWin.roundEnded, true);
+  assert.equal(rWin.roundWinner, 'A');
+  assert.equal(rWin.teamARounds, 2);
+  assert.equal(rWin.matchFinished, false);
+
+  // Match victory on 3rd round win
+  const mWin = evaluateRoundState(1, 0, 2, 1, rounds.roundsToWin, rounds.victoryRewardSilver);
+  assert.equal(mWin.roundEnded, true);
+  assert.equal(mWin.matchFinished, true);
+  assert.equal(mWin.matchWinner, 'A');
+  assert.equal(mWin.victorySilver, 500);
 });
 
 test('Scoreboard sorting orders by highest kills, then fewest deaths, then player first', () => {

@@ -386,7 +386,7 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
         for (let i = 0; i < 3; i++) {
           const x = bx + (rand() - 0.5) * 70;
           const z = bz + (rand() - 0.5) * 60;
-          if (Math.abs(z) > 0 && Math.abs(Math.abs(z) - 440) < 14 && Math.abs(x) < 120) continue;
+          if (Math.abs(z) > 0 && Math.abs(Math.abs(z) - 440) < 14 && Math.abs(x) < 190) continue;
           const gh = heightAt(x, z);
           const w = 6 + rand() * 6;
           const d = 2 + rand() * 2;

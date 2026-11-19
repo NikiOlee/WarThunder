@@ -544,6 +544,15 @@ export class Tank {
     this._wreckTilt = crit ? 0.42 : 0.08;
   }
 
+  syncAfterCollision(): void {
+    const lim = this.world.limit;
+    this.root.position.x = clamp(this.root.position.x, -lim, lim);
+    this.root.position.z = clamp(this.root.position.z, -lim, lim);
+    this._sampleGround(0, true);
+    this._applyPose();
+    this.root.updateMatrixWorld(true);
+  }
+
   reset(x: number, z: number, heading: number, specId?: string): void {
     if (specId) {
       this.spec = getTankSpec(specId);

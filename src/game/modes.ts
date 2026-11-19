@@ -1,10 +1,17 @@
-export type GameModeId = 'tdm100' | (string & {});
+export type GameModeId = 'tdm100' | 'rounds5v5' | 'training' | (string & {});
 
 export interface GameModeDef {
   id: GameModeId;
   name: string;
   shortDesc: string;
+  teamSize: number;
   targetKills: number;
+  roundsToWin: number;
+  respawns: boolean;
+  spectatorOnDeath: boolean;
+  allowConsole: boolean;
+  allowBotAccuracy: boolean;
+  silverRewards: boolean;
   victoryRewardSilver: number;
 }
 
@@ -14,9 +21,44 @@ export const GAME_MODES: Record<string, GameModeDef> = {
   tdm100: {
     id: 'tdm100',
     name: 'Бой до 100 киллов',
-    shortDesc: 'Командный бой до 100 уничтожений. За победу в раунде начисляется +500 серебра.',
+    shortDesc: '4 на 4 с возрождениями до 100 уничтожений. +500 серебра за победу. Консоль и точность ботов заблокированы.',
+    teamSize: 4,
     targetKills: 100,
+    roundsToWin: 0,
+    respawns: true,
+    spectatorOnDeath: false,
+    allowConsole: false,
+    allowBotAccuracy: false,
+    silverRewards: true,
     victoryRewardSilver: 500,
+  },
+  rounds5v5: {
+    id: 'rounds5v5',
+    name: '5 на 5 (Раунды)',
+    shortDesc: 'Командный бой 5 на 5 по раундам (до 3 побед) без возрождений. После гибели — режим наблюдателя. +500 серебра за победу.',
+    teamSize: 5,
+    targetKills: 0,
+    roundsToWin: 3,
+    respawns: false,
+    spectatorOnDeath: true,
+    allowConsole: false,
+    allowBotAccuracy: false,
+    silverRewards: true,
+    victoryRewardSilver: 500,
+  },
+  training: {
+    id: 'training',
+    name: 'Тренировка',
+    shortDesc: 'Свободный тренировочный полигон 4 на 4. Открыта консоль (~) и настройка точности ботов в Настройках.',
+    teamSize: 4,
+    targetKills: 0,
+    roundsToWin: 0,
+    respawns: true,
+    spectatorOnDeath: false,
+    allowConsole: true,
+    allowBotAccuracy: true,
+    silverRewards: false,
+    victoryRewardSilver: 0,
   },
 };
 
@@ -40,6 +82,13 @@ export function evaluateMatchState(
   teamAKills: number,
   teamBKills: number,
 ): MatchEvaluation {
+  if (mode.targetKills <= 0) {
+    return {
+      finished: false,
+      winner: null,
+      victorySilver: 0,
+    };
+  }
   if (teamAKills >= mode.targetKills) {
     return {
       finished: true,
@@ -57,6 +106,74 @@ export function evaluateMatchState(
   return {
     finished: false,
     winner: null,
+    victorySilver: 0,
+  };
+}
+
+export interface RoundEvaluation {
+  roundEnded: boolean;
+  roundWinner: 'A' | 'B' | null;
+  teamARounds: number;
+  teamBRounds: number;
+  matchFinished: boolean;
+  matchWinner: 'A' | 'B' | null;
+  victorySilver: number;
+}
+
+export function evaluateRoundState(
+  aliveA: number,
+  aliveB: number,
+  teamARounds: number,
+  teamBRounds: number,
+  roundsToWin: number,
+  victoryRewardSilver = 500,
+): RoundEvaluation {
+  if (aliveA > 0 && aliveB > 0) {
+    return {
+      roundEnded: false,
+      roundWinner: null,
+      teamARounds,
+      teamBRounds,
+      matchFinished: false,
+      matchWinner: null,
+      victorySilver: 0,
+    };
+  }
+
+  const roundWinner: 'A' | 'B' = aliveB <= 0 && aliveA > 0 ? 'A' : aliveA <= 0 && aliveB > 0 ? 'B' : 'B';
+  const nextA = teamARounds + (roundWinner === 'A' ? 1 : 0);
+  const nextB = teamBRounds + (roundWinner === 'B' ? 1 : 0);
+
+  if (nextA >= roundsToWin) {
+    return {
+      roundEnded: true,
+      roundWinner,
+      teamARounds: nextA,
+      teamBRounds: nextB,
+      matchFinished: true,
+      matchWinner: 'A',
+      victorySilver: victoryRewardSilver,
+    };
+  }
+  if (nextB >= roundsToWin) {
+    return {
+      roundEnded: true,
+      roundWinner,
+      teamARounds: nextA,
+      teamBRounds: nextB,
+      matchFinished: true,
+      matchWinner: 'B',
+      victorySilver: 0,
+    };
+  }
+
+  return {
+    roundEnded: true,
+    roundWinner,
+    teamARounds: nextA,
+    teamBRounds: nextB,
+    matchFinished: false,
+    matchWinner: null,
     victorySilver: 0,
   };
 }

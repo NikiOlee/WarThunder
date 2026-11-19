@@ -21,13 +21,16 @@ function prism(points: Array<[number, number]>, width: number): THREE.ExtrudeGeo
   return g;
 }
 
-function camoTexture(): THREE.CanvasTexture {
+function camoTexture(variant: 'soviet' | 'american' = 'soviet'): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#4e5b34';
+  g.fillStyle = variant === 'american' ? '#585c3a' : '#4e5b34';
   g.fillRect(0, 0, 128, 128);
-  const cols = ['#384324', '#6b6f3f', '#2d371c', '#5e653a'];
+  const cols =
+    variant === 'american'
+      ? ['#44472c', '#747249', '#383a24', '#636642']
+      : ['#384324', '#6b6f3f', '#2d371c', '#5e653a'];
   for (let i = 0; i < 28; i++) {
     g.fillStyle = cols[i % cols.length];
     g.beginPath();
@@ -150,12 +153,31 @@ export class Tank {
     this.root.updateMatrixWorld(true);
   }
 
+  private _disposeHull(): void {
+    if (!this.hullGroup) return;
+    this.hullGroup.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.geometry?.dispose();
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) {
+          if (m && 'map' in m && (m as THREE.MeshStandardMaterial).map) {
+            (m as THREE.MeshStandardMaterial).map?.dispose();
+          }
+          m?.dispose();
+        }
+      }
+    });
+    this.root.remove(this.hullGroup);
+  }
+
   private _build(): void {
-    const camo = camoTexture();
+    const isM60 = this.spec.id === 'm60a3';
+    const camo = camoTexture(isM60 ? 'american' : 'soviet');
     const hullMat = new THREE.MeshStandardMaterial({
       map: camo,
-      roughness: 0.78,
-      metalness: 0.22,
+      roughness: isM60 ? 0.82 : 0.78,
+      metalness: 0.2,
       flatShading: true,
     });
     hullMat.color.setRGB(this.tint[0], this.tint[1], this.tint[2]);
@@ -163,28 +185,11 @@ export class Tank {
 
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x262820, roughness: 0.92, metalness: 0.25, flatShading: true });
     const metalMat = new THREE.MeshStandardMaterial({ color: 0x3b3e37, roughness: 0.42, metalness: 0.72 });
-    const fuelMat = new THREE.MeshStandardMaterial({ color: 0x45522d, roughness: 0.52, metalness: 0.38 });
+    const fuelMat = new THREE.MeshStandardMaterial({ color: isM60 ? 0x4d4b31 : 0x45522d, roughness: 0.52, metalness: 0.38 });
     fuelMat.color.setRGB(fuelMat.color.r * this.tint[0], fuelMat.color.g * this.tint[1], fuelMat.color.b * this.tint[2]);
 
     this.hullGroup = new THREE.Group();
     this.root.add(this.hullGroup);
-
-    // Classic T-55 low-profile hull with sharply sloped frontal glacis
-    const hull = new THREE.Mesh(
-      prism(
-        [
-          [-3.25, 0.52],
-          [3.15, 0.52],
-          [3.52, 0.98],
-          [2.15, 1.66],
-          [-2.65, 1.68],
-          [-3.25, 1.38],
-        ],
-        2.9,
-      ),
-      hullMat,
-    );
-    this.hullGroup.add(hull);
 
     const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = this.hullGroup) => {
       const m = new THREE.Mesh(geo, mat);
@@ -193,127 +198,293 @@ export class Tank {
       return m;
     };
 
-    // Engine deck louver, driver hatch, splash guard on glacis, headlights
-    add(new THREE.BoxGeometry(2.15, 0.08, 1.65), darkMat, 0, 1.7, -1.95);
-    add(new THREE.BoxGeometry(0.7, 0.1, 0.55), darkMat, 0.65, 1.72, 1.9);
-    const waveBreaker = add(new THREE.BoxGeometry(2.4, 0.08, 0.14), darkMat, 0, 1.36, 2.75);
-    waveBreaker.rotation.x = 0.45;
-    add(new THREE.BoxGeometry(0.24, 0.18, 0.18), metalMat, 1.05, 1.44, 2.95);
-    add(new THREE.BoxGeometry(0.24, 0.18, 0.18), metalMat, -1.05, 1.44, 2.95);
-
-    // Side fenders
-    for (const sx of [-1, 1]) {
-      add(new THREE.BoxGeometry(0.56, 0.08, 6.75), hullMat, sx * 1.72, 1.12, 0.0);
-      add(new THREE.BoxGeometry(0.08, 0.42, 5.6), hullMat, sx * 2.02, 0.96, -0.15);
-    }
-
-    // External side-rear fender fuel tanks (iconic T-55 feature, vulnerable weakspot)
-    for (const sx of [-1, 1]) {
-      add(new THREE.BoxGeometry(0.34, 0.44, 1.95), fuelMat, sx * 1.46, 1.34, -2.18);
-    }
-    // Dual rear cylindrical external fuel drums (vulnerable weakspot)
-    const drumGeo = new THREE.CylinderGeometry(0.27, 0.27, 1.18, 12);
-    drumGeo.rotateZ(Math.PI / 2);
-    for (const sx of [-1, 1]) {
-      add(drumGeo, fuelMat, sx * 0.72, 1.32, -3.32);
-    }
-    // Unditching log on rear deck
-    const logGeo = new THREE.CylinderGeometry(0.14, 0.14, 2.55, 8);
-    logGeo.rotateZ(Math.PI / 2);
-    add(logGeo, new THREE.MeshStandardMaterial({ color: 0x5c4730, roughness: 0.95 }), 0, 1.0, -3.32);
-
-    // Tracks + 5 large road wheels per side (classic T-54/T-55 layout with front gap)
     this.tracks = [];
     this.wheels = [];
-    const wheelGeo = new THREE.CylinderGeometry(0.47, 0.47, 0.76, 12);
-    wheelGeo.rotateZ(Math.PI / 2);
-    const barGeo = new THREE.BoxGeometry(0.8, 0.08, 0.45);
-    const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.82, 8);
-    hubGeo.rotateZ(Math.PI / 2);
 
-    for (const sx of [1, -1]) {
-      const tex = treadTexture();
-      const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-      const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-      const track = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 6.9), mats);
-      track.position.set(sx * 1.75, 0.52, 0);
-      this.hullGroup.add(track);
-      this.tracks.push({ tex, sign: sx });
+    if (isM60) {
+      // M60A3 Patton: bulkier, taller American MBT hull with broad sloped front & raised engine deck
+      const hull = new THREE.Mesh(
+        prism(
+          [
+            [-3.42, 0.54],
+            [3.25, 0.54],
+            [3.65, 1.15],
+            [2.15, 1.88],
+            [-2.55, 1.9],
+            [-3.42, 1.72],
+          ],
+          3.18,
+        ),
+        hullMat,
+      );
+      this.hullGroup.add(hull);
 
-      // T-55 5 road wheels with distinct gap after the 1st wheel
-      const wz = [-2.55, -1.45, -0.35, 0.75, 2.35];
-      for (const z of wz) {
-        const w = new THREE.Mesh(wheelGeo, metalMat);
-        w.position.set(sx * 1.75, 0.48, z);
-        w.add(new THREE.Mesh(barGeo, darkMat));
-        w.add(new THREE.Mesh(hubGeo, darkMat));
-        this.hullGroup.add(w);
-        this.wheels.push({ mesh: w, side: sx });
+      // Raised rear engine deck & louver doors (American Patton boxy tail silhouette)
+      add(new THREE.BoxGeometry(2.55, 0.14, 1.9), darkMat, 0, 1.92, -2.15);
+      add(new THREE.BoxGeometry(2.8, 0.55, 0.22), darkMat, 0, 1.38, -3.44);
+      // Driver central periscope housing & raised glacis headlights
+      add(new THREE.BoxGeometry(0.75, 0.16, 0.65), hullMat, 0, 1.9, 2.02);
+      for (const sx of [-1, 1]) {
+        add(new THREE.BoxGeometry(0.28, 0.22, 0.24), metalMat, sx * 1.3, 1.54, 3.05);
+        // Broad M60 fenders + stowage boxes
+        add(new THREE.BoxGeometry(0.6, 0.1, 6.95), hullMat, sx * 1.84, 1.24, 0.02);
+        add(new THREE.BoxGeometry(0.32, 0.34, 2.2), hullMat, sx * 1.84, 1.46, 0.45);
+        // Rear internal/sponson fuel tank bays (M60A3 vulnerable fuel weakspot)
+        add(new THREE.BoxGeometry(0.42, 0.46, 1.95), fuelMat, sx * 1.56, 1.5, -2.28);
       }
+      // Rear fuel cell manifold / external auxiliary tanks
+      add(new THREE.BoxGeometry(2.15, 0.48, 0.34), fuelMat, 0, 1.5, -3.38);
+
+      // Tracks + 6 medium road wheels & 3 return rollers per side
+      const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.72, 12);
+      wheelGeo.rotateZ(Math.PI / 2);
+      const rollerGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.62, 8);
+      rollerGeo.rotateZ(Math.PI / 2);
+      const barGeo = new THREE.BoxGeometry(0.76, 0.08, 0.4);
+      const hubGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.78, 8);
+      hubGeo.rotateZ(Math.PI / 2);
+
+      for (const sx of [1, -1]) {
+        const tex = treadTexture();
+        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
+        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
+        const track = new THREE.Mesh(new THREE.BoxGeometry(0.64, 1.06, 7.1), mats);
+        track.position.set(sx * 1.88, 0.55, 0.02);
+        this.hullGroup.add(track);
+        this.tracks.push({ tex, sign: sx });
+
+        const wz = [-2.75, -1.72, -0.7, 0.32, 1.35, 2.38];
+        for (const z of wz) {
+          const w = new THREE.Mesh(wheelGeo, metalMat);
+          w.position.set(sx * 1.88, 0.46, z);
+          w.add(new THREE.Mesh(barGeo, darkMat));
+          w.add(new THREE.Mesh(hubGeo, darkMat));
+          this.hullGroup.add(w);
+          this.wheels.push({ mesh: w, side: sx });
+        }
+        for (const rz of [-1.45, 0.05, 1.55]) {
+          add(rollerGeo, darkMat, sx * 1.88, 0.98, rz);
+        }
+      }
+
+      // Characteristic M60A3 Patton "clam-shell / needle-nose" American turret + long bustle + M19 cupola
+      this.turretGroup = new THREE.Group();
+      this.turretGroup.position.set(0, 1.86, 0.12);
+      this.hullGroup.add(this.turretGroup);
+      const tg = this.turretGroup;
+
+      const pattonTurret = new THREE.Mesh(
+        prism(
+          [
+            [-2.15, 0.25],
+            [-1.55, 0.02],
+            [1.45, 0.02],
+            [1.72, 0.56],
+            [1.15, 1.04],
+            [-1.85, 1.02],
+            [-2.25, 0.68],
+          ],
+          2.48,
+        ),
+        hullMat,
+      );
+      tg.add(pattonTurret);
+
+      // Sloped turret cheeks & boxy rear bustle storage basket
+      add(new THREE.CylinderGeometry(1.22, 1.32, 0.14, 16), hullMat, 0, 0.05, 0.0, tg);
+      add(new THREE.BoxGeometry(2.1, 0.58, 0.72), darkMat, 0, 0.66, -2.28, tg); // rear bustle rack
+      // Large American M19 commander cupola with M85 MG
+      add(new THREE.CylinderGeometry(0.42, 0.45, 0.42, 14), hullMat, -0.45, 1.22, -0.42, tg);
+      add(new THREE.BoxGeometry(0.08, 0.08, 0.78), metalMat, -0.45, 1.48, -0.1, tg);
+      add(new THREE.CylinderGeometry(0.3, 0.34, 0.14, 12), hullMat, 0.52, 1.1, -0.25, tg); // loader hatch
+      // Dual smoke grenade discharger clusters on turret sides
+      for (const sx of [-1, 1]) {
+        const sg = add(new THREE.BoxGeometry(0.24, 0.22, 0.34), darkMat, sx * 1.34, 0.62, 0.78, tg);
+        sg.rotation.y = sx * 0.35;
+      }
+      // Tall whip antenna & rangefinder blisters on turret sides
+      add(new THREE.CylinderGeometry(0.025, 0.025, 3.1, 4), metalMat, -1.05, 2.1, -1.75, tg);
+      add(new THREE.BoxGeometry(2.68, 0.28, 0.34), hullMat, 0, 0.76, 0.58, tg); // coincidence rangefinder blisters
+      // Heavy rectangular armored gun mantlet with dust cover boot
+      add(new THREE.BoxGeometry(1.06, 0.74, 0.58), hullMat, 0, 0.56, 1.62, tg);
+      add(new THREE.BoxGeometry(0.86, 0.54, 0.24), darkMat, 0, 0.56, 1.88, tg);
+      // Rectangular IR/white searchlight above mantlet (iconic M60 box light)
+      add(new THREE.BoxGeometry(0.46, 0.34, 0.32), darkMat, 0, 1.12, 1.48, tg);
+
+      // 105mm M68 gun barrel with thermal shroud + mid-barrel bore evacuator + MRS tip
+      this.gunPivot = new THREE.Group();
+      this.gunPivot.position.set(0, 0.56, 1.75);
+      tg.add(this.gunPivot);
+      this.barrelGroup = new THREE.Group();
+      this.gunPivot.add(this.barrelGroup);
+
+      const barrelGeo = new THREE.CylinderGeometry(0.095, 0.115, 4.65, 12);
+      barrelGeo.rotateX(Math.PI / 2);
+      add(barrelGeo, hullMat, 0, 0, 2.38, this.barrelGroup);
+
+      const sleeve = new THREE.CylinderGeometry(0.16, 0.16, 0.85, 12);
+      sleeve.rotateX(Math.PI / 2);
+      add(sleeve, darkMat, 0, 0, 0.42, this.barrelGroup);
+
+      // Mid-barrel concentric bore evacuator (distinct from T-55's muzzle-tip evacuator)
+      const evac = new THREE.CylinderGeometry(0.16, 0.16, 0.78, 12);
+      evac.rotateX(Math.PI / 2);
+      add(evac, metalMat, 0, 0, 2.25, this.barrelGroup);
+
+      // Muzzle tip collar + Muzzle Reference Sensor mast
+      const mtip = new THREE.CylinderGeometry(0.125, 0.115, 0.25, 12);
+      mtip.rotateX(Math.PI / 2);
+      add(mtip, metalMat, 0, 0, 4.62, this.barrelGroup);
+      add(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 6), metalMat, 0, 0.17, 4.6, this.barrelGroup);
+
+      this.muzzle = new THREE.Object3D();
+      this.muzzle.position.set(0, 0, 4.82);
+      this.barrelGroup.add(this.muzzle);
+
+      this.sightObj = new THREE.Object3D();
+      this.sightObj.position.set(0, 1.24, 1.05);
+      tg.add(this.sightObj);
+      this.binocObj = new THREE.Object3D();
+      this.binocObj.position.set(0, 2.15, -0.4);
+      tg.add(this.binocObj);
+    } else {
+      // Classic T-55 low-profile hull with sharply sloped frontal glacis
+      const hull = new THREE.Mesh(
+        prism(
+          [
+            [-3.25, 0.52],
+            [3.15, 0.52],
+            [3.52, 0.98],
+            [2.15, 1.66],
+            [-2.65, 1.68],
+            [-3.25, 1.38],
+          ],
+          2.9,
+        ),
+        hullMat,
+      );
+      this.hullGroup.add(hull);
+
+      // Engine deck louver, driver hatch, splash guard on glacis, headlights
+      add(new THREE.BoxGeometry(2.15, 0.08, 1.65), darkMat, 0, 1.7, -1.95);
+      add(new THREE.BoxGeometry(0.7, 0.1, 0.55), darkMat, 0.65, 1.72, 1.9);
+      const waveBreaker = add(new THREE.BoxGeometry(2.4, 0.08, 0.14), darkMat, 0, 1.36, 2.75);
+      waveBreaker.rotation.x = 0.45;
+      add(new THREE.BoxGeometry(0.24, 0.18, 0.18), metalMat, 1.05, 1.44, 2.95);
+      add(new THREE.BoxGeometry(0.24, 0.18, 0.18), metalMat, -1.05, 1.44, 2.95);
+
+      // Side fenders
+      for (const sx of [-1, 1]) {
+        add(new THREE.BoxGeometry(0.56, 0.08, 6.75), hullMat, sx * 1.72, 1.12, 0.0);
+        add(new THREE.BoxGeometry(0.08, 0.42, 5.6), hullMat, sx * 2.02, 0.96, -0.15);
+      }
+
+      // External side-rear fender fuel tanks (iconic T-55 feature, vulnerable weakspot)
+      for (const sx of [-1, 1]) {
+        add(new THREE.BoxGeometry(0.34, 0.44, 1.95), fuelMat, sx * 1.46, 1.34, -2.18);
+      }
+      // Dual rear cylindrical external fuel drums (vulnerable weakspot)
+      const drumGeo = new THREE.CylinderGeometry(0.27, 0.27, 1.18, 12);
+      drumGeo.rotateZ(Math.PI / 2);
+      for (const sx of [-1, 1]) {
+        add(drumGeo, fuelMat, sx * 0.72, 1.32, -3.32);
+      }
+      // Unditching log on rear deck
+      const logGeo = new THREE.CylinderGeometry(0.14, 0.14, 2.55, 8);
+      logGeo.rotateZ(Math.PI / 2);
+      add(logGeo, new THREE.MeshStandardMaterial({ color: 0x5c4730, roughness: 0.95 }), 0, 1.0, -3.32);
+
+      // Tracks + 5 large road wheels per side (classic T-54/T-55 layout with front gap)
+      const wheelGeo = new THREE.CylinderGeometry(0.47, 0.47, 0.76, 12);
+      wheelGeo.rotateZ(Math.PI / 2);
+      const barGeo = new THREE.BoxGeometry(0.8, 0.08, 0.45);
+      const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.82, 8);
+      hubGeo.rotateZ(Math.PI / 2);
+
+      for (const sx of [1, -1]) {
+        const tex = treadTexture();
+        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
+        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
+        const track = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 6.9), mats);
+        track.position.set(sx * 1.75, 0.52, 0);
+        this.hullGroup.add(track);
+        this.tracks.push({ tex, sign: sx });
+
+        // T-55 5 road wheels with distinct gap after the 1st wheel
+        const wz = [-2.55, -1.45, -0.35, 0.75, 2.35];
+        for (const z of wz) {
+          const w = new THREE.Mesh(wheelGeo, metalMat);
+          w.position.set(sx * 1.75, 0.48, z);
+          w.add(new THREE.Mesh(barGeo, darkMat));
+          w.add(new THREE.Mesh(hubGeo, darkMat));
+          this.hullGroup.add(w);
+          this.wheels.push({ mesh: w, side: sx });
+        }
+      }
+
+      // Cast hemispherical T-55 turret ("frying pan" dome silhouette)
+      this.turretGroup = new THREE.Group();
+      this.turretGroup.position.set(0, 1.64, 0.05);
+      this.hullGroup.add(this.turretGroup);
+      const tg = this.turretGroup;
+
+      const domePts = [
+        new THREE.Vector2(0.0, 0.0),
+        new THREE.Vector2(1.42, 0.0),
+        new THREE.Vector2(1.48, 0.2),
+        new THREE.Vector2(1.36, 0.56),
+        new THREE.Vector2(1.05, 0.84),
+        new THREE.Vector2(0.55, 0.95),
+        new THREE.Vector2(0.0, 0.96),
+      ];
+      const domeGeo = new THREE.LatheGeometry(domePts, 18);
+      domeGeo.scale(0.95, 1.0, 1.18);
+      const dome = new THREE.Mesh(domeGeo, hullMat);
+      dome.position.set(0, 0.0, -0.08);
+      tg.add(dome);
+
+      add(new THREE.CylinderGeometry(1.3, 1.34, 0.12, 18), hullMat, 0, 0.02, -0.05, tg);
+      add(new THREE.CylinderGeometry(0.36, 0.4, 0.26, 12), hullMat, 0.48, 1.02, -0.35, tg); // commander cupola
+      add(new THREE.CylinderGeometry(0.28, 0.32, 0.18, 12), hullMat, -0.48, 0.98, -0.32, tg); // loader hatch
+      add(new THREE.BoxGeometry(0.06, 0.06, 0.72), metalMat, -0.48, 1.18, -0.08, tg); // DShK MG
+      add(new THREE.CylinderGeometry(0.025, 0.025, 3.0, 4), metalMat, 0.9, 2.0, -1.35, tg); // whip antenna
+      add(new THREE.BoxGeometry(0.88, 0.62, 0.45), hullMat, 0, 0.48, 1.48, tg); // mantlet
+      // Luna IR searchlight next to gun mantlet
+      const irLight = new THREE.CylinderGeometry(0.18, 0.18, 0.26, 10);
+      irLight.rotateX(Math.PI / 2);
+      add(irLight, darkMat, -0.68, 0.58, 1.48, tg);
+
+      // 100mm D-10T2S gun barrel with bore evacuator (эжектор)
+      this.gunPivot = new THREE.Group();
+      this.gunPivot.position.set(0, 0.5, 1.58);
+      tg.add(this.gunPivot);
+      this.barrelGroup = new THREE.Group();
+      this.gunPivot.add(this.barrelGroup);
+
+      const barrelGeo = new THREE.CylinderGeometry(0.088, 0.105, 4.35, 12);
+      barrelGeo.rotateX(Math.PI / 2);
+      add(barrelGeo, metalMat, 0, 0, 2.25, this.barrelGroup);
+
+      const sleeve = new THREE.CylinderGeometry(0.15, 0.15, 0.75, 12);
+      sleeve.rotateX(Math.PI / 2);
+      add(sleeve, darkMat, 0, 0, 0.38, this.barrelGroup);
+
+      // Bore evacuator near muzzle (signature T-55 barrel detail)
+      const evac = new THREE.CylinderGeometry(0.145, 0.145, 0.72, 12);
+      evac.rotateX(Math.PI / 2);
+      add(evac, hullMat, 0, 0, 3.65, this.barrelGroup);
+
+      this.muzzle = new THREE.Object3D();
+      this.muzzle.position.set(0, 0, 4.55);
+      this.barrelGroup.add(this.muzzle);
+
+      this.sightObj = new THREE.Object3D();
+      this.sightObj.position.set(0, 1.12, 0.95);
+      tg.add(this.sightObj);
+      this.binocObj = new THREE.Object3D();
+      this.binocObj.position.set(0, 1.95, -0.35);
+      tg.add(this.binocObj);
     }
-
-    // Cast hemispherical T-55 turret ("frying pan" dome silhouette)
-    this.turretGroup = new THREE.Group();
-    this.turretGroup.position.set(0, 1.64, 0.05);
-    this.hullGroup.add(this.turretGroup);
-    const tg = this.turretGroup;
-
-    const domePts = [
-      new THREE.Vector2(0.0, 0.0),
-      new THREE.Vector2(1.42, 0.0),
-      new THREE.Vector2(1.48, 0.2),
-      new THREE.Vector2(1.36, 0.56),
-      new THREE.Vector2(1.05, 0.84),
-      new THREE.Vector2(0.55, 0.95),
-      new THREE.Vector2(0.0, 0.96),
-    ];
-    const domeGeo = new THREE.LatheGeometry(domePts, 18);
-    domeGeo.scale(0.95, 1.0, 1.18);
-    const dome = new THREE.Mesh(domeGeo, hullMat);
-    dome.position.set(0, 0.0, -0.08);
-    tg.add(dome);
-
-    add(new THREE.CylinderGeometry(1.3, 1.34, 0.12, 18), hullMat, 0, 0.02, -0.05, tg);
-    add(new THREE.CylinderGeometry(0.36, 0.4, 0.26, 12), hullMat, 0.48, 1.02, -0.35, tg); // commander cupola
-    add(new THREE.CylinderGeometry(0.28, 0.32, 0.18, 12), hullMat, -0.48, 0.98, -0.32, tg); // loader hatch
-    add(new THREE.BoxGeometry(0.06, 0.06, 0.72), metalMat, -0.48, 1.18, -0.08, tg); // DShK MG
-    add(new THREE.CylinderGeometry(0.025, 0.025, 3.0, 4), metalMat, 0.9, 2.0, -1.35, tg); // whip antenna
-    add(new THREE.BoxGeometry(0.88, 0.62, 0.45), hullMat, 0, 0.48, 1.48, tg); // mantlet
-    // Luna IR searchlight next to gun mantlet
-    const irLight = new THREE.CylinderGeometry(0.18, 0.18, 0.26, 10);
-    irLight.rotateX(Math.PI / 2);
-    add(irLight, darkMat, -0.68, 0.58, 1.48, tg);
-
-    // 100mm D-10T2S gun barrel with bore evacuator (эжектор)
-    this.gunPivot = new THREE.Group();
-    this.gunPivot.position.set(0, 0.5, 1.58);
-    tg.add(this.gunPivot);
-    this.barrelGroup = new THREE.Group();
-    this.gunPivot.add(this.barrelGroup);
-
-    const barrelGeo = new THREE.CylinderGeometry(0.088, 0.105, 4.35, 12);
-    barrelGeo.rotateX(Math.PI / 2);
-    add(barrelGeo, metalMat, 0, 0, 2.25, this.barrelGroup);
-
-    const sleeve = new THREE.CylinderGeometry(0.15, 0.15, 0.75, 12);
-    sleeve.rotateX(Math.PI / 2);
-    add(sleeve, darkMat, 0, 0, 0.38, this.barrelGroup);
-
-    // Bore evacuator near muzzle (signature T-55 barrel detail)
-    const evac = new THREE.CylinderGeometry(0.145, 0.145, 0.72, 12);
-    evac.rotateX(Math.PI / 2);
-    add(evac, hullMat, 0, 0, 3.65, this.barrelGroup);
-
-    this.muzzle = new THREE.Object3D();
-    this.muzzle.position.set(0, 0, 4.55);
-    this.barrelGroup.add(this.muzzle);
-
-    this.sightObj = new THREE.Object3D();
-    this.sightObj.position.set(0, 1.12, 0.95);
-    tg.add(this.sightObj);
-    this.binocObj = new THREE.Object3D();
-    this.binocObj.position.set(0, 1.95, -0.35);
-    tg.add(this.binocObj);
 
     this.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) o.castShadow = true;
@@ -350,10 +521,11 @@ export class Tank {
   }
 
   private _applyPose(): void {
+    const baseTurretY = this.spec.id === 'm60a3' ? 1.86 : 1.64;
     this.root.rotation.set(-this._pitchUp, this.heading, this._rollLeftUp);
     this.hullGroup.rotation.x = this._springX;
     this.turretGroup.rotation.y = this.turretYaw;
-    this.turretGroup.position.y = 1.64 + this._turretLift;
+    this.turretGroup.position.y = baseTurretY + this._turretLift;
     this.turretGroup.rotation.z = this._wreckTilt;
     this.gunPivot.rotation.x = -this.gunElev;
     this.barrelGroup.position.z = -0.55 * this.recoil * this.recoil;
@@ -554,10 +726,15 @@ export class Tank {
   }
 
   reset(x: number, z: number, heading: number, specId?: string): void {
+    const prevId = this.spec.id;
     if (specId) {
       this.spec = getTankSpec(specId);
       this.stats = this.spec;
       this.maxHp = this.spec.maxHp;
+    }
+    if (this.spec.id !== prevId) {
+      this._disposeHull();
+      this._build();
     }
     this.alive = true;
     this.hp = this.maxHp;
@@ -574,6 +751,7 @@ export class Tank {
     this.turretYaw = 0;
     this.gunElev = 0;
     this.reloadTimer = 0;
+    this.recoil = 0;
     this.root.position.set(x, 0, z);
     this._sampleGround(0, true);
     this._applyPose();

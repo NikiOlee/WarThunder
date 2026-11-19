@@ -1,14 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addSilver, computeKillReward, getSilver, isTankOwned, setSilver } from './economy';
+import { addSilver, computeKillReward, getSilver, isTankOwned, purchaseTank, setSilver } from './economy';
 import { evaluateMatchState, evaluateRoundState, getAllModes, getModeDef, sortScoreboardRows } from './modes';
-import { getTankSpec } from './tanks';
+import { getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
 
-test('T-55 is free (0 silver) and owned by default, while silver accumulates', () => {
+test('T-55 is free (0 silver) and owned by default, while M60A3 Patton costs 1500 silver and unlocks on purchase', () => {
   const t55 = getTankSpec('t55');
   assert.equal(t55.priceSilver, 0);
   assert.equal(isTankOwned('t55'), true);
 
+  const m60 = getTankSpec('m60a3');
+  assert.equal(m60.priceSilver, 1500);
+  assert.equal(isTankOwned('m60a3'), false);
+
+  setSilver(1000);
+  const failed = purchaseTank('m60a3');
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reason, 'insufficient');
+  assert.equal(getSilver(), 1000);
+  assert.equal(isTankOwned('m60a3'), false);
+
+  addSilver(600); // 1600 silver
+  const bought = purchaseTank('m60a3');
+  assert.equal(bought.ok, true);
+  assert.equal(bought.balance, 100);
+  assert.equal(getSilver(), 100);
+  assert.equal(isTankOwned('m60a3'), true);
+
+  assert.equal(setSelectedTankId('m60a3'), 'm60a3');
+  assert.equal(getSelectedTankId(), 'm60a3');
+
+  setSelectedTankId('t55');
   setSilver(0);
   assert.equal(getSilver(), 0);
   assert.equal(addSilver(50), 50);

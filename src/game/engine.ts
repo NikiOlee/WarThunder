@@ -13,6 +13,7 @@ import { getSelectedTankId, DEFAULT_TANK_ID } from './tanks';
 import { addSilver, computeKillReward, getSilver } from './economy';
 import { DEFAULT_MODE_ID, evaluateMatchState, evaluateRoundState, getModeDef, sortScoreboardRows, type ScoreboardRow } from './modes';
 import { resolveTankCollisionPair } from './collision';
+import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -43,6 +44,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   const renderer = new THREE.WebGLRenderer({
     antialias: !isSoftwareGl,
     powerPreference: 'high-performance',
+    preserveDrawingBuffer: isSoftwareGl,
   });
   renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(innerWidth, innerHeight);
@@ -617,9 +619,20 @@ export function initGame(mountEl: HTMLElement): () => void {
         tank.name = `ВЫ (${tank.spec.name})`;
       }
     },
+    onPreviewTank: (tankId: string) => {
+      if (!battleStarted) {
+        tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
+        tank.name = `ВЫ (${tank.spec.name})`;
+      }
+    },
     onHangarToggle: (open: boolean) => {
       hangarOpen = open;
-      if (open) menuAngle = 0.58;
+      if (open) {
+        menuAngle = 0.58;
+      } else if (!battleStarted) {
+        tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
+        tank.name = `ВЫ (${tank.spec.name})`;
+      }
     },
   });
 
@@ -729,11 +742,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       tryLock();
       return;
     }
-    if (e.button !== 0) return;
     if (spectating) {
-      cycleSpectateTarget(1);
+      if (e.button === 0) cycleSpectateTarget(-1);
+      else if (e.button === 2) cycleSpectateTarget(1);
       return;
     }
+    if (e.button !== 0) return;
     if (mode === 'binoc') {
       snapTurretToView();
       setMode('third');
@@ -1116,7 +1130,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   const RESULT_TXT: Record<string, string> = {
     pen: 'ПОПАДАНИЕ',
     crit: 'КРИТИЧЕСКОЕ ПОПАДАНИЕ',
-    nopen: 'НЕ ПРОБИЛ (200 ММ БРОНЯ)',
+    nopen: 'НЕ ПРОБИЛ (БРОНЯ)',
     ricochet: 'РИКОШЕТ',
     track: 'ГУСЕНИЦА ПОВРЕЖДЕНА',
     barrel: 'СТВОЛ ПОВРЕЖДЁН',
@@ -1248,7 +1262,12 @@ export function initGame(mountEl: HTMLElement): () => void {
         else teamBKills++;
       }
 
+      if (target === tank) {
+        recordPlayerDeath();
+      }
+
       if (owner === tank && target.team === 'B') {
+        recordPlayerKill();
         kills = tank.matchKills;
         el.kills.textContent = String(kills);
         if (activeMode.silverRewards) {
@@ -1400,6 +1419,9 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   ballistics.onTankHit((e) => {
     if (e.owner === tank) {
+      if (e.target.team === 'B') {
+        recordPlayerHit(e.result === 'pen' || e.result === 'crit' || e.result === 'fuel', e.damage);
+      }
       if (e.result === 'fuel') {
         showMsg('ВЗРЫВ БЕНЗОБАКА — УНИЧТОЖЕН!', '#ff4c2a');
       } else if (e.destroyed) {
@@ -1505,12 +1527,14 @@ export function initGame(mountEl: HTMLElement): () => void {
     tank.updateTurret(dt, aim.yaw, aim.elev);
     tank.root.updateMatrixWorld(true);
 
-    const foes = { A: tanksOf('B'), B: tanksOf('A') };
+    const teams = { A: tanksOf('A'), B: tanksOf('B') };
+    const foes = { A: teams.B, B: teams.A };
     for (const b of bots) {
       if (flags.ai) {
         b.update(dt, foes[b.team], ballistics.fx, {
           respawns: activeMode.respawns,
           allowBotAccuracy: activeMode.allowBotAccuracy,
+          allies: teams[b.team],
         });
       } else {
         b.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
@@ -1582,6 +1606,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (!spectating && mouseDown && locked && mode !== 'binoc' && !consoleOpen) {
       const shot = tank.fire();
       if (shot) {
+        recordPlayerShot();
         ballistics.fire({ ...shot, owner: tank });
         kick += mode === 'third' ? 0.018 : 0.0035;
         shake = mode === 'third' ? 0.18 : 0;

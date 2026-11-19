@@ -227,7 +227,7 @@ body.menu #spectatorBar {
 #hp {
   left: 14px;
   bottom: 18px;
-  width: 230px;
+  width: 280px;
   font-size: 11px;
   letter-spacing: 2px;
   color: #b9b59a;
@@ -237,6 +237,8 @@ body.menu #spectatorBar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  white-space: nowrap;
 }
 
 #hp .bar {
@@ -370,9 +372,16 @@ select {
   cursor: pointer;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   background: rgba(255, 210, 122, 0.16);
   color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: #4a4f40;
+  color: #9aa08c;
 }
 
 .btn.dim {

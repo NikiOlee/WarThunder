@@ -3,6 +3,17 @@ import { Tank } from './tank';
 import { BallisticsSystem, G } from './ballistics';
 import { settings } from './settings';
 import { DEFAULT_TANK_ID } from './tanks';
+import { getPlayerSkillRating, resolveBotSkillMultiplier } from './playerSkill';
+import {
+  computeEngagementDrive,
+  computeShotGate,
+  computeWeakspotAimOffset,
+  pickBestTarget,
+  pickCombatSectorWaypoint,
+  type SectorAlly,
+  type SectorEnemy,
+  type TargetCandidate,
+} from './botTactics';
 import type { GameWorld } from './world';
 
 const wrapPi = (a: number) => {
@@ -45,8 +56,24 @@ export function spawnPoint(team: 'A' | 'B', index: number) {
   return team === 'A' ? MAP!.spawnA(index) : MAP!.spawnB(index);
 }
 
-export function getEffectiveBotSkill(configuredSkill: number, allowBotAccuracy: boolean): number {
-  return allowBotAccuracy ? configuredSkill : 1.0;
+export function getEffectiveBotSkill(
+  configuredSkill: number,
+  allowBotAccuracy: boolean,
+  playerSkillRating = getPlayerSkillRating(),
+  targetIsPlayer = true,
+): number {
+  return resolveBotSkillMultiplier({
+    configuredSkill,
+    allowBotAccuracy,
+    playerSkillRating,
+    targetIsPlayer,
+  });
+}
+
+export interface BotUpdateOptions {
+  respawns?: boolean;
+  allowBotAccuracy?: boolean;
+  allies?: Tank[];
 }
 
 export class Bot {
@@ -57,10 +84,16 @@ export class Bot {
   tank: Tank;
   marker: THREE.Sprite;
   target: Tank | null = null;
+  targetVisible = false;
+  memoryT = 0;
+  lastSeenPos = new THREE.Vector3();
   thinkT: number;
   reactT = 0;
   deadT = 0;
   obj: { x: number; z: number };
+  sectorT = 0;
+  flankSign: number;
+  flankFlipT: number;
   avoid = 1;
   reverseT = 0;
   stuckT = 0;
@@ -104,10 +137,12 @@ export class Bot {
     this.marker.renderOrder = 999;
     this.tank.root.add(this.marker);
 
-    this.thinkT = Math.random() * 0.5;
+    this.flankSign = index % 2 === 0 ? 1 : -1;
+    this.flankFlipT = rnd(6, 12);
+    this.thinkT = Math.random() * 0.35;
     this.obj = this._newObjective();
     this.lastPos = this.tank.root.position.clone();
-    this.baseSkill = rnd(0.7, 1.15);
+    this.baseSkill = rnd(0.88, 1.18);
     this.skill = this.baseSkill;
   }
 
@@ -122,9 +157,15 @@ export class Bot {
     const sp = spawnPoint(this.team, this.index);
     this.tank.reset(sp.x + rnd(-8, 8), sp.z + rnd(-6, 6), sp.heading, DEFAULT_TANK_ID);
     this.target = null;
+    this.targetVisible = false;
+    this.memoryT = 0;
+    this.reactT = 0;
     this.deadT = 0;
     this.obj = this._newObjective();
+    this.sectorT = 0;
     this.reverseT = 0;
+    this.stuckCheck = 0;
+    this.lastPos.copy(this.tank.root.position);
   }
 
   private _blocked(angle: number, dist: number): boolean {
@@ -133,40 +174,105 @@ export class Bot {
     this._a.set(t.root.position.x, t.root.position.y + 1.3, t.root.position.z);
     this._b.set(this._a.x + Math.sin(h) * dist, this._a.y, this._a.z + Math.cos(h) * dist);
     const hit = this.world.segmentHit(this._a, this._b, 2);
-    return !!hit && (hit.kind === 'obstacle' || hit.normal.y < 0.72);
+    return !!hit && (hit.kind === 'obstacle' || hit.normal.y < 0.68);
   }
 
-  private _pickTarget(enemies: Tank[]): void {
+  private _hasLineOfSight(e: Tank): boolean {
     const t = this.tank;
-    let best: Tank | null = null;
-    let bd = 650 * 650;
+    this._a.set(t.root.position.x, t.root.position.y + 2.5, t.root.position.z);
+    this._b.set(e.root.position.x, e.root.position.y + 1.65, e.root.position.z);
+    this._d.subVectors(this._b, this._a);
+    const dist = this._d.length();
+    if (dist < 1e-3) return true;
+    this._d.multiplyScalar(1 / dist);
+    return !this.world.raycast(this._a, this._d, Math.max(0.5, dist - 3.5));
+  }
+
+  private _pickTarget(enemies: Tank[], allies: Tank[]): void {
+    const t = this.tank;
+    const pos = t.root.position;
+    const candidates: Array<TargetCandidate & { tank: Tank }> = [];
+
     for (const e of enemies) {
       if (!e.alive) continue;
-      const dx = e.root.position.x - t.root.position.x;
-      const dz = e.root.position.z - t.root.position.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 > bd) continue;
-      this._a.set(t.root.position.x, t.root.position.y + 2.6, t.root.position.z);
-      this._b.set(e.root.position.x, e.root.position.y + 1.6, e.root.position.z);
-      this._d.subVectors(this._b, this._a);
-      const dist = this._d.length();
-      this._d.multiplyScalar(1 / dist);
-      if (this.world.raycast(this._a, this._d, dist - 3)) continue;
-      bd = d2;
-      best = e;
+      const dx = e.root.position.x - pos.x;
+      const dz = e.root.position.z - pos.z;
+      const range = Math.hypot(dx, dz);
+      if (range > 720) continue;
+      const los = this._hasLineOfSight(e);
+      candidates.push({
+        id: e.name,
+        x: e.root.position.x,
+        z: e.root.position.z,
+        heading: e.heading,
+        hp: e.hp,
+        maxHp: e.maxHp,
+        range,
+        hasLineOfSight: los,
+        isPlayer: e.isPlayer,
+        tank: e,
+      });
     }
-    if (best !== this.target) this.reactT = rnd(0.9, 1.8) / this.skill;
-    this.target = best;
+
+    const chosen = pickBestTarget(
+      { x: pos.x, z: pos.z },
+      candidates,
+      this.target && this.target.alive ? this.target.name : null,
+    );
+
+    if (chosen) {
+      if (chosen.tank !== this.target) {
+        this.reactT = rnd(0.25, 0.55) / Math.max(0.65, this.skill);
+      }
+      this.target = chosen.tank;
+      this.targetVisible = true;
+      this.memoryT = 3.2;
+      this.lastSeenPos.copy(chosen.tank.root.position);
+      return;
+    }
+
+    // Hold target in tactical memory briefly when terrain dips out of LOS
+    if (this.target && this.target.alive && this.memoryT > 0) {
+      this.targetVisible = false;
+      return;
+    }
+
+    this.target = null;
+    this.targetVisible = false;
+
+    // Refresh combat-sector waypoint toward active fights & wounded enemies
+    this.sectorT -= 0.45;
+    if (this.sectorT <= 0) {
+      this.sectorT = rnd(1.5, 2.8);
+      const aliveEnemies: SectorEnemy[] = [];
+      for (const e of enemies) {
+        if (e.alive) aliveEnemies.push({ x: e.root.position.x, z: e.root.position.z, hp: e.hp, maxHp: e.maxHp });
+      }
+      const sectorAllies: SectorAlly[] = [];
+      for (const a of allies) {
+        if (!a.alive || a === t) continue;
+        const nearEnemy = aliveEnemies.some((e) => Math.hypot(e.x - a.root.position.x, e.z - a.root.position.z) < 230);
+        sectorAllies.push({ x: a.root.position.x, z: a.root.position.z, inCombat: nearEnemy });
+      }
+      this.obj = pickCombatSectorWaypoint({
+        botX: pos.x,
+        botZ: pos.z,
+        flankSign: this.flankSign,
+        enemies: aliveEnemies,
+        allies: sectorAllies,
+        fallback: this._newObjective(),
+      });
+    }
   }
 
-  update(
-    dt: number,
-    enemies: Tank[],
-    fx: Parameters<Tank['update']>[2],
-    options: { respawns?: boolean; allowBotAccuracy?: boolean } = {},
-  ): void {
+  update(dt: number, enemies: Tank[], fx: Parameters<Tank['update']>[2], options: BotUpdateOptions = {}): void {
     const t = this.tank;
-    this.skill = this.baseSkill * getEffectiveBotSkill(settings.botSkill, !!options.allowBotAccuracy);
+    const playerRating = getPlayerSkillRating();
+    const targetIsPlayer = !!(this.target && this.target.isPlayer);
+    this.skill =
+      this.baseSkill *
+      getEffectiveBotSkill(settings.botSkill, !!options.allowBotAccuracy, playerRating, targetIsPlayer);
+
     this.marker.visible = t.alive;
     if (!t.alive) {
       t.update(dt, null, fx);
@@ -175,99 +281,108 @@ export class Bot {
       if (options.respawns !== false && this.deadT > 14) this.respawn();
       return;
     }
+
+    if (this.memoryT > 0) this.memoryT = Math.max(0, this.memoryT - dt);
+    this.flankFlipT -= dt;
+    if (this.flankFlipT <= 0) {
+      this.flankFlipT = rnd(7, 13);
+      if (Math.random() < 0.45) this.flankSign = -this.flankSign;
+    }
+
+    const allies = options.allies || [];
     this.thinkT -= dt;
     if (this.thinkT <= 0) {
-      this.thinkT = rnd(0.35, 0.6);
-      this._pickTarget(enemies);
+      this.thinkT = rnd(0.28, 0.48);
+      this._pickTarget(enemies, allies);
     }
+
     this.noiseT -= dt;
     if (this.noiseT <= 0) {
-      this.noiseT = 1.2;
+      this.noiseT = 0.85;
       this.noiseYaw = rnd(-1, 1);
       this.noiseElev = rnd(-1, 1);
     }
-    if (this.reactT > 0) this.reactT -= dt;
+    if (this.reactT > 0) this.reactT = Math.max(0, this.reactT - dt);
 
     const pos = t.root.position;
-    const tg = this.target;
-    const maxEffectiveRange = t.stats.maxRange - 15; // stay within 400m shell range
+    const tg = this.target && this.target.alive ? this.target : null;
+    const maxEffectiveRange = t.stats.maxRange - 12;
 
-    let aimYaw: number;
-    let aimElev = 0;
-    let canShoot = false;
-    if (tg && tg.alive) {
-      const mv = t.stats.muzzleVelocity;
-      const dx0 = tg.root.position.x - pos.x;
-      const dz0 = tg.root.position.z - pos.z;
-      const range = Math.hypot(dx0, dz0);
-      const flight = range / (mv * 0.95);
-      const tvx = Math.sin(tg.heading) * tg.speed;
-      const tvz = Math.cos(tg.heading) * tg.speed;
-      const ax = tg.root.position.x + tvx * flight;
-      const az = tg.root.position.z + tvz * flight;
-      const ay = tg.root.position.y + 1.5;
-      const gp = t.gunPivotWorld(this._a);
-      const dx = ax - gp.x;
-      const dz = az - gp.z;
-      const horiz = Math.hypot(dx, dz);
-      const dy = ay - gp.y;
-      const noise = (0.0045 / this.skill) * (1 + range / 250);
-      aimYaw = Math.atan2(dx, dz) + this.noiseYaw * noise;
-      aimElev = Math.atan2(dy, horiz) + Math.atan2(0.5 * G * flight * flight * 1.06, horiz) + this.noiseElev * noise * 0.7;
-      const yawErr = Math.abs(wrapPi(aimYaw - t.turretWorldYaw));
-      t._gd = t._gd || new THREE.Vector3();
-      t.gunDirection(t._gd);
-      const elevErr = Math.abs(Math.asin(clamp(t._gd.y, -1, 1)) - aimElev);
-      canShoot = this.reactT <= 0 && yawErr < 0.014 && elevErr < 0.012 && range <= maxEffectiveRange;
-    } else {
-      aimYaw = t.heading + Math.sin(performance.now() * 0.0004 + this.index) * 0.9;
-    }
-    t.updateTurret(dt, aimYaw, aimElev);
-
+    // 1. Drive hull first so steering doesn't drag turret off-target after aiming
     let throttle = 1;
     let steer = 0;
     let brake = false;
     let desired: number;
-    const engaging = tg && tg.alive;
-    if (engaging) {
-      const dx = tg.root.position.x - pos.x;
-      const dz = tg.root.position.z - pos.z;
-      const range = Math.hypot(dx, dz);
-      desired = Math.atan2(dx, dz) + (this.index % 2 ? 0.45 : -0.45);
-      if (range < 120) throttle = -0.6;
-      else if (range <= 360 && (t.reloadTimer < 1.5 || range < 320)) {
-        throttle = 0;
-        brake = true;
-      } else {
-        throttle = 0.85;
-      }
+    const curYawErr = tg
+      ? Math.abs(wrapPi(Math.atan2((this.targetVisible ? tg.root.position.x : this.lastSeenPos.x) - pos.x, (this.targetVisible ? tg.root.position.z : this.lastSeenPos.z) - pos.z) - t.turretWorldYaw))
+      : Math.PI;
+
+    if (tg) {
+      const tgtPos = this.targetVisible ? tg.root.position : this.lastSeenPos;
+      const drive = computeEngagementDrive({
+        dx: tgtPos.x - pos.x,
+        dz: tgtPos.z - pos.z,
+        targetHeading: tg.heading,
+        flankSign: this.flankSign,
+        reloadTimer: t.reloadTimer,
+        yawErr: curYawErr,
+        canSeeTarget: this.targetVisible,
+      });
+      desired = drive.desiredHeading;
+      throttle = drive.throttle;
+      brake = drive.brake;
     } else {
       const dx = this.obj.x - pos.x;
       const dz = this.obj.z - pos.z;
       if (dx * dx + dz * dz < 35 * 35) this.obj = this._newObjective();
       desired = Math.atan2(dx, dz);
     }
-    const err = wrapPi(desired - t.heading);
-    steer = clamp(err * 2.2, -1, 1);
-    if (Math.abs(err) > 1.0 && throttle > 0) throttle = 0.25;
 
-    if (throttle > 0 && this._blocked(0, 24)) {
-      const l = this._blocked(0.6, 22);
-      const r = this._blocked(-0.6, 22);
+    // Repel steering away from nearby friendly/other tanks to prevent bunching or ram-locks
+    let sepX = 0;
+    let sepZ = 0;
+    for (const a of allies) {
+      if (a === t) continue;
+      const rx = pos.x - a.root.position.x;
+      const rz = pos.z - a.root.position.z;
+      const d = Math.hypot(rx, rz);
+      if (d > 0.1 && d < 12) {
+        const w = (12 - d) / 12;
+        sepX += (rx / d) * w;
+        sepZ += (rz / d) * w;
+      }
+    }
+    if (sepX !== 0 || sepZ !== 0) {
+      const repYaw = Math.atan2(sepX, sepZ);
+      const repDiff = wrapPi(repYaw - desired);
+      desired = wrapPi(desired + clamp(repDiff * 0.45, -0.75, 0.75));
+    }
+
+    const err = wrapPi(desired - t.heading);
+    steer = clamp(err * 2.4, -1, 1);
+    if (Math.abs(err) > 1.1 && throttle > 0) throttle = 0.3;
+
+    // Multi-ray forward obstacle avoidance
+    if (throttle > 0 && (this._blocked(0, 26) || this._blocked(0.24, 20) || this._blocked(-0.24, 20))) {
+      const l = this._blocked(0.65, 24);
+      const r = this._blocked(-0.65, 24);
       this.avoid = l && !r ? -1 : !l && r ? 1 : this.avoid;
       steer = this.avoid;
-      throttle = 0.35;
+      throttle = 0.45;
     }
+
     this.stuckCheck += dt;
-    if (this.stuckCheck > 2) {
+    if (this.stuckCheck > 1.35) {
       const moved = pos.distanceTo(this.lastPos);
-      if (throttle > 0.2 && moved < 2.5) {
-        this.reverseT = 1.8;
-        this.avoid = Math.random() < 0.5 ? 1 : -1;
+      if (throttle > 0.25 && moved < 2.0) {
+        this.reverseT = 1.35;
+        this.avoid = -this.avoid;
+        this.flankSign = -this.flankSign;
       }
       this.lastPos.copy(pos);
       this.stuckCheck = 0;
     }
+
     if (this.reverseT > 0) {
       this.reverseT -= dt;
       throttle = -1;
@@ -277,8 +392,71 @@ export class Bot {
 
     t.update(dt, { throttle, steer, brake }, fx);
 
-    if (canShoot) {
+    // 2. Aim turret after hull movement & rotation, then check exact alignment for firing
+    let aimYaw: number;
+    let aimElev = 0;
+    let canShoot = false;
+
+    if (tg) {
+      const mv = t.stats.muzzleVelocity;
+      const tgtPos = this.targetVisible ? tg.root.position : this.lastSeenPos;
+      const dx0 = tgtPos.x - pos.x;
+      const dz0 = tgtPos.z - pos.z;
+      const range = Math.hypot(dx0, dz0);
+      const flight = range / (mv * 0.96);
+
+      const weak = computeWeakspotAimOffset({
+        botX: pos.x,
+        botZ: pos.z,
+        targetX: tgtPos.x,
+        targetZ: tgtPos.z,
+        targetHeading: tg.heading,
+        skill: this.skill,
+      });
+
+      const leadFactor = this.targetVisible ? 1 : 0.4;
+      const tvx = Math.sin(tg.heading) * tg.speed * leadFactor;
+      const tvz = Math.cos(tg.heading) * tg.speed * leadFactor;
+      const ax = tgtPos.x + weak.ox + tvx * flight;
+      const az = tgtPos.z + weak.oz + tvz * flight;
+      const ay = tgtPos.y + weak.oy;
+
+      const gp = t.gunPivotWorld(this._a);
+      const dx = ax - gp.x;
+      const dz = az - gp.z;
+      const horiz = Math.hypot(dx, dz);
+      const dy = ay - gp.y;
+      const noise = (0.0028 / Math.max(0.55, this.skill)) * (1 + range / 300);
+
+      aimYaw = Math.atan2(dx, dz) + this.noiseYaw * noise;
+      aimElev = Math.atan2(dy, horiz) + Math.atan2(0.5 * G * flight * flight * 1.05, Math.max(1, horiz)) + this.noiseElev * noise * 0.7;
+
+      t.updateTurret(dt, aimYaw, aimElev);
       t.root.updateMatrixWorld(true);
+
+      const yawErr = Math.abs(wrapPi(aimYaw - t.turretWorldYaw));
+      t._gd = t._gd || new THREE.Vector3();
+      t.gunDirection(t._gd);
+      const elevErr = Math.abs(Math.asin(clamp(t._gd.y, -1, 1)) - aimElev);
+
+      canShoot = computeShotGate({
+        range,
+        maxEffectiveRange,
+        reactT: this.reactT,
+        yawErr,
+        elevErr,
+        hasLineOfSight: this.targetVisible && this._hasLineOfSight(tg),
+      });
+    } else {
+      const dx = this.obj.x - pos.x;
+      const dz = this.obj.z - pos.z;
+      const sectorYaw = Math.hypot(dx, dz) > 10 ? Math.atan2(dx, dz) : t.heading;
+      aimYaw = sectorYaw + Math.sin(performance.now() * 0.0007 + this.index) * 0.45;
+      t.updateTurret(dt, aimYaw, aimElev);
+      t.root.updateMatrixWorld(true);
+    }
+
+    if (canShoot) {
       const shot = t.fire();
       if (shot) this.ballistics.fire({ ...shot, owner: t });
     }

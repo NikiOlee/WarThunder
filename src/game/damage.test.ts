@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks } from './tanks';
 import { BARREL_HITBOX_BOUNDS, isPointInBarrelZone, resolveHit } from './damage';
 
-test('T-55 default spec has 50 km/h speed, 4s reload, 400m max range, and is default hangar tank', () => {
+test('T-55 and M60A3 Patton specs match speed, reload, maxRange, price, and damage values', () => {
   const tanks = getAllTanks();
-  assert.equal(tanks.length, 1);
+  assert.equal(tanks.length, 2);
   assert.equal(tanks[0].id, 't55');
   assert.equal(tanks[0].name, 'Т-55');
+  assert.equal(tanks[1].id, 'm60a3');
+  assert.equal(tanks[1].name, 'M60A3 Patton');
 
   const t55 = getTankSpec(DEFAULT_TANK_ID);
   assert.equal(t55.maxSpeedKmh, 50);
@@ -19,6 +21,41 @@ test('T-55 default spec has 50 km/h speed, 4s reload, 400m max range, and is def
   assert.equal(t55.damage.sideRear, 60);
   assert.equal(getSelectedTankId(), 't55');
   assert.equal(setSelectedTankId('t55'), 't55');
+
+  const m60 = getTankSpec('m60a3');
+  assert.equal(m60.priceSilver, 1500);
+  assert.equal(m60.maxSpeedKmh, 48);
+  assert.ok(Math.abs(m60.maxSpeed * 3.6 - 48) < 0.01);
+  assert.equal(m60.reload, 3.5);
+  assert.equal(m60.maxRange, 500);
+  assert.equal(m60.damage.front, 40);
+  assert.equal(m60.damage.sideRear, 55);
+  assert.ok(m60.damage.fuel >= m60.maxHp);
+});
+
+test('M60A3 Patton armor deals 40 front, 55 side/rear, and instant fuel tank oneshot', () => {
+  const m60 = getTankSpec('m60a3');
+  const shell = { muzzleVelocity: 540, penetrationMm: 265 };
+
+  const frontHull = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, shell, 535, 'hull', m60);
+  assert.equal(frontHull.result, 'pen');
+  assert.equal(frontHull.damage, 40);
+
+  const frontTurret = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, shell, 535, 'turret', m60);
+  assert.equal(frontTurret.result, 'pen');
+  assert.equal(frontTurret.damage, 40);
+
+  const sideHit = resolveHit('hull', { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, shell, 480, 'hull', m60);
+  assert.equal(sideHit.result, 'pen');
+  assert.equal(sideHit.damage, 55);
+
+  const rearHit = resolveHit('hull', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, shell, 480, 'hull', m60);
+  assert.equal(rearHit.result, 'pen');
+  assert.equal(rearHit.damage, 55);
+
+  const fuelHit = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, shell, 460, 'fuel', m60);
+  assert.equal(fuelHit.result, 'fuel');
+  assert.ok(fuelHit.damage >= m60.maxHp);
 });
 
 test('Frontal 200mm sloped armor deals 50 damage only on clean close hit and resists angled/long-range shots', () => {

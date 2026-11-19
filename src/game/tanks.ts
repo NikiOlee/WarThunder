@@ -82,6 +82,44 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       fuel: 999,
     },
   },
+  m60a3: {
+    id: 'm60a3',
+    name: 'M60A3 Patton',
+    role: 'Основной боевой танк',
+    country: 'США',
+    gunName: '105-мм пушка M68',
+    description:
+      'Тяжёлый американский основной боевой танк с массивным корпусом, усиленной маской орудия и дальнобойным 105-мм нарезным орудием. Уступает Т-55 в максимальной скорости, но превосходит по скорострельности, дальности боя и лобовой защите.',
+    priceSilver: 1500,
+    maxSpeedKmh: 48,
+    maxSpeed: 48 / 3.6, // ~13.33 m/s -> 48 km/h
+    maxReverse: 6.5,
+    traverseRate: 28 * DEG,
+    elevRate: 16 * DEG,
+    elevMin: -8 * DEG,
+    elevMax: 19 * DEG,
+    reload: 3.5,
+    muzzleVelocity: 540,
+    maxRange: 500,
+    caliber: 0.105,
+    penetrationMm: 255,
+    maxHp: 120,
+    armor: {
+      hullFront: 215,
+      hullSide: 75,
+      hullRear: 45,
+      deck: 25,
+      turretFront: 225,
+      turretSide: 110,
+      turretRear: 60,
+      turretTop: 25,
+    },
+    damage: {
+      front: 40,
+      sideRear: 55,
+      fuel: 999,
+    },
+  },
 };
 
 export function getAllTanks(): TankSpec[] {

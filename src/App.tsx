@@ -116,7 +116,7 @@ export default function App() {
         <div className="spec-target">
           Наблюдение: <b id="specTargetName">—</b> <span id="specTargetHp" />
         </div>
-        <div className="spec-hint">ЛКМ / ← → / A D — сменить союзника · МЫШЬ — обзор</div>
+        <div className="spec-hint">ЛКМ / ← / A — назад · ПКМ / → / D — вперёд · МЫШЬ — обзор</div>
       </div>
       <div id="dead" />
 
@@ -219,7 +219,7 @@ export default function App() {
 
             <div className="hangar-right-wrap">
               <div id="hangarHint" className="hangar-hint">
-                Нажмите на танк «Т-55» в списке слева, чтобы открыть характеристики.
+                Нажмите на танк в списке слева, чтобы открыть характеристики.
               </div>
               <div id="hangarInfo" className="hangar-info hidden" data-testid="hangar-info">
                 <div className="hangar-info-head">

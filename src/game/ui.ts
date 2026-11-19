@@ -89,6 +89,7 @@ export interface UIHandlers {
   getModeId: () => string;
   setModeId: (id: string) => void;
   onSelectTank: (tankId: string) => void;
+  onPreviewTank?: (tankId: string) => void;
   onHangarToggle: (open: boolean) => void;
 }
 
@@ -197,11 +198,12 @@ export function createUI(h: UIHandlers) {
     audio.init();
     audio.music('menu');
     click();
-    inspectedTankId = null;
+    inspectedTankId = getSelectedTankId();
     show('hangar');
   };
   $('bHangarBack').onclick = () => {
     click();
+    h.onPreviewTank?.(getSelectedTankId());
     show('main');
   };
   $('bSet').onclick = () => {
@@ -231,7 +233,7 @@ export function createUI(h: UIHandlers) {
   $('bMeHangar').onclick = () => {
     click();
     h.toMenu();
-    inspectedTankId = null;
+    inspectedTankId = getSelectedTankId();
     show('hangar');
   };
   $('bMeAgain').onclick = () => {
@@ -293,6 +295,7 @@ export function createUI(h: UIHandlers) {
       btn.onclick = () => {
         click();
         inspectedTankId = t.id;
+        h.onPreviewTank?.(t.id);
         renderHangar();
       };
       listEl.appendChild(btn);
@@ -314,13 +317,18 @@ export function createUI(h: UIHandlers) {
     $('hangarTankRole').textContent = `${spec.role} · ${spec.country}`;
     $('hangarTankDesc').textContent = spec.description;
 
+    const frontArmorLabel =
+      spec.armor.turretFront !== spec.armor.hullFront
+        ? `${spec.armor.hullFront} / ${spec.armor.turretFront} мм (лоб / маска)`
+        : `${spec.armor.hullFront} мм (наклонная)`;
+
     $('hangarStats').innerHTML = `
       <div class="hstat"><span>Макс. скорость</span><b>${spec.maxSpeedKmh} км/ч</b></div>
       <div class="hstat"><span>Перезарядка орудия</span><b>${spec.reload.toFixed(1)} сек</b></div>
       <div class="hstat"><span>Дальность полёта снаряда</span><b>${spec.maxRange} м</b></div>
       <div class="hstat"><span>Прочность корпуса</span><b>${spec.maxHp} ед.</b></div>
       <div class="hstat"><span>Орудие</span><b>${spec.gunName}</b></div>
-      <div class="hstat"><span>Лобовая броня</span><b>${spec.armor.hullFront} мм (наклонная)</b></div>
+      <div class="hstat"><span>Лобовая броня</span><b>${frontArmorLabel}</b></div>
       <div class="hstat"><span>Урон при пробитии лба</span><b>${spec.damage.front} ед.</b></div>
       <div class="hstat"><span>Урон в борта и корму</span><b>${spec.damage.sideRear} ед.</b></div>
       <div class="hstat hstat-warn"><span>Уязвимая зона</span><b>Бензобак (ваншот)</b></div>
@@ -335,25 +343,25 @@ export function createUI(h: UIHandlers) {
         ? `Доступно к покупке за ${spec.priceSilver} серебра`
         : `Недостаточно серебра (нужно ещё ${spec.priceSilver - balance})`;
       statusEl.className = 'hangar-equip-status';
-      selectBtn.textContent = `КУПИТЬ (${spec.priceSilver} СЕР.)`;
+      selectBtn.textContent = `Купить за ${spec.priceSilver} серебра`;
       selectBtn.disabled = !canBuy;
       selectBtn.className = 'btn hangar-select-btn';
       selectBtn.onclick = () => {
         const res = purchaseTank(spec.id);
         if (res.ok) {
           audio.ui('silver');
-          setSelectedTankId(spec.id);
-          h.onSelectTank(spec.id);
           renderHangar();
+        } else {
+          statusEl.textContent = 'Недостаточно серебра';
         }
       };
       return;
     }
 
     selectBtn.disabled = false;
-    statusEl.textContent = isEquipped ? 'Танк закреплён за вами для боя' : 'Готов к выходу в бой';
+    statusEl.textContent = isEquipped ? 'Танк закреплён за вами для боя' : 'Куплен · готов к выбору';
     statusEl.className = 'hangar-equip-status' + (isEquipped ? ' active' : '');
-    selectBtn.textContent = 'ВЫБРАТЬ';
+    selectBtn.textContent = 'Выбрать';
     selectBtn.className = 'btn hangar-select-btn' + (isEquipped ? ' selected' : '');
     selectBtn.onclick = () => {
       click();

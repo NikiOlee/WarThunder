@@ -199,8 +199,18 @@ const HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.66, 0.96, -3.22), max: new THREE.Vector3(-0.95, 1.62, -1.15) },
   { part: 'fuel', min: new THREE.Vector3(-1.28, 0.98, -3.56), max: new THREE.Vector3(1.28, 1.6, -2.8) },
 ];
+const M60_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.59, 0.05, -3.46), max: new THREE.Vector3(1.59, 1.94, 3.65) },
+  { part: 'trackL', min: new THREE.Vector3(1.61, 0.03, -3.6), max: new THREE.Vector3(2.22, 1.12, 3.6) },
+  { part: 'trackR', min: new THREE.Vector3(-2.22, 0.03, -3.6), max: new THREE.Vector3(-1.61, 1.12, 3.6) },
+  // M60A3 Patton rear hull fuel cells & rear manifold weakspots
+  { part: 'fuel', min: new THREE.Vector3(1.05, 1.04, -3.42), max: new THREE.Vector3(1.78, 1.78, -1.25) },
+  { part: 'fuel', min: new THREE.Vector3(-1.78, 1.04, -3.42), max: new THREE.Vector3(-1.05, 1.78, -1.25) },
+  { part: 'fuel', min: new THREE.Vector3(-1.35, 1.08, -3.62), max: new THREE.Vector3(1.35, 1.78, -2.85) },
+];
 // Turret-space hitbox (rotates with turretGroup!)
 const TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.35, 0.0, -1.85), max: new THREE.Vector3(1.35, 1.15, 1.6) };
+const M60_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.42, 0.0, -2.25), max: new THREE.Vector3(1.42, 1.32, 1.85) };
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
   part: 'barrel',
@@ -412,13 +422,16 @@ export class BallisticsSystem {
       const ig = this._invGun.get(t);
       if (!inv || !it || !ig) continue;
 
+      const hullBoxes = t.spec.id === 'm60a3' ? M60_HULL_BOXES : HULL_BOXES;
+      const turretBox = t.spec.id === 'm60a3' ? M60_TURRET_BOX : TURRET_BOX;
+
       const la = a.clone().applyMatrix4(inv);
       const lb = b.clone().applyMatrix4(inv);
       const ld = lb.clone().sub(la);
       const ll = ld.length();
       if (ll > 1e-7) {
         ld.multiplyScalar(1 / ll);
-        for (const box of HULL_BOXES) {
+        for (const box of hullBoxes) {
           const r = slab(la, ld, ll, box);
           if (r && (!best || r.t < best.t - 0.02 || (Math.abs(r.t - best.t) <= 0.02 && box.part === 'fuel'))) {
             best = { t: r.t, n: r.n, part: box.part, tank: t, ld: ld.clone(), frame: 'root' };
@@ -432,7 +445,7 @@ export class BallisticsSystem {
       const tl = td.length();
       if (tl > 1e-7) {
         td.multiplyScalar(1 / tl);
-        const r = slab(ta, td, tl, TURRET_BOX);
+        const r = slab(ta, td, tl, turretBox);
         if (r && (!best || r.t < best.t)) {
           best = { t: r.t, n: r.n, part: 'turret', tank: t, ld: td.clone(), frame: 'turret' };
         }

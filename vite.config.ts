@@ -6,7 +6,9 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: '/WarThunder/',
     plugins: [
+      // ...
       react(),
       tailwindcss(),
       // Copies src/assets into dist/ so root-relative URLs like

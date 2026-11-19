@@ -89,6 +89,8 @@ export class Tank {
   god = false;
   isPlayer = false;
   isBot = false;
+  matchKills = 0;
+  matchDeaths = 0;
 
   private _burn = 0;
   private _turretLift = 0;
@@ -257,13 +259,13 @@ export class Tank {
     const tg = this.turretGroup;
 
     const domePts = [
-      new THREE.Vector2(0.0, 0.96),
-      new THREE.Vector2(0.55, 0.95),
-      new THREE.Vector2(1.05, 0.84),
-      new THREE.Vector2(1.36, 0.56),
-      new THREE.Vector2(1.48, 0.2),
-      new THREE.Vector2(1.42, 0.0),
       new THREE.Vector2(0.0, 0.0),
+      new THREE.Vector2(1.42, 0.0),
+      new THREE.Vector2(1.48, 0.2),
+      new THREE.Vector2(1.36, 0.56),
+      new THREE.Vector2(1.05, 0.84),
+      new THREE.Vector2(0.55, 0.95),
+      new THREE.Vector2(0.0, 0.96),
     ];
     const domeGeo = new THREE.LatheGeometry(domePts, 18);
     domeGeo.scale(0.95, 1.0, 1.18);

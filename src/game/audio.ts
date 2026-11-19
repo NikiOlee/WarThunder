@@ -232,7 +232,7 @@ class AudioSys {
     for (let i = 0; i < 4; i++) this._burst(dst, t + 0.2 + Math.random() * 0.8, 0.05, 0.25, 'highpass', 4000, 4000);
   }
 
-  ui(name: 'tick' | 'click' | 'fuelCrit'): void {
+  ui(name: 'tick' | 'click' | 'fuelCrit' | 'silver' | 'victory'): void {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const t = this.ctx.currentTime;
     if (name === 'tick') {
@@ -245,6 +245,14 @@ class AudioSys {
       this._tone(this.sfxBus, 'triangle', 1980, 2400, t + 0.08, 0.14, 0.3);
       this._tone(this.sfxBus, 'sine', 160, 55, t, 0.28, 0.35);
       this._burst(this.sfxBus, t, 0.12, 0.25, 'bandpass', 2600, 1200);
+    } else if (name === 'silver') {
+      this._tone(this.sfxBus, 'triangle', 1320, 1760, t, 0.08, 0.18);
+      this._tone(this.sfxBus, 'sine', 1980, 2200, t + 0.06, 0.12, 0.14);
+    } else if (name === 'victory') {
+      this._tone(this.sfxBus, 'triangle', 523.25, 523.25, t, 0.16, 0.22);
+      this._tone(this.sfxBus, 'triangle', 659.25, 659.25, t + 0.12, 0.18, 0.24);
+      this._tone(this.sfxBus, 'triangle', 783.99, 783.99, t + 0.24, 0.28, 0.26);
+      this._tone(this.sfxBus, 'triangle', 1046.5, 1046.5, t + 0.36, 0.45, 0.28);
     }
   }
 

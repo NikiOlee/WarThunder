@@ -26,6 +26,21 @@ export default function App() {
       <div id="modeLabel" className="hud">
         ОТ ТРЕТЬЕГО ЛИЦА
       </div>
+      <div id="modeScore" className="hud" data-testid="mode-score">
+        <span id="modeTitleHud">БОЙ ДО 100 КИЛЛОВ</span>
+        <span className="ms-sep">·</span>
+        <span className="ms-ally">
+          МЫ <b id="teamAKills">0</b>
+        </span>
+        <span className="ms-vs">:</span>
+        <span className="ms-enemy">
+          <b id="teamBKills">0</b> ВРАГИ
+        </span>
+        <span className="ms-goal" id="modeGoalHud">
+          / 100
+        </span>
+      </div>
+      <div id="silverToasts" className="hud" data-testid="silver-toasts" />
       <div id="rangeBox" className="hud">
         <div className="lbl">ДИСТАНЦИЯ</div>
         <div className="big" id="range">
@@ -97,6 +112,32 @@ export default function App() {
       <div id="msg" className="hud" />
       <div id="dead" />
 
+      <div id="scoreboard" className="hidden" data-testid="scoreboard">
+        <div className="sb-card">
+          <div className="sb-head">
+            <div>
+              <div className="sb-mode" id="sbModeName">
+                БОЙ ДО 100 КИЛЛОВ
+              </div>
+              <div className="sb-sub">Таблица счёта · удерживайте TAB</div>
+            </div>
+            <div className="sb-score" id="sbTeamScore">
+              МЫ 0 : 0 ВРАГИ (цель: 100)
+            </div>
+          </div>
+          <div className="sb-cols">
+            <div className="sb-col">
+              <div className="sb-col-title ally">СОЮЗНИКИ</div>
+              <div id="sbTeamA" className="sb-list" />
+            </div>
+            <div className="sb-col">
+              <div className="sb-col-title enemy">ПРОТИВНИКИ</div>
+              <div id="sbTeamB" className="sb-list" />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="console">
         <div id="conLog" />
         <input id="conIn" type="text" autoComplete="off" spellCheck={false} placeholder="команда... (help)" />
@@ -115,7 +156,7 @@ export default function App() {
             </button>
           </div>
           <div className="mapline" id="mapName">
-            Карта: Холмы · Танк: Т-55
+            Режим: Бой до 100 киллов · Карта: Холмы · Танк: Т-55
           </div>
           <button type="button" className="btn dim" id="bNew" style={{ display: 'none' }}>
             НОВАЯ БИТВА
@@ -132,11 +173,11 @@ export default function App() {
             УПРАВЛЕНИЕ
           </button>
           <div className="info">
-            Вы и 3 союзника против 4 ботов на танках Т-55.
+            Режим «Бой до 100 киллов»: вы и 3 союзника против 4 ботов на танках Т-55.
             <br />
-            Лоб 200 мм держит удар (50 урона при пробитии), борта и корма — 60 урона, точное попадание в бензобак — мгновенный взрыв.
+            +50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу.
             <br />
-            Консоль: клавиша ~ (Ё)
+            Таблица счёта: TAB · Консоль: клавиша ~ (Ё)
           </div>
         </div>
 
@@ -146,9 +187,17 @@ export default function App() {
               <h2 className="hangar-title">АНГАР</h2>
               <span className="hangar-sub">БОЕВАЯ ТЕХНИКА</span>
             </div>
-            <button type="button" className="btn dim hangar-back-btn" id="bHangarBack">
-              НАЗАД В МЕНЮ
-            </button>
+            <div className="hangar-top-actions">
+              <div className="hangar-silver" id="hangarSilver" data-testid="hangar-silver">
+                <span className="hs-label">СЕРЕБРО</span>
+                <b className="hs-val" id="hangarSilverVal">
+                  0
+                </b>
+              </div>
+              <button type="button" className="btn dim hangar-back-btn" id="bHangarBack">
+                НАЗАД В МЕНЮ
+              </button>
+            </div>
           </div>
 
           <div className="hangar-body">
@@ -200,6 +249,25 @@ export default function App() {
           <button type="button" className="btn dim" id="bToMenu">
             В ГЛАВНОЕ МЕНЮ
           </button>
+        </div>
+
+        <div id="matchEndPanel" className="panel hidden" data-testid="match-end-panel">
+          <h2 id="meTitle">ПОБЕДА!</h2>
+          <div className="tag" id="meSub">
+            БОЙ ДО 100 КИЛЛОВ
+          </div>
+          <div id="meSummary" className="me-summary" />
+          <div className="me-actions">
+            <button type="button" className="btn" id="bMeHangar">
+              В АНГАР
+            </button>
+            <button type="button" className="btn dim" id="bMeMenu">
+              В ГЛАВНОЕ МЕНЮ
+            </button>
+            <button type="button" className="btn dim" id="bMeAgain">
+              НОВАЯ БИТВА
+            </button>
+          </div>
         </div>
 
         <div id="settingsPanel" className="panel hidden">

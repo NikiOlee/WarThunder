@@ -1,6 +1,8 @@
 import { settings, setSetting, setKeyBind, resetSettings, KEY_LABELS, keyName, storage, type GameSettings, type KeyAction } from './settings';
 import { audio } from './audio';
 import { getAllTanks, getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
+import { getSilver, isTankOwned, purchaseTank } from './economy';
+import { getModeDef } from './modes';
 
 interface SettingItem {
   k?: keyof GameSettings;
@@ -62,6 +64,19 @@ export interface MapDef {
   desc: string;
 }
 
+export interface MatchEndSummary {
+  won: boolean;
+  modeName: string;
+  teamAKills: number;
+  teamBKills: number;
+  targetKills: number;
+  playerKills: number;
+  playerDeaths: number;
+  matchSilverEarned: number;
+  victorySilver: number;
+  totalSilver: number;
+}
+
 export interface UIHandlers {
   play: (fresh: boolean) => void;
   resume: () => void;
@@ -70,6 +85,7 @@ export interface UIHandlers {
   maps: MapDef[];
   getMap: () => string;
   setMap: (id: string) => void;
+  getModeId: () => string;
   onSelectTank: (tankId: string) => void;
   onHangarToggle: (open: boolean) => void;
 }
@@ -83,6 +99,7 @@ export function createUI(h: UIHandlers) {
     settings: $('settingsPanel'),
     maps: $('mapPanel'),
     hangar: $('hangarScreen'),
+    matchEnd: $('matchEndPanel'),
   };
 
   const ui = {
@@ -91,6 +108,8 @@ export function createUI(h: UIHandlers) {
     currentScreen: 'main' as string | null,
     show(which: string | null) {},
     openSettings(from: string, t?: string) {},
+    showMatchEnd(summary: MatchEndSummary) {},
+    refreshSilver() {},
   };
 
   let tab = 'sound';
@@ -114,12 +133,16 @@ export function createUI(h: UIHandlers) {
       $('bNew').style.display = h.started() ? 'block' : 'none';
       const activeMap = h.maps.find((m) => m.id === h.getMap());
       const activeTank = getTankSpec(getSelectedTankId());
-      $('mapName').textContent = `Карта: ${activeMap ? activeMap.name : ''} · Танк: ${activeTank.name}`;
+      const activeMode = getModeDef(h.getModeId());
+      $('mapName').textContent = `Режим: ${activeMode.name} · Карта: ${activeMap ? activeMap.name : ''} · Танк: ${activeTank.name}`;
     } else if (which === 'hangar') {
       renderHangar();
     }
   }
   ui.show = show;
+  ui.refreshSilver = () => {
+    $('hangarSilverVal').textContent = String(getSilver());
+  };
 
   function openSettings(from: string, t?: string): void {
     ui.from = from;
@@ -179,6 +202,20 @@ export function createUI(h: UIHandlers) {
     click();
     h.toMenu();
   };
+  $('bMeMenu').onclick = () => {
+    click();
+    h.toMenu();
+  };
+  $('bMeHangar').onclick = () => {
+    click();
+    h.toMenu();
+    inspectedTankId = null;
+    show('hangar');
+  };
+  $('bMeAgain').onclick = () => {
+    click();
+    h.play(true);
+  };
   $('bBack').onclick = () => {
     click();
     show(ui.from);
@@ -189,14 +226,33 @@ export function createUI(h: UIHandlers) {
     renderSettings();
   };
 
+  ui.showMatchEnd = (s: MatchEndSummary) => {
+    $('meTitle').textContent = s.won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
+    $('meTitle').style.color = s.won ? '#8fe36a' : '#ff6a4a';
+    $('meSub').textContent = `${s.modeName.toUpperCase()} · ${s.teamAKills} : ${s.teamBKills}`;
+    $('meSummary').innerHTML = `
+      <div class="me-row"><span>Счёт команд (до ${s.targetKills})</span><b>МЫ ${s.teamAKills} : ${s.teamBKills} ВРАГИ</b></div>
+      <div class="me-row"><span>Уничтожено вами</span><b>${s.playerKills}</b></div>
+      <div class="me-row"><span>Потерь вашей техники</span><b>${s.playerDeaths}</b></div>
+      <div class="me-row silver"><span>Награда за победу</span><b>${s.victorySilver > 0 ? '+' + s.victorySilver + ' серебра' : '0 серебра'}</b></div>
+      <div class="me-row silver"><span>Всего заработано за матч</span><b>+${s.matchSilverEarned} серебра</b></div>
+      <div class="me-row silver"><span>Текущий баланс</span><b>${s.totalSilver} серебра</b></div>
+    `;
+    show('matchEnd');
+  };
+
   function renderHangar(): void {
     const listEl = $('hangarList');
     const infoEl = $('hangarInfo');
     const hintEl = $('hangarHint');
     const selectedId = getSelectedTankId();
+    const balance = getSilver();
+    $('hangarSilverVal').textContent = String(balance);
 
     listEl.innerHTML = '';
     for (const t of getAllTanks()) {
+      const owned = isTankOwned(t.id);
+      const badge = t.id === selectedId ? 'ВЫБРАН' : owned ? 'В АНГАРЕ' : `${t.priceSilver} СЕР.`;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className =
@@ -208,7 +264,7 @@ export function createUI(h: UIHandlers) {
       btn.innerHTML = `
         <div class="hi-top">
           <span class="hi-name">${t.name}</span>
-          <span class="hi-badge">${t.id === selectedId ? 'ВЫБРАН' : 'В НАЛИЧИИ'}</span>
+          <span class="hi-badge">${badge}</span>
         </div>
         <div class="hi-sub">${t.role} · ${t.country}</div>
       `;
@@ -229,6 +285,7 @@ export function createUI(h: UIHandlers) {
     hintEl.classList.add('hidden');
     infoEl.classList.remove('hidden');
     const spec = getTankSpec(inspectedTankId);
+    const owned = isTankOwned(spec.id);
     const isEquipped = spec.id === selectedId;
 
     $('hangarTankTitle').textContent = spec.name;
@@ -245,10 +302,33 @@ export function createUI(h: UIHandlers) {
       <div class="hstat"><span>Урон при пробитии лба</span><b>${spec.damage.front} ед.</b></div>
       <div class="hstat"><span>Урон в борта и корму</span><b>${spec.damage.sideRear} ед.</b></div>
       <div class="hstat hstat-warn"><span>Уязвимая зона</span><b>Бензобак (ваншот)</b></div>
+      <div class="hstat"><span>Стоимость</span><b>${spec.priceSilver === 0 ? 'Базовый (куплен)' : spec.priceSilver + ' серебра'}</b></div>
     `;
 
     const statusEl = $('hangarEquipStatus');
     const selectBtn = $('bHangarSelect') as HTMLButtonElement;
+    if (!owned) {
+      const canBuy = balance >= spec.priceSilver;
+      statusEl.textContent = canBuy
+        ? `Доступно к покупке за ${spec.priceSilver} серебра`
+        : `Недостаточно серебра (нужно ещё ${spec.priceSilver - balance})`;
+      statusEl.className = 'hangar-equip-status';
+      selectBtn.textContent = `КУПИТЬ (${spec.priceSilver} СЕР.)`;
+      selectBtn.disabled = !canBuy;
+      selectBtn.className = 'btn hangar-select-btn';
+      selectBtn.onclick = () => {
+        const res = purchaseTank(spec.id);
+        if (res.ok) {
+          audio.ui('silver');
+          setSelectedTankId(spec.id);
+          h.onSelectTank(spec.id);
+          renderHangar();
+        }
+      };
+      return;
+    }
+
+    selectBtn.disabled = false;
     statusEl.textContent = isEquipped ? 'Танк закреплён за вами для боя' : 'Готов к выходу в бой';
     statusEl.className = 'hangar-equip-status' + (isEquipped ? ' active' : '');
     selectBtn.textContent = 'ВЫБРАТЬ';

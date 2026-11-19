@@ -10,6 +10,8 @@ import { HitCam } from './hitcam';
 import { GameConsole, type ConsoleGameAPI } from './console';
 import { createUI } from './ui';
 import { getSelectedTankId, DEFAULT_TANK_ID } from './tanks';
+import { addSilver, computeKillReward, getSilver } from './economy';
+import { DEFAULT_MODE_ID, evaluateMatchState, getModeDef, sortScoreboardRows, type ScoreboardRow } from './modes';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -121,9 +123,15 @@ export function initGame(mountEl: HTMLElement): () => void {
   const SNIPER_FOV = [14, 7, 3.5];
   const BINOC_FOV = [18, 9, 4.5];
   const flags = { ai: true, timeScale: 1, fps: false };
-  let state: 'menu' | 'play' | 'pause' = 'menu';
+  let state: 'menu' | 'play' | 'pause' | 'matchEnd' = 'menu';
   let hangarOpen = false;
   let battleStarted = false;
+  let currentModeId = DEFAULT_MODE_ID;
+  let matchEnded = false;
+  let teamAKills = 0;
+  let teamBKills = 0;
+  let matchSilverEarned = 0;
+  let scoreboardOpen = false;
   let mode: 'third' | 'sniper' | 'binoc' = 'third';
   let zoomIdx = 0;
   let fovCur = 60;
@@ -182,7 +190,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     const n = (c: string) => (c || '').replace('Key', '').replace('Space', 'ПРОБЕЛ').replace('ShiftLeft', 'SHIFT').replace('Backquote', '~');
     $('help').innerHTML =
       `<b>${n(K.forward)}/${n(K.back)}</b> газ/реверс &nbsp; <b>${n(K.left)}/${n(K.right)}</b> поворот &nbsp; <b>${n(K.brake)}</b> тормоз<br>` +
-      `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> огонь &nbsp; <b>${n(K.sniper)}</b> снайперский прицел &nbsp; <b>${n(K.binoc)}</b> бинокль<br>` +
+      `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> огонь &nbsp; <b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>TAB</b> счёт<br>` +
       `<b>КОЛЕСО</b> зум &nbsp; <b>${n(K.comp)}</b> баллист. комп. &nbsp; <b>${n(K.console)}</b> консоль &nbsp; <b>ESC</b> пауза`;
   }
 
@@ -228,14 +236,31 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function newBattle() {
     const chosenTankId = getSelectedTankId();
+    const activeMode = getModeDef(currentModeId);
     ballistics.clear();
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, chosenTankId);
     tank.name = `ВЫ (${tank.spec.name})`;
+    tank.matchKills = 0;
+    tank.matchDeaths = 0;
     $('mv').textContent = String(tank.stats.muzzleVelocity);
-    for (const b of bots) b.respawn();
+    for (const b of bots) {
+      b.respawn();
+      b.tank.matchKills = 0;
+      b.tank.matchDeaths = 0;
+    }
     kills = 0;
+    teamAKills = 0;
+    teamBKills = 0;
+    matchSilverEarned = 0;
+    matchEnded = false;
+    setScoreboardOpen(false);
     playerDeadT = 0;
     $('dead').style.display = 'none';
+    $('silverToasts').innerHTML = '';
+    $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+    $('modeGoalHud').textContent = `/ ${activeMode.targetKills}`;
+    $('teamAKills').textContent = '0';
+    $('teamBKills').textContent = '0';
     aim.yaw = 0;
     aim.elev = 0;
     cam.yaw = 0;
@@ -374,6 +399,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   function openPause() {
     if (state !== 'play') return;
     state = 'pause';
+    setScoreboardOpen(false);
     mouseDown = false;
     locked = false;
     for (const k in keys) keys[k] = false;
@@ -383,6 +409,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function resumeGame() {
+    if (matchEnded) return;
     state = 'play';
     document.body.dataset.state = 'playing';
     ui.show(null);
@@ -391,6 +418,8 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function toMenu() {
     state = 'menu';
+    setScoreboardOpen(false);
+    if (matchEnded) battleStarted = false;
     document.body.className = 'menu';
     document.body.dataset.state = 'title';
     mouseDown = false;
@@ -411,6 +440,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     maps: MAPS,
     getMap: () => selectedMap,
     setMap: (id: string) => loadMap(id),
+    getModeId: () => currentModeId,
     onSelectTank: (tankId: string) => {
       if (!battleStarted) {
         tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
@@ -466,6 +496,12 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) {
       if (state === 'play') e.preventDefault();
     }
+    if (e.code === 'Tab') {
+      if (state === 'play' && !matchEnded) {
+        setScoreboardOpen(true);
+      }
+      return;
+    }
     if (e.code === 'Escape') {
       if (state === 'play' && (fallback || isSoftwareGl)) openPause();
       else if (state === 'pause') resumeGame();
@@ -483,10 +519,12 @@ export function initGame(mountEl: HTMLElement): () => void {
   };
   const onKeyUp = (e: KeyboardEvent) => {
     keys[e.code] = false;
+    if (e.code === 'Tab') setScoreboardOpen(false);
   };
   const onBlur = () => {
     for (const k in keys) keys[k] = false;
     mouseDown = false;
+    setScoreboardOpen(false);
   };
   const onMouseMove = (e: MouseEvent) => {
     if (!locked || state !== 'play') return;
@@ -883,13 +921,103 @@ export function initGame(mountEl: HTMLElement): () => void {
     fuel: '#ff4c2a',
   };
 
+  const silverToastsEl = $('silverToasts');
+  const scoreboardEl = $('scoreboard');
+
+  function showSilverToast(amount: number, text: string, isBonus = false) {
+    const item = document.createElement('div');
+    item.className = 'silver-toast' + (isBonus ? ' bonus' : '');
+    const amt = document.createElement('span');
+    amt.className = 'st-amt';
+    amt.textContent = `+${amount} СЕРЕБРА`;
+    const msg = document.createElement('span');
+    msg.className = 'st-msg';
+    msg.textContent = text;
+    item.append(amt, msg);
+    silverToastsEl.prepend(item);
+    while (silverToastsEl.children.length > 4) silverToastsEl.lastChild?.remove();
+    setTimeout(() => item.remove(), 4200);
+  }
+
+  function renderScoreboard() {
+    const activeMode = getModeDef(currentModeId);
+    $('sbModeName').textContent = activeMode.name.toUpperCase();
+    $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (цель: ${activeMode.targetKills})`;
+
+    const rows: ScoreboardRow[] = allTanks().map((t) => ({
+      name: t.name,
+      team: t.team,
+      tankName: t.spec.name,
+      kills: t.matchKills,
+      deaths: t.matchDeaths,
+      isPlayer: t.isPlayer,
+      alive: t.alive,
+    }));
+
+    const fillTeam = (containerId: string, team: 'A' | 'B') => {
+      const box = $(containerId);
+      box.innerHTML = '';
+      const sorted = sortScoreboardRows(rows.filter((r) => r.team === team));
+      for (const r of sorted) {
+        const row = document.createElement('div');
+        row.className = 'sb-row' + (r.isPlayer ? ' me' : '') + (r.alive ? '' : ' dead');
+        row.innerHTML = `
+          <span class="sb-name">${r.name}</span>
+          <span class="sb-tank">${r.tankName}</span>
+          <span class="sb-kd">${r.kills} / ${r.deaths}</span>
+        `;
+        box.appendChild(row);
+      }
+    };
+    fillTeam('sbTeamA', 'A');
+    fillTeam('sbTeamB', 'B');
+  }
+
+  function setScoreboardOpen(open: boolean) {
+    scoreboardOpen = open;
+    scoreboardEl.classList.toggle('hidden', !open);
+    if (open) renderScoreboard();
+  }
+
+  function finishMatch(winner: 'A' | 'B', victorySilver: number) {
+    if (matchEnded) return;
+    matchEnded = true;
+    state = 'matchEnd';
+    setScoreboardOpen(false);
+    mouseDown = false;
+    locked = false;
+    for (const k in keys) keys[k] = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+    audio.engineSilence();
+    if (victorySilver > 0) {
+      addSilver(victorySilver);
+      matchSilverEarned += victorySilver;
+      ui.refreshSilver();
+      audio.ui('victory');
+    }
+    const activeMode = getModeDef(currentModeId);
+    msgEl.style.opacity = '0';
+    el.kills.textContent = String(kills);
+    document.body.dataset.state = 'matchEnd';
+    ui.showMatchEnd({
+      won: winner === 'A',
+      modeName: activeMode.name,
+      teamAKills,
+      teamBKills,
+      targetKills: activeMode.targetKills,
+      playerKills: kills,
+      playerDeaths: tank.matchDeaths,
+      matchSilverEarned,
+      victorySilver,
+      totalSilver: getSilver(),
+    });
+  }
+
   ballistics.onTankHit((e) => {
     if (e.owner === tank) {
       if (e.result === 'fuel') {
-        kills++;
         showMsg('ВЗРЫВ БЕНЗОБАКА — УНИЧТОЖЕН!', '#ff4c2a');
       } else if (e.destroyed) {
-        kills++;
         showMsg('ЦЕЛЬ УНИЧТОЖЕНА', '#ff6a4a');
       } else {
         showMsg(RESULT_TXT[e.result] || 'ПОПАДАНИЕ', RESULT_COL[e.result] || '#ffd27a');
@@ -901,6 +1029,38 @@ export function initGame(mountEl: HTMLElement): () => void {
       showMsg('ПО ВАМ ПОПАЛИ: ' + (RESULT_TXT[e.result] || ''), '#ff9a7a');
     }
     if (e.destroyed) {
+      if (!matchEnded) {
+        e.target.matchDeaths++;
+        if (e.owner && e.owner !== e.target && e.owner.team !== e.target.team) {
+          e.owner.matchKills++;
+          if (e.owner.team === 'A') teamAKills++;
+          else teamBKills++;
+        }
+        $('teamAKills').textContent = String(teamAKills);
+        $('teamBKills').textContent = String(teamBKills);
+
+        if (e.owner === tank && e.target.team === 'B') {
+          kills = tank.matchKills;
+          el.kills.textContent = String(kills);
+          const reward = computeKillReward(kills);
+          addSilver(reward.totalSilver);
+          matchSilverEarned += reward.totalSilver;
+          ui.refreshSilver();
+          showSilverToast(reward.baseSilver, `Уничтожен ${e.target.name}`);
+          if (reward.streakBonus > 0 && reward.bonusLabel) {
+            showSilverToast(reward.streakBonus, reward.bonusLabel, true);
+          }
+          audio.ui('silver');
+        }
+
+        if (scoreboardOpen) renderScoreboard();
+
+        const activeMode = getModeDef(currentModeId);
+        const evalRes = evaluateMatchState(activeMode, teamAKills, teamBKills);
+        if (evalRes.finished && evalRes.winner) {
+          finishMatch(evalRes.winner, evalRes.victorySilver);
+        }
+      }
       const suffix = e.result === 'fuel' ? ' [БЕНЗОБАК]' : '';
       feed(`${e.owner ? e.owner.name : '?'}  >  ${e.target.name}${suffix}`, e.target.team === 'A' ? 'ally' : 'enemy');
     }
@@ -968,7 +1128,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       scheduleNext();
       return;
     }
-    if (state === 'pause') {
+    if (state === 'pause' || state === 'matchEnd') {
       hitcam.draw(0);
       render();
       scheduleNext();

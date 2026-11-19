@@ -19,6 +19,7 @@ export interface TankSpec {
   country: string;
   gunName: string;
   description: string;
+  priceSilver: number;
   maxSpeedKmh: number;
   maxSpeed: number; // m/s
   maxReverse: number; // m/s
@@ -51,6 +52,7 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
     gunName: '100-мм пушка Д-10Т2С',
     description:
       'Базовый средний танк, выдаваемый всем бойцам по умолчанию. Оснащён 200-мм наклонной лобовой бронёй, 100-мм нарезным орудием и внешними кормовыми топливными баками.',
+    priceSilver: 0,
     maxSpeedKmh: 50,
     maxSpeed: 50 / 3.6, // ~13.89 m/s -> 50 km/h in game speed scale
     maxReverse: 6.0,

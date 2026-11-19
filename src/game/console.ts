@@ -3,13 +3,14 @@ import type { GameWorld } from './world';
 import type { BallisticsSystem } from './ballistics';
 import type { GameSettings } from './settings';
 import type { audio as AudioSys } from './audio';
+import { canRunConsoleCommand, setSvCheats, type CheatRuntimeState } from './cheats';
 
 export interface ConsoleGameAPI {
   tank: Tank;
   bots: Array<{ tank: Tank }>;
   world: GameWorld;
   ballistics: BallisticsSystem;
-  flags: { ai: boolean; timeScale: number; fps: boolean };
+  flags: { ai: boolean; timeScale: number; fps: boolean; svCheats: boolean };
   audio: typeof AudioSys;
   settings: GameSettings;
   allTanks: () => Tank[];
@@ -22,6 +23,8 @@ export interface ConsoleGameAPI {
   showFps: (on: boolean) => void;
   onConsole: (open: boolean) => void;
   canOpen: () => boolean;
+  allowCheats: () => boolean;
+  enforceCheatsOff: () => void;
 }
 
 export class GameConsole {
@@ -101,9 +104,24 @@ export class GameConsole {
   exec(line: string): void {
     this.print('> ' + line, '#ffffff');
     const [cmd, ...a] = line.split(/\s+/);
-    const fn = this.commands[cmd.toLowerCase()];
+    const key = cmd.toLowerCase();
+    const fn = this.commands[key];
     if (!fn) {
       this.err(`Неизвестная команда: ${cmd}. Введите help.`);
+      return;
+    }
+    const allowCheats = this.game.allowCheats();
+    if (!allowCheats) {
+      this.game.enforceCheatsOff();
+    }
+    const access = canRunConsoleCommand(key, this.game.flags.svCheats, allowCheats);
+    if (!access.allowed) {
+      this.game.enforceCheatsOff();
+      if (access.reason === 'mode_locked') {
+        this.err(`Команда "${cmd}" отключена: читы запрещены в этом режиме (sv_cheats = off).`);
+      } else {
+        this.err(`Команда "${cmd}" заблокирована (sv_cheats = off). Введите: sv_cheats on`);
+      }
       return;
     }
     try {
@@ -127,19 +145,35 @@ export class GameConsole {
     return {
       help() {
         [
+          '=== Настройки и интерфейс ===',
           'help — список команд          clear — очистить консоль',
-          'god [on|off] — бессмертие      heal — вылечить и починить себя',
-          'kill <me|enemies|allies|all> — уничтожить танки',
-          'spawn <enemy|ally> [n] — создать ботов у точки прицела',
-          'removebots <enemy|ally|all> — удалить ботов',
-          'hit <tracks|gun|fuel|crit> [me|enemies|allies] — применить повреждение',
-          'tp <x> <z> — телепорт              reload — мгновенная перезарядка',
-          'ai <on|off> — включить/выключить ИИ ботов',
-          'timescale <0.1-3> — скорость игры   fps — счётчик FPS',
-          'fov <40-100>   sens <0.1-4>   vol <master|music|sfx|engine> <0-1>',
-          'music <menu|battle|off>   shadows <off|medium|high>   grass <0-1>   post <on|off>',
-          'bots — статус ботов           newbattle — начать битву заново',
+          'fov <40-100>   sens <0.1-4>   invert <on|off>',
+          'vol <master|music|sfx|engine> <0-1>   music <menu|battle|off>',
+          'shadows <off|medium|high>   grass <0-1>   post <on|off>',
+          'drawdist <low|medium|high>   hints <on|off>   hitcam <on|off>',
+          'fps — счётчик FPS   bots — статус ботов   newbattle — новая битва',
+          '=== Читы (только в «Тренировка» после sv_cheats on) ===',
+          'sv_cheats <on|off> — включить/выключить читы (при off все читы сбрасываются)',
+          'god [on|off]   heal   kill <me|enemies|allies|all>   reload',
+          'spawn <enemy|ally> [n]   removebots <enemy|ally|all>   tp <x> <z>',
+          'hit <tracks|gun|fuel|crit> [me|enemies|allies]   ai <on|off>   timescale <0.1-3>',
         ].forEach((l) => this.print(l, '#d6d3bd'));
+      },
+      sv_cheats(a) {
+        const runtime: CheatRuntimeState = {
+          svCheats: g.flags.svCheats,
+          god: g.tank.god,
+          ai: g.flags.ai,
+          timeScale: g.flags.timeScale,
+        };
+        const res = setSvCheats(runtime, a[0], g.allowCheats());
+        g.flags.svCheats = runtime.svCheats;
+        g.tank.god = runtime.god;
+        g.flags.ai = runtime.ai;
+        g.flags.timeScale = runtime.timeScale;
+        if (!runtime.svCheats) g.enforceCheatsOff();
+        if (res.ok) this.ok(res.message);
+        else this.err(res.message);
       },
       clear() {
         this.log.innerHTML = '';
@@ -280,6 +314,27 @@ export class GameConsole {
       post(a) {
         g.set('post', onoff(a[0], g.settings.post));
         this.ok('Пост-обработка: ' + (g.settings.post ? 'ВКЛ' : 'ВЫКЛ'));
+      },
+      hints(a) {
+        g.set('hints', onoff(a[0], g.settings.hints));
+        this.ok('Подсказки: ' + (g.settings.hints ? 'ВКЛ' : 'ВЫКЛ'));
+      },
+      hitcam(a) {
+        g.set('hitcam', onoff(a[0], g.settings.hitcam));
+        this.ok('Камера попадания: ' + (g.settings.hitcam ? 'ВКЛ' : 'ВЫКЛ'));
+      },
+      invert(a) {
+        g.set('invertY', onoff(a[0], g.settings.invertY));
+        this.ok('Инверсия мыши Y: ' + (g.settings.invertY ? 'ВКЛ' : 'ВЫКЛ'));
+      },
+      drawdist(a) {
+        const d = (a[0] || '').toLowerCase();
+        if (!['low', 'medium', 'high'].includes(d)) {
+          this.err('drawdist <low|medium|high>');
+          return;
+        }
+        g.set('drawDist', d);
+        this.ok('Дальность прорисовки: ' + d);
       },
       bots() {
         for (const t of g.allTanks()) {

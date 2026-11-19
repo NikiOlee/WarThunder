@@ -173,7 +173,13 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   const SNIPER_FOV = [14, 7, 3.5];
   const BINOC_FOV = [18, 9, 4.5];
-  const flags = { ai: true, timeScale: 1, fps: false };
+  const flags = { ai: true, timeScale: 1, fps: false, svCheats: false };
+  function enforceCheatsOff() {
+    flags.svCheats = false;
+    tank.god = false;
+    flags.ai = true;
+    flags.timeScale = 1;
+  }
   let state: 'menu' | 'play' | 'pause' | 'matchEnd' = 'menu';
   let hangarOpen = false;
   let battleStarted = false;
@@ -249,14 +255,11 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function updateHelp() {
     const K = settings.keys;
-    const activeMode = getModeDef(currentModeId);
     const n = (c: string) => (c || '').replace('Key', '').replace('Space', 'ПРОБЕЛ').replace('ShiftLeft', 'SHIFT').replace('Backquote', '~');
     $('help').innerHTML =
       `<b>${n(K.forward)}/${n(K.back)}</b> газ/реверс &nbsp; <b>${n(K.left)}/${n(K.right)}</b> поворот &nbsp; <b>${n(K.brake)}</b> тормоз<br>` +
       `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> огонь &nbsp; <b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>TAB</b> счёт<br>` +
-      `<b>КОЛЕСО</b> зум &nbsp; <b>${n(K.comp)}</b> баллист. комп.` +
-      (activeMode.allowConsole ? ` &nbsp; <b>${n(K.console)}</b> консоль` : '') +
-      ` &nbsp; <b>ESC</b> пауза`;
+      `<b>КОЛЕСО</b> зум &nbsp; <b>${n(K.comp)}</b> баллист. комп. &nbsp; <b>${n(K.console)}</b> консоль &nbsp; <b>ESC</b> пауза`;
   }
 
   const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', '*']);
@@ -360,6 +363,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     cam.yaw = 0;
     cam.pitch = 0.2;
     mode = 'third';
+    fovCur = settings.fov;
     binocFrozen = false;
     hitcam.hide();
     roundPhase = 'active';
@@ -379,8 +383,8 @@ export function initGame(mountEl: HTMLElement): () => void {
   function newBattle() {
     const activeMode = getModeDef(currentModeId);
     syncTeamRoster(activeMode.teamSize);
-    if (!activeMode.allowConsole && gcon.open) {
-      gcon.close();
+    if (!activeMode.allowCheats || !flags.svCheats) {
+      enforceCheatsOff();
     }
     kills = 0;
     teamAKills = 0;
@@ -478,6 +482,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       }
     },
     canOpen: () => state !== 'menu' && getModeDef(currentModeId).allowConsole,
+    allowCheats: () => getModeDef(currentModeId).allowCheats,
+    enforceCheatsOff,
   };
   const gcon = new GameConsole($('console'), game);
 
@@ -511,7 +517,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   function startPlay(fresh: boolean) {
     audio.init();
     audio.resume();
-    if (fresh || !battleStarted) newBattle();
+    if (fresh || !battleStarted || matchEnded) newBattle();
     state = 'play';
     hangarOpen = false;
     document.body.className = 'play';
@@ -544,9 +550,36 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function toMenu() {
+    const wasMatchEnded = matchEnded;
     state = 'menu';
+    if (gcon.open) gcon.close();
     setScoreboardOpen(false);
-    if (matchEnded) battleStarted = false;
+    if (wasMatchEnded) {
+      matchEnded = false;
+      battleStarted = false;
+      roundPhase = 'active';
+      roundEndT = 0;
+      pendingRoundMatchWinner = null;
+      showRoundBanner(null);
+      spectating = false;
+      spectateTarget = null;
+      spectateIdx = 0;
+      $('spectatorBar').classList.add('hidden');
+      $('dead').style.display = 'none';
+      $('msg').style.opacity = '0';
+      $('msg').textContent = '';
+      hitcam.hide();
+      ballistics.clear();
+      tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
+      tank.name = `ВЫ (${tank.spec.name})`;
+      for (const b of bots) b.respawn();
+      mode = 'third';
+      fovCur = settings.fov;
+      menuAngle = 0;
+      camera.fov = 50;
+      camera.updateProjectionMatrix();
+    }
+    if (!getModeDef(currentModeId).allowCheats) enforceCheatsOff();
     document.body.className = 'menu';
     document.body.dataset.state = 'title';
     mouseDown = false;
@@ -571,8 +604,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     setModeId: (id: string) => {
       const def = getModeDef(id);
       currentModeId = def.id;
-      if (!def.allowConsole && gcon.open) gcon.close();
+      if (!def.allowCheats) enforceCheatsOff();
+      if (gcon.open) gcon.close();
       battleStarted = false;
+      matchEnded = false;
       syncTeamRoster(def.teamSize);
       updateHelp();
     },
@@ -640,10 +675,6 @@ export function initGame(mountEl: HTMLElement): () => void {
     const K = settings.keys;
     if (e.code === K.console && state !== 'menu') {
       e.preventDefault();
-      if (!getModeDef(currentModeId).allowConsole) {
-        if (state === 'play') showMsg('Консоль работает только в режиме «Тренировка»', '#ffb43c');
-        return;
-      }
       gcon.toggle();
       return;
     }
@@ -1169,8 +1200,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (matchEnded) return;
     matchEnded = true;
     state = 'matchEnd';
+    if (gcon.open) gcon.close();
     spectating = false;
     $('spectatorBar').classList.add('hidden');
+    deadEl.style.display = 'none';
     showRoundBanner(null);
     setScoreboardOpen(false);
     mouseDown = false;
@@ -1187,6 +1220,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     const activeMode = getModeDef(currentModeId);
     const isRounds = activeMode.roundsToWin > 0;
     msgEl.style.opacity = '0';
+    msgEl.textContent = '';
     el.kills.textContent = String(kills);
     document.body.dataset.state = 'matchEnd';
     ui.showMatchEnd({
@@ -1436,7 +1470,8 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function stepFrame() {
     if (disposed) return;
-    let dt = Math.min(clock.getDelta(), 0.05);
+    const rawDt = clock.getDelta();
+    let dt = Math.min(rawDt, 0.05);
 
     if (state === 'menu') {
       tank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
@@ -1454,9 +1489,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       return;
     }
 
+    const activeMode = getModeDef(currentModeId);
+    if ((!activeMode.allowCheats || !flags.svCheats) && (flags.svCheats || tank.god || !flags.ai || flags.timeScale !== 1)) {
+      enforceCheatsOff();
+    }
     dt *= flags.timeScale;
     simTime += dt;
-    const activeMode = getModeDef(currentModeId);
     const K = settings.keys;
     const input = {
       throttle: (keys[K.forward] ? 1 : 0) - (keys[K.back] ? 1 : 0),
@@ -1482,10 +1520,12 @@ export function initGame(mountEl: HTMLElement): () => void {
     resolveTankCollisions();
 
     if (activeMode.roundsToWin > 0 && roundPhase === 'intermission') {
-      roundEndT -= dt;
+      roundEndT -= Math.min(rawDt, 0.5);
       if (roundEndT <= 0) {
         if (pendingRoundMatchWinner) {
           finishMatch(pendingRoundMatchWinner.winner, pendingRoundMatchWinner.victorySilver);
+          render();
+          scheduleNext();
           return;
         }
         roundNum++;

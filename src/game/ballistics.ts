@@ -148,6 +148,14 @@ class Pool {
     this.geo.attributes.aSize.needsUpdate = true;
     this.geo.attributes.aColor.needsUpdate = true;
   }
+  clear(): void {
+    this.life.fill(0);
+    this.size.fill(0);
+    this.col.fill(0);
+    this.alive = 0;
+    this.geo.attributes.aSize.needsUpdate = true;
+    this.geo.attributes.aColor.needsUpdate = true;
+  }
 }
 
 export class Particles {
@@ -168,6 +176,10 @@ export class Particles {
   update(dt: number): void {
     this.glow.update(dt);
     this.smoke.update(dt);
+  }
+  clear(): void {
+    this.glow.clear();
+    this.smoke.clear();
   }
 }
 
@@ -888,6 +900,7 @@ export class BallisticsSystem {
       (sw.mesh.material as THREE.Material).dispose();
       this.shockwaves.splice(i, 1);
     }
+    this.fx.clear();
   }
 
   private _remove(i: number): void {

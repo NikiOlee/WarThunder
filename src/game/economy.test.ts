@@ -44,13 +44,14 @@ test('Kill rewards give +50 per kill and +150 / +300 streak bonuses at 10 and 20
   assert.equal(k21.totalSilver, 50);
 });
 
-test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and locks console & bot accuracy', () => {
+test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and locks cheats & bot accuracy', () => {
   const mode = getModeDef('tdm100');
   assert.equal(mode.name, 'Бой до 100 киллов');
   assert.equal(mode.teamSize, 4);
   assert.equal(mode.targetKills, 100);
   assert.equal(mode.victoryRewardSilver, 500);
-  assert.equal(mode.allowConsole, false);
+  assert.equal(mode.allowConsole, true);
+  assert.equal(mode.allowCheats, false);
   assert.equal(mode.allowBotAccuracy, false);
 
   const ongoing = evaluateMatchState(mode, 99, 99);
@@ -69,13 +70,14 @@ test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and locks
   assert.equal(winB.victorySilver, 0);
 });
 
-test('Training mode unlocks console and bot accuracy, while 5v5 rounds mode enables spectator and round wins', () => {
+test('Training mode unlocks cheats and bot accuracy, while 5v5 rounds mode enables spectator and round wins', () => {
   const all = getAllModes();
   assert.equal(all.length, 3);
 
   const training = getModeDef('training');
   assert.equal(training.name, 'Тренировка');
   assert.equal(training.allowConsole, true);
+  assert.equal(training.allowCheats, true);
   assert.equal(training.allowBotAccuracy, true);
   assert.equal(training.silverRewards, false);
   assert.equal(evaluateMatchState(training, 500, 500).finished, false);
@@ -84,7 +86,8 @@ test('Training mode unlocks console and bot accuracy, while 5v5 rounds mode enab
   assert.equal(rounds.teamSize, 5);
   assert.equal(rounds.respawns, false);
   assert.equal(rounds.spectatorOnDeath, true);
-  assert.equal(rounds.allowConsole, false);
+  assert.equal(rounds.allowConsole, true);
+  assert.equal(rounds.allowCheats, false);
   assert.equal(rounds.allowBotAccuracy, false);
   assert.equal(rounds.roundsToWin, 3);
 

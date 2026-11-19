@@ -10,6 +10,7 @@ export interface GameModeDef {
   respawns: boolean;
   spectatorOnDeath: boolean;
   allowConsole: boolean;
+  allowCheats: boolean;
   allowBotAccuracy: boolean;
   silverRewards: boolean;
   victoryRewardSilver: number;
@@ -21,13 +22,14 @@ export const GAME_MODES: Record<string, GameModeDef> = {
   tdm100: {
     id: 'tdm100',
     name: 'Бой до 100 киллов',
-    shortDesc: '4 на 4 с возрождениями до 100 уничтожений. +500 серебра за победу. Консоль и точность ботов заблокированы.',
+    shortDesc: '4 на 4 с возрождениями до 100 уничтожений. +500 серебра за победу. Консоль без читов (sv_cheats off), точность ботов фиксирована.',
     teamSize: 4,
     targetKills: 100,
     roundsToWin: 0,
     respawns: true,
     spectatorOnDeath: false,
-    allowConsole: false,
+    allowConsole: true,
+    allowCheats: false,
     allowBotAccuracy: false,
     silverRewards: true,
     victoryRewardSilver: 500,
@@ -41,7 +43,8 @@ export const GAME_MODES: Record<string, GameModeDef> = {
     roundsToWin: 3,
     respawns: false,
     spectatorOnDeath: true,
-    allowConsole: false,
+    allowConsole: true,
+    allowCheats: false,
     allowBotAccuracy: false,
     silverRewards: true,
     victoryRewardSilver: 500,
@@ -49,13 +52,14 @@ export const GAME_MODES: Record<string, GameModeDef> = {
   training: {
     id: 'training',
     name: 'Тренировка',
-    shortDesc: 'Свободный тренировочный полигон 4 на 4. Открыта консоль (~) и настройка точности ботов в Настройках.',
+    shortDesc: 'Свободный тренировочный полигон 4 на 4. Разрешены читы (sv_cheats on) и настройка точности ботов в Настройках.',
     teamSize: 4,
     targetKills: 0,
     roundsToWin: 0,
     respawns: true,
     spectatorOnDeath: false,
     allowConsole: true,
+    allowCheats: true,
     allowBotAccuracy: true,
     silverRewards: false,
     victoryRewardSilver: 0,

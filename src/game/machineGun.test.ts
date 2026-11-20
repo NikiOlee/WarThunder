@@ -13,9 +13,10 @@ import { getAllTanks, getTankSpec, MAUS_SPEC } from './tanks';
 
 test('tank MG specs deal < 1 HP per shot and scale damage with tank price', () => {
   const tanks = getAllTanks();
-  assert.ok(tanks.length >= 2);
+  assert.ok(tanks.length >= 3);
   const t55 = getTankSpec('t55');
   const m60 = getTankSpec('m60a3');
+  const t62m = getTankSpec('t62m');
 
   for (const spec of [...tanks, MAUS_SPEC]) {
     assert.ok(spec.mg.damage > 0 && spec.mg.damage < 1, `${spec.id} MG damage must be < 1`);
@@ -26,6 +27,8 @@ test('tank MG specs deal < 1 HP per shot and scale damage with tank price', () =
 
   assert.ok(m60.priceSilver > t55.priceSilver);
   assert.ok(m60.mg.damage > t55.mg.damage, 'More expensive tank must deal higher MG damage');
+  assert.ok(t62m.priceSilver > m60.priceSilver);
+  assert.ok(t62m.mg.damage > m60.mg.damage, 'T-62M must deal higher MG damage than M60A3 Patton');
 });
 
 test('machine gun enforces rapid fire rate, reloads empty belt from reserve, and can run completely out of ammo', () => {

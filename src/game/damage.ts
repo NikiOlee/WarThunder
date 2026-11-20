@@ -13,6 +13,7 @@ export interface ShellInfo {
   caliber?: number;
   penetrationMm?: number;
   maxRange?: number;
+  gunDamage?: number;
 }
 
 export type HitPart = 'hull' | 'turret' | 'trackL' | 'trackR' | 'barrel' | 'fuel';
@@ -36,7 +37,7 @@ function clamp(v: number, lo: number, hi: number): number {
 // Gun-pivot local bounds expanded so the zone around the barrel & muzzle counts as barrel
 export const BARREL_HITBOX_BOUNDS = {
   min: { x: -0.42, y: -0.42, z: -0.35 },
-  max: { x: 0.42, y: 0.42, z: 4.95 },
+  max: { x: 0.42, y: 0.42, z: 5.55 },
 } as const;
 
 export function isPointInBarrelZone(x: number, y: number, z: number): boolean {
@@ -130,11 +131,15 @@ export function resolveHit(
     return { result: 'nopen', damage: 0, base, effective, pen, angleDeg: angle / DEG };
   }
 
-  // Frontal penetration: minimal damage (50), no random instant ammo-rack explosion
+  const baseGunDamage = shell.gunDamage ?? 60;
+
+  // Frontal penetration: reduced by target's frontal armor protection (plus slight pen bonus for heavy 280mm+ guns vs heavy brows)
   if (isFront) {
+    const smoothboreBonus = spec.frontDamageReduction >= 20 && maxPen >= 280 ? 4 : 0;
+    const frontDmg = Math.max(15, Math.round(baseGunDamage - spec.frontDamageReduction + smoothboreBonus));
     return {
       result: 'pen',
-      damage: spec.damage.front,
+      damage: frontDmg,
       base,
       effective,
       pen,
@@ -143,10 +148,10 @@ export function resolveHit(
     };
   }
 
-  // Side / rear / roof penetration: 60 damage
+  // Side / rear / roof penetration: full base damage from the attacker's gun
   return {
     result: 'pen',
-    damage: spec.damage.sideRear,
+    damage: Math.round(baseGunDamage),
     base,
     effective,
     pen,

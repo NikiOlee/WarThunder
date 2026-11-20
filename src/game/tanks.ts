@@ -35,6 +35,10 @@ export interface TankSpec {
   caliber: number; // meters
   penetrationMm: number;
   maxHp: number;
+  /** Базовая сила выстрела основного орудия («Урон»). */
+  gunDamage: number;
+  /** Снижение входящего урона лобовой бронёй при пробитии. */
+  frontDamageReduction: number;
   /** Множитель урона по боссу в режиме «Джагернаут» (база 50 ХП за выстрел). */
   bossDamageCoef: number;
   armor: TankArmorSpec;
@@ -71,6 +75,8 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
     caliber: 0.1,
     penetrationMm: 240,
     maxHp: 120,
+    gunDamage: 60,
+    frontDamageReduction: 10,
     bossDamageCoef: 1.0,
     armor: {
       hullFront: 200,
@@ -119,8 +125,10 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
     muzzleVelocity: 540,
     maxRange: 500,
     caliber: 0.105,
-    penetrationMm: 255,
+    penetrationMm: 260,
     maxHp: 120,
+    gunDamage: 55,
+    frontDamageReduction: 20,
     bossDamageCoef: 1.2,
     armor: {
       hullFront: 215,
@@ -147,6 +155,58 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       muzzleVelocity: 860,
       maxRange: 420,
       spread: 0.007,
+    },
+  },
+  t62m: {
+    id: 't62m',
+    name: 'Т-62М',
+    role: 'Основной боевой танк',
+    country: 'СССР',
+    gunName: '115-мм гладкоствольная У-5ТС',
+    description:
+      'Модернизированная советская классика с удлинённым корпусом, бортовыми экранами, характерными накладками брони («бровями») на башне и дальнобойной 115-мм гладкоствольной пушкой.',
+    priceSilver: 2500,
+    maxSpeedKmh: 50,
+    maxSpeed: 50 / 3.6,
+    maxReverse: 6.5,
+    traverseRate: 28 * DEG,
+    elevRate: 16 * DEG,
+    elevMin: -6 * DEG,
+    elevMax: 18 * DEG,
+    reload: 3.5,
+    muzzleVelocity: 580,
+    maxRange: 550,
+    caliber: 0.115,
+    penetrationMm: 285,
+    maxHp: 120,
+    gunDamage: 60,
+    frontDamageReduction: 20,
+    bossDamageCoef: 1.4,
+    armor: {
+      hullFront: 210,
+      hullSide: 80,
+      hullRear: 45,
+      deck: 25,
+      turretFront: 230,
+      turretSide: 125,
+      turretRear: 65,
+      turretTop: 25,
+    },
+    damage: {
+      front: 40,
+      sideRear: 60,
+      fuel: 999,
+    },
+    mg: {
+      name: '12.7-мм пулемёт ДШКМ',
+      damage: 0.85,
+      fireRate: 12,
+      magSize: 140,
+      totalAmmo: 560,
+      reloadTime: 2.9,
+      muzzleVelocity: 880,
+      maxRange: 460,
+      spread: 0.0065,
     },
   },
 };
@@ -176,6 +236,8 @@ export const MAUS_SPEC: TankSpec = {
   caliber: 0.128,
   penetrationMm: 9999,
   maxHp: 4000,
+  gunDamage: 999999,
+  frontDamageReduction: 0,
   bossDamageCoef: 0,
   armor: {
     hullFront: 350,

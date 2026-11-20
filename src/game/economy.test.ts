@@ -30,6 +30,24 @@ test('T-55 is free (0 silver) and owned by default, while M60A3 Patton costs 150
   assert.equal(setSelectedTankId('m60a3'), 'm60a3');
   assert.equal(getSelectedTankId(), 'm60a3');
 
+  const t62m = getTankSpec('t62m');
+  assert.equal(t62m.priceSilver, 2500);
+  assert.equal(isTankOwned('t62m'), false);
+
+  setSilver(2400);
+  const failedT62 = purchaseTank('t62m');
+  assert.equal(failedT62.ok, false);
+  assert.equal(failedT62.reason, 'insufficient');
+  assert.equal(isTankOwned('t62m'), false);
+
+  addSilver(200); // 2600 silver
+  const boughtT62 = purchaseTank('t62m');
+  assert.equal(boughtT62.ok, true);
+  assert.equal(boughtT62.balance, 100);
+  assert.equal(isTankOwned('t62m'), true);
+  assert.equal(setSelectedTankId('t62m'), 't62m');
+  assert.equal(getSelectedTankId(), 't62m');
+
   setSelectedTankId('t55');
   setSilver(0);
   assert.equal(getSilver(), 0);

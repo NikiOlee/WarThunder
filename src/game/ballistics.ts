@@ -209,6 +209,15 @@ const M60_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.78, 1.04, -3.42), max: new THREE.Vector3(-1.05, 1.78, -1.25) },
   { part: 'fuel', min: new THREE.Vector3(-1.35, 1.08, -3.62), max: new THREE.Vector3(1.35, 1.78, -2.85) },
 ];
+const T62M_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.48, 0.05, -3.62), max: new THREE.Vector3(1.48, 1.72, 3.78) },
+  { part: 'trackL', min: new THREE.Vector3(1.48, 0.03, -3.72), max: new THREE.Vector3(2.12, 1.08, 3.75) },
+  { part: 'trackR', min: new THREE.Vector3(-2.12, 0.03, -3.72), max: new THREE.Vector3(-1.48, 1.08, 3.75) },
+  // T-62M rear-side fender fuel tanks & rear external fuel drums (vulnerable oneshot zone)
+  { part: 'fuel', min: new THREE.Vector3(0.95, 0.96, -3.55), max: new THREE.Vector3(1.68, 1.62, -1.35) },
+  { part: 'fuel', min: new THREE.Vector3(-1.68, 0.96, -3.55), max: new THREE.Vector3(-0.95, 1.62, -1.35) },
+  { part: 'fuel', min: new THREE.Vector3(-1.32, 0.98, -3.94), max: new THREE.Vector3(1.32, 1.62, -3.1) },
+];
 const MAUS_HULL_BOXES: HitBox[] = [
   { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
   { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
@@ -217,6 +226,7 @@ const MAUS_HULL_BOXES: HitBox[] = [
 // Turret-space hitbox (rotates with turretGroup!)
 const TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.35, 0.0, -1.85), max: new THREE.Vector3(1.35, 1.15, 1.6) };
 const M60_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.42, 0.0, -2.25), max: new THREE.Vector3(1.42, 1.32, 1.85) };
+const T62M_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.48, 0.0, -1.98), max: new THREE.Vector3(1.48, 1.04, 1.82) };
 const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
@@ -298,7 +308,7 @@ export interface ImpactEvent {
   velocity: THREE.Vector3;
   speed: number;
   distance: number;
-  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; mgDamage?: number };
+  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; gunDamage?: number; mgDamage?: number };
 }
 
 interface Projectile {
@@ -312,7 +322,7 @@ interface Projectile {
   group: THREE.Group;
   trail: THREE.Line;
   trailPos: Float32Array;
-  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; mgDamage?: number };
+  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; gunDamage?: number; mgDamage?: number };
   owner: Tank | null;
 }
 
@@ -437,8 +447,8 @@ export class BallisticsSystem {
       if (!inv || !it || !ig) continue;
 
       const isMaus = t.spec.id === 'maus';
-      const hullBoxes = isMaus ? MAUS_HULL_BOXES : t.spec.id === 'm60a3' ? M60_HULL_BOXES : HULL_BOXES;
-      const turretBox = isMaus ? MAUS_TURRET_BOX : t.spec.id === 'm60a3' ? M60_TURRET_BOX : TURRET_BOX;
+      const hullBoxes = isMaus ? MAUS_HULL_BOXES : t.spec.id === 'm60a3' ? M60_HULL_BOXES : t.spec.id === 't62m' ? T62M_HULL_BOXES : HULL_BOXES;
+      const turretBox = isMaus ? MAUS_TURRET_BOX : t.spec.id === 'm60a3' ? M60_TURRET_BOX : t.spec.id === 't62m' ? T62M_TURRET_BOX : TURRET_BOX;
 
       _la.copy(a).applyMatrix4(inv);
       _lb.copy(b).applyMatrix4(inv);
@@ -749,6 +759,7 @@ export class BallisticsSystem {
     penetrationMm = 240,
     maxRange = DEFAULT_MAX_RANGE,
     type = 'AP',
+    gunDamage,
     mgDamage,
     owner = null,
   }: {
@@ -759,6 +770,7 @@ export class BallisticsSystem {
     penetrationMm?: number;
     maxRange?: number;
     type?: string;
+    gunDamage?: number;
     mgDamage?: number;
     owner?: Tank | null;
   }): void {
@@ -812,7 +824,7 @@ export class BallisticsSystem {
       group,
       trail,
       trailPos: tp,
-      shell: { type, caliber, muzzleVelocity: speed, penetrationMm, maxRange, mgDamage },
+      shell: { type, caliber, muzzleVelocity: speed, penetrationMm, maxRange, gunDamage: gunDamage ?? owner?.spec.gunDamage, mgDamage },
       owner,
     });
     if (isMg) {

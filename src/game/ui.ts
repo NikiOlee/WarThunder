@@ -319,12 +319,25 @@ export function createUI(h: UIHandlers) {
     $('hangarTankRole').textContent = `${spec.role} · ${spec.country}`;
     $('hangarTankDesc').textContent = spec.description;
 
+    const allTanks = getAllTanks();
+    const minGun = Math.min(...allTanks.map((t) => t.gunDamage));
+    const maxGun = Math.max(...allTanks.map((t) => t.gunDamage));
+    const frontDmgVals = allTanks.map((t) => {
+      const smoothboreBonus = spec.frontDamageReduction >= 20 && t.penetrationMm >= 280 ? 4 : 0;
+      return Math.max(15, Math.round(t.gunDamage - spec.frontDamageReduction + smoothboreBonus));
+    });
+    const minFrontDmg = Math.min(...frontDmgVals);
+    const maxFrontDmg = Math.max(...frontDmgVals);
+    const frontDmgLabel = minFrontDmg === maxFrontDmg ? `${minFrontDmg} ед.` : `${minFrontDmg}–${maxFrontDmg} ед.`;
+    const sideRearDmgLabel = minGun === maxGun ? `${minGun} ед.` : `${minGun}–${maxGun} ед. (полный)`;
+
     const frontArmorLabel =
       spec.armor.turretFront !== spec.armor.hullFront
         ? `${spec.armor.hullFront} / ${spec.armor.turretFront} мм (лоб / маска)`
         : `${spec.armor.hullFront} мм (наклонная)`;
 
     $('hangarStats').innerHTML = `
+      <div class="hstat"><span>Урон</span><b>${spec.gunDamage} ед.</b></div>
       <div class="hstat"><span>Макс. скорость</span><b>${spec.maxSpeedKmh} км/ч</b></div>
       <div class="hstat"><span>Перезарядка орудия</span><b>${spec.reload.toFixed(1)} сек</b></div>
       <div class="hstat"><span>Дальность полёта снаряда</span><b>${spec.maxRange} м</b></div>
@@ -332,8 +345,8 @@ export function createUI(h: UIHandlers) {
       <div class="hstat"><span>Орудие</span><b>${spec.gunName}</b></div>
       <div class="hstat"><span>Пулемёт (${spec.mg.magSize}/${spec.mg.totalAmmo})</span><b>${spec.mg.name} · ${spec.mg.damage.toFixed(2)} ед.</b></div>
       <div class="hstat"><span>Лобовая броня</span><b>${frontArmorLabel}</b></div>
-      <div class="hstat"><span>Урон при пробитии лба</span><b>${spec.damage.front} ед.</b></div>
-      <div class="hstat"><span>Урон в борта и корму</span><b>${spec.damage.sideRear} ед.</b></div>
+      <div class="hstat"><span>Входящий урон в лоб</span><b>${frontDmgLabel}</b></div>
+      <div class="hstat"><span>Входящий урон в борт/корму</span><b>${sideRearDmgLabel}</b></div>
       <div class="hstat hstat-warn"><span>Уязвимая зона</span><b>Бензобак (ваншот)</b></div>
       <div class="hstat"><span>Стоимость</span><b>${spec.priceSilver === 0 ? 'Базовый (куплен)' : spec.priceSilver + ' серебра'}</b></div>
     `;

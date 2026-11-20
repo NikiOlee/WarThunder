@@ -871,9 +871,9 @@ select {
 }
 
 .hi-name {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: bold;
-  letter-spacing: 3px;
+  letter-spacing: 1.5px;
   color: #ffd27a;
 }
 
@@ -884,6 +884,8 @@ select {
   border: 1px solid #6a7456;
   color: #b9b59a;
   background: rgba(16, 20, 12, 0.85);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .hangar-item.equipped .hi-badge {

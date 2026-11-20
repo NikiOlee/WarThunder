@@ -3,6 +3,7 @@ import { audio } from './audio';
 import { getAllTanks, getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
 import { getSilver, isTankOwned, purchaseTank } from './economy';
 import { getAllModes, getModeDef } from './modes';
+import { computeFrontDamage } from './damage';
 
 interface SettingItem {
   k?: keyof GameSettings;
@@ -322,10 +323,7 @@ export function createUI(h: UIHandlers) {
     const allTanks = getAllTanks();
     const minGun = Math.min(...allTanks.map((t) => t.gunDamage));
     const maxGun = Math.max(...allTanks.map((t) => t.gunDamage));
-    const frontDmgVals = allTanks.map((t) => {
-      const smoothboreBonus = spec.frontDamageReduction >= 20 && t.penetrationMm >= 280 ? 4 : 0;
-      return Math.max(15, Math.round(t.gunDamage - spec.frontDamageReduction + smoothboreBonus));
-    });
+    const frontDmgVals = allTanks.map((t) => computeFrontDamage(t.gunDamage, t.penetrationMm, spec));
     const minFrontDmg = Math.min(...frontDmgVals);
     const maxFrontDmg = Math.max(...frontDmgVals);
     const frontDmgLabel = minFrontDmg === maxFrontDmg ? `${minFrontDmg} ед.` : `${minFrontDmg}–${maxFrontDmg} ед.`;

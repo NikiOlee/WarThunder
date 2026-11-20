@@ -3,15 +3,19 @@ import assert from 'node:assert/strict';
 import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks } from './tanks';
 import { BARREL_HITBOX_BOUNDS, isPointInBarrelZone, resolveHit } from './damage';
 
-test('T-55, M60A3 Patton, and T-62M specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
+test('T-55, M60A3 Patton, T-62M, T-72B3, and Leopard 2A4 specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
   const tanks = getAllTanks();
-  assert.equal(tanks.length, 3);
+  assert.equal(tanks.length, 5);
   assert.equal(tanks[0].id, 't55');
   assert.equal(tanks[0].name, 'Т-55');
   assert.equal(tanks[1].id, 'm60a3');
   assert.equal(tanks[1].name, 'M60A3 Patton');
   assert.equal(tanks[2].id, 't62m');
   assert.equal(tanks[2].name, 'Т-62М');
+  assert.equal(tanks[3].id, 't72b3');
+  assert.equal(tanks[3].name, 'Т-72Б3');
+  assert.equal(tanks[4].id, 'leopard2a4');
+  assert.equal(tanks[4].name, 'Leopard 2A4');
 
   const t55 = getTankSpec(DEFAULT_TANK_ID);
   assert.equal(t55.maxSpeedKmh, 50);
@@ -41,6 +45,24 @@ test('T-55, M60A3 Patton, and T-62M specs match order, speed, reload, maxRange, 
   assert.equal(t62m.gunDamage, 60);
   assert.ok(t62m.gunDamage >= t55.gunDamage && t62m.gunDamage >= m60.gunDamage);
   assert.ok(t62m.damage.fuel >= t62m.maxHp);
+
+  const t72b3 = getTankSpec('t72b3');
+  assert.equal(t72b3.priceSilver, 4000);
+  assert.equal(t72b3.maxSpeedKmh, 60);
+  assert.ok(Math.abs(t72b3.maxSpeed * 3.6 - 60) < 0.01);
+  assert.equal(t72b3.reload, 3.6);
+  assert.equal(t72b3.maxRange, 600);
+  assert.equal(t72b3.gunDamage, 65);
+  assert.ok(t72b3.damage.fuel >= t72b3.maxHp);
+
+  const leo = getTankSpec('leopard2a4');
+  assert.equal(leo.priceSilver, 5500);
+  assert.equal(leo.maxSpeedKmh, 65);
+  assert.ok(Math.abs(leo.maxSpeed * 3.6 - 65) < 0.01);
+  assert.equal(leo.reload, 3.0);
+  assert.equal(leo.maxRange, 650);
+  assert.equal(leo.gunDamage, 70);
+  assert.ok(leo.damage.fuel >= leo.maxHp);
 });
 
 test('Damage depends on attacker gunDamage and target armor zone (Patton and T-62M)', () => {
@@ -92,6 +114,74 @@ test('Damage depends on attacker gunDamage and target armor zone (Patton and T-6
   const t62Fuel = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, m60Shell, 450, 'fuel', t62m);
   assert.equal(t62Fuel.result, 'fuel');
   assert.ok(t62Fuel.damage >= t62m.maxHp);
+
+  // T-72B3 Relikt front takes 30-40 damage depending on enemy gun; side/rear takes full attacker base damage; fuel is oneshot
+  const t72b3 = getTankSpec('t72b3');
+  const t72Shell = { muzzleVelocity: t72b3.muzzleVelocity, penetrationMm: t72b3.penetrationMm, gunDamage: t72b3.gunDamage };
+
+  const t72FrontFromPatton = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, m60Shell, 535, 'turret', t72b3);
+  assert.equal(t72FrontFromPatton.result, 'pen');
+  assert.equal(t72FrontFromPatton.damage, 30);
+
+  const t72FrontFromT55 = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, t55Shell, 498, 'hull', t72b3);
+  assert.equal(t72FrontFromT55.result, 'pen');
+  assert.equal(t72FrontFromT55.damage, 35);
+
+  const t72FrontFromT62 = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, t62Shell, 575, 'turret', t72b3);
+  assert.equal(t72FrontFromT62.result, 'pen');
+  assert.equal(t72FrontFromT62.damage, 35);
+
+  const t72FrontFromT72 = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, t72Shell, 615, 'turret', t72b3);
+  assert.equal(t72FrontFromT72.result, 'pen');
+  assert.equal(t72FrontFromT72.damage, 40);
+
+  const t72SideFromT55 = resolveHit('hull', { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, t55Shell, 460, 'hull', t72b3);
+  assert.equal(t72SideFromT55.result, 'pen');
+  assert.equal(t72SideFromT55.damage, 60);
+
+  const t72RearFromT72 = resolveHit('hull', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, t72Shell, 580, 'hull', t72b3);
+  assert.equal(t72RearFromT72.result, 'pen');
+  assert.equal(t72RearFromT72.damage, 65);
+
+  const t72Fuel = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, m60Shell, 450, 'fuel', t72b3);
+  assert.equal(t72Fuel.result, 'fuel');
+  assert.ok(t72Fuel.damage >= t72b3.maxHp);
+
+  // Leopard 2A4 composite front takes 30-35 damage depending on enemy gun; side/rear takes full attacker base damage; fuel is oneshot
+  const leo = getTankSpec('leopard2a4');
+  const leoShell = { muzzleVelocity: leo.muzzleVelocity, penetrationMm: leo.penetrationMm, gunDamage: leo.gunDamage };
+
+  const leoFrontFromPatton = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, m60Shell, 535, 'turret', leo);
+  assert.equal(leoFrontFromPatton.result, 'pen');
+  assert.equal(leoFrontFromPatton.damage, 30);
+
+  const leoFrontFromT55 = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, t55Shell, 498, 'hull', leo);
+  assert.equal(leoFrontFromT55.result, 'pen');
+  assert.ok(leoFrontFromT55.damage >= 30 && leoFrontFromT55.damage <= 35);
+
+  const leoFrontTurretFromT55 = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, t55Shell, 498, 'turret', leo);
+  assert.equal(leoFrontTurretFromT55.result, 'pen');
+  assert.ok(leoFrontTurretFromT55.damage >= 30 && leoFrontTurretFromT55.damage <= 35);
+
+  const leoFrontFromT72 = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, t72Shell, 615, 'turret', leo);
+  assert.equal(leoFrontFromT72.result, 'pen');
+  assert.ok(leoFrontFromT72.damage >= 30 && leoFrontFromT72.damage <= 35);
+
+  const leoFrontFromLeo = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, leoShell, 645, 'turret', leo);
+  assert.equal(leoFrontFromLeo.result, 'pen');
+  assert.equal(leoFrontFromLeo.damage, 35);
+
+  const leoSideFromT55 = resolveHit('hull', { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, t55Shell, 460, 'hull', leo);
+  assert.equal(leoSideFromT55.result, 'pen');
+  assert.equal(leoSideFromT55.damage, 60);
+
+  const leoRearFromLeo = resolveHit('hull', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, leoShell, 610, 'hull', leo);
+  assert.equal(leoRearFromLeo.result, 'pen');
+  assert.equal(leoRearFromLeo.damage, 70);
+
+  const leoFuel = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, m60Shell, 450, 'fuel', leo);
+  assert.equal(leoFuel.result, 'fuel');
+  assert.ok(leoFuel.damage >= leo.maxHp);
 });
 
 test('Frontal 200mm sloped armor on T-55 deals 50 damage vs T-55 gun and resists angled/long-range shots', () => {
@@ -164,7 +254,7 @@ test('Expanded zone around barrel and muzzle counts as barrel hit', () => {
   // Zone around muzzle tip and barrel shaft (+/- 0.3m lateral, ahead of muzzle z=4.75..5.4, collar z=-0.2)
   assert.ok(BARREL_HITBOX_BOUNDS.max.x >= 0.35);
   assert.equal(isPointInBarrelZone(0.32, 0.25, 2.5), true);
-  assert.equal(isPointInBarrelZone(0.0, 0.0, 5.4), true);
+  assert.equal(isPointInBarrelZone(0.0, 0.0, 5.5), true);
   assert.equal(isPointInBarrelZone(-0.2, 0.1, -0.2), true);
 
   // Grazing shot along the barrel zone still resolves as 'barrel' damage

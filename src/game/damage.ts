@@ -37,12 +37,22 @@ function clamp(v: number, lo: number, hi: number): number {
 // Gun-pivot local bounds expanded so the zone around the barrel & muzzle counts as barrel
 export const BARREL_HITBOX_BOUNDS = {
   min: { x: -0.42, y: -0.42, z: -0.35 },
-  max: { x: 0.42, y: 0.42, z: 5.55 },
+  max: { x: 0.42, y: 0.42, z: 5.65 },
 } as const;
 
 export function isPointInBarrelZone(x: number, y: number, z: number): boolean {
   const { min, max } = BARREL_HITBOX_BOUNDS;
   return x >= min.x && x <= max.x && y >= min.y && y <= max.y && z >= min.z && z <= max.z;
+}
+
+export function computeFrontDamage(baseGunDamage: number, maxPen: number, target: TankSpec): number {
+  if (target.frontDamageReduction >= 30) {
+    const t = clamp((baseGunDamage - 55) / 15, 0, 1);
+    return Math.round(30 + t * 5);
+  }
+  const smoothboreBonus =
+    target.frontDamageReduction >= 20 && target.frontDamageReduction < 25 && maxPen >= 280 && baseGunDamage <= 60 ? 4 : 0;
+  return Math.max(15, Math.round(baseGunDamage - target.frontDamageReduction + smoothboreBonus));
 }
 
 /**
@@ -112,7 +122,7 @@ export function resolveHit(
     ny /= len;
     nz /= len;
   } else if (isFront && part === 'turret') {
-    ny += 0.25;
+    ny += spec.id === 'leopard2a4' ? 0.05 : 0.25;
     const len = Math.hypot(nx, ny, nz) || 1;
     nx /= len;
     ny /= len;
@@ -133,10 +143,9 @@ export function resolveHit(
 
   const baseGunDamage = shell.gunDamage ?? 60;
 
-  // Frontal penetration: reduced by target's frontal armor protection (plus slight pen bonus for heavy 280mm+ guns vs heavy brows)
+  // Frontal penetration: reduced by target's frontal armor protection
   if (isFront) {
-    const smoothboreBonus = spec.frontDamageReduction >= 20 && maxPen >= 280 ? 4 : 0;
-    const frontDmg = Math.max(15, Math.round(baseGunDamage - spec.frontDamageReduction + smoothboreBonus));
+    const frontDmg = computeFrontDamage(baseGunDamage, maxPen, spec);
     return {
       result: 'pen',
       damage: frontDmg,

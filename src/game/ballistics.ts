@@ -218,6 +218,24 @@ const T62M_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.68, 0.96, -3.55), max: new THREE.Vector3(-0.95, 1.62, -1.35) },
   { part: 'fuel', min: new THREE.Vector3(-1.32, 0.98, -3.94), max: new THREE.Vector3(1.32, 1.62, -3.1) },
 ];
+const T72B3_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.53, 0.05, -3.48), max: new THREE.Vector3(1.53, 1.72, 3.66) },
+  { part: 'trackL', min: new THREE.Vector3(1.53, 0.03, -3.6), max: new THREE.Vector3(2.18, 1.1, 3.65) },
+  { part: 'trackR', min: new THREE.Vector3(-2.18, 0.03, -3.6), max: new THREE.Vector3(-1.53, 1.1, 3.65) },
+  // T-72B3 rear-side fender fuel cells & rear external fuel drums (vulnerable oneshot zone)
+  { part: 'fuel', min: new THREE.Vector3(0.98, 0.96, -3.4), max: new THREE.Vector3(1.72, 1.62, -1.3) },
+  { part: 'fuel', min: new THREE.Vector3(-1.72, 0.96, -3.4), max: new THREE.Vector3(-0.98, 1.62, -1.3) },
+  { part: 'fuel', min: new THREE.Vector3(-1.32, 0.98, -3.82), max: new THREE.Vector3(1.32, 1.62, -3.0) },
+];
+const LEOPARD2A4_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.56, 0.05, -3.72), max: new THREE.Vector3(1.56, 1.7, 3.74) },
+  { part: 'trackL', min: new THREE.Vector3(1.56, 0.03, -3.76), max: new THREE.Vector3(2.2, 1.1, 3.76) },
+  { part: 'trackR', min: new THREE.Vector3(-2.2, 0.03, -3.76), max: new THREE.Vector3(-1.56, 1.1, 3.76) },
+  // Leopard 2A4 rear hull fuel tank bays (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.95, 0.92, -3.74), max: new THREE.Vector3(1.72, 1.64, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.72, 0.92, -3.74), max: new THREE.Vector3(-0.95, 1.64, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.35, 0.92, -3.78), max: new THREE.Vector3(1.35, 1.64, -2.95) },
+];
 const MAUS_HULL_BOXES: HitBox[] = [
   { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
   { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
@@ -227,6 +245,8 @@ const MAUS_HULL_BOXES: HitBox[] = [
 const TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.35, 0.0, -1.85), max: new THREE.Vector3(1.35, 1.15, 1.6) };
 const M60_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.42, 0.0, -2.25), max: new THREE.Vector3(1.42, 1.32, 1.85) };
 const T62M_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.48, 0.0, -1.98), max: new THREE.Vector3(1.48, 1.04, 1.82) };
+const T72B3_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.52, 0.0, -1.92), max: new THREE.Vector3(1.52, 1.08, 1.85) };
+const LEOPARD2A4_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.48, 0.0, -2.65), max: new THREE.Vector3(1.48, 1.05, 1.52) };
 const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
@@ -447,8 +467,28 @@ export class BallisticsSystem {
       if (!inv || !it || !ig) continue;
 
       const isMaus = t.spec.id === 'maus';
-      const hullBoxes = isMaus ? MAUS_HULL_BOXES : t.spec.id === 'm60a3' ? M60_HULL_BOXES : t.spec.id === 't62m' ? T62M_HULL_BOXES : HULL_BOXES;
-      const turretBox = isMaus ? MAUS_TURRET_BOX : t.spec.id === 'm60a3' ? M60_TURRET_BOX : t.spec.id === 't62m' ? T62M_TURRET_BOX : TURRET_BOX;
+      const hullBoxes = isMaus
+        ? MAUS_HULL_BOXES
+        : t.spec.id === 'm60a3'
+          ? M60_HULL_BOXES
+          : t.spec.id === 'leopard2a4'
+            ? LEOPARD2A4_HULL_BOXES
+            : t.spec.id === 't72b3'
+              ? T72B3_HULL_BOXES
+              : t.spec.id === 't62m'
+                ? T62M_HULL_BOXES
+                : HULL_BOXES;
+      const turretBox = isMaus
+        ? MAUS_TURRET_BOX
+        : t.spec.id === 'm60a3'
+          ? M60_TURRET_BOX
+          : t.spec.id === 'leopard2a4'
+            ? LEOPARD2A4_TURRET_BOX
+            : t.spec.id === 't72b3'
+              ? T72B3_TURRET_BOX
+              : t.spec.id === 't62m'
+                ? T62M_TURRET_BOX
+                : TURRET_BOX;
 
       _la.copy(a).applyMatrix4(inv);
       _lb.copy(b).applyMatrix4(inv);

@@ -46,6 +46,11 @@ export function isPointInBarrelZone(x: number, y: number, z: number): boolean {
 }
 
 export function computeFrontDamage(baseGunDamage: number, maxPen: number, target: TankSpec): number {
+  if (target.frontDamageRange) {
+    const [minDmg, maxDmg] = target.frontDamageRange;
+    const t = clamp((baseGunDamage - 55) / 25, 0, 1);
+    return Math.round(minDmg + t * (maxDmg - minDmg));
+  }
   if (target.frontDamageReduction >= 30) {
     const t = clamp((baseGunDamage - 55) / 15, 0, 1);
     return Math.round(30 + t * 5);

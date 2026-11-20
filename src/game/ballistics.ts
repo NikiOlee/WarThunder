@@ -236,6 +236,33 @@ const LEOPARD2A4_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.72, 0.92, -3.74), max: new THREE.Vector3(-0.95, 1.64, -1.45) },
   { part: 'fuel', min: new THREE.Vector3(-1.35, 0.92, -3.78), max: new THREE.Vector3(1.35, 1.64, -2.95) },
 ];
+const M1A1_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.6, 0.05, -3.7), max: new THREE.Vector3(1.6, 1.74, 3.76) },
+  { part: 'trackL', min: new THREE.Vector3(1.61, 0.03, -3.78), max: new THREE.Vector3(2.24, 1.12, 3.78) },
+  { part: 'trackR', min: new THREE.Vector3(-2.24, 0.03, -3.78), max: new THREE.Vector3(-1.61, 1.12, 3.78) },
+  // M1A1 rear sponson fuel cells & rear fuel panel (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.94, -3.72), max: new THREE.Vector3(1.74, 1.66, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.74, 0.94, -3.72), max: new THREE.Vector3(-0.96, 1.66, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.4, 0.94, -3.8), max: new THREE.Vector3(1.4, 1.66, -3.05) },
+];
+const ZTZ96A_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.52, 0.05, -3.55), max: new THREE.Vector3(1.52, 1.7, 3.64) },
+  { part: 'trackL', min: new THREE.Vector3(1.53, 0.03, -3.62), max: new THREE.Vector3(2.16, 1.08, 3.64) },
+  { part: 'trackR', min: new THREE.Vector3(-2.16, 0.03, -3.62), max: new THREE.Vector3(-1.53, 1.08, 3.64) },
+  // ZTZ-96A rear fender fuel cells & rear fuel panel (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.94, 0.94, -3.5), max: new THREE.Vector3(1.7, 1.6, -1.35) },
+  { part: 'fuel', min: new THREE.Vector3(-1.7, 0.94, -3.5), max: new THREE.Vector3(-0.94, 1.6, -1.35) },
+  { part: 'fuel', min: new THREE.Vector3(-1.3, 0.94, -3.58), max: new THREE.Vector3(1.3, 1.6, -2.9) },
+];
+const T90M_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.54, 0.05, -3.5), max: new THREE.Vector3(1.54, 1.72, 3.68) },
+  { part: 'trackL', min: new THREE.Vector3(1.55, 0.03, -3.58), max: new THREE.Vector3(2.18, 1.1, 3.66) },
+  { part: 'trackR', min: new THREE.Vector3(-2.18, 0.03, -3.58), max: new THREE.Vector3(-1.55, 1.1, 3.66) },
+  // T-90M rear fender fuel cells & external fuel drums (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.94, -3.46), max: new THREE.Vector3(1.72, 1.6, -1.34) },
+  { part: 'fuel', min: new THREE.Vector3(-1.72, 0.94, -3.46), max: new THREE.Vector3(-0.96, 1.6, -1.34) },
+  { part: 'fuel', min: new THREE.Vector3(-1.32, 0.96, -3.62), max: new THREE.Vector3(1.32, 1.62, -2.9) },
+];
 const MAUS_HULL_BOXES: HitBox[] = [
   { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
   { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
@@ -247,6 +274,9 @@ const M60_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.42, 0
 const T62M_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.48, 0.0, -1.98), max: new THREE.Vector3(1.48, 1.04, 1.82) };
 const T72B3_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.52, 0.0, -1.92), max: new THREE.Vector3(1.52, 1.08, 1.85) };
 const LEOPARD2A4_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.48, 0.0, -2.65), max: new THREE.Vector3(1.48, 1.05, 1.52) };
+const M1A1_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.56, 0.0, -2.7), max: new THREE.Vector3(1.56, 1.18, 1.78) };
+const ZTZ96A_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.5, 0.0, -2.35), max: new THREE.Vector3(1.5, 1.1, 1.76) };
+const T90M_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.53, 0.0, -2.6), max: new THREE.Vector3(1.53, 1.12, 1.8) };
 const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
@@ -461,6 +491,13 @@ export class BallisticsSystem {
 
     for (const t of this.targets) {
       if (!t.alive || t === p.owner || (p.owner && t.team === p.owner.team)) continue;
+      // Грубый отсев: если сегмент полёта далеко от танка, 3 матричных преобразования и slab-тесты не нужны.
+      const rp = t.root.position;
+      const mx = (a.x + b.x) * 0.5 - rp.x;
+      const my = (a.y + b.y) * 0.5 - rp.y;
+      const mz = (a.z + b.z) * 0.5 - rp.z;
+      const reach = len * 0.5 + 12;
+      if (mx * mx + my * my + mz * mz > reach * reach) continue;
       const inv = this._inv.get(t);
       const it = this._invTurret.get(t);
       const ig = this._invGun.get(t);
@@ -477,7 +514,13 @@ export class BallisticsSystem {
               ? T72B3_HULL_BOXES
               : t.spec.id === 't62m'
                 ? T62M_HULL_BOXES
-                : HULL_BOXES;
+                : t.spec.id === 'm1a1'
+                  ? M1A1_HULL_BOXES
+                  : t.spec.id === 'ztz96a'
+                    ? ZTZ96A_HULL_BOXES
+                    : t.spec.id === 't90m'
+                      ? T90M_HULL_BOXES
+                      : HULL_BOXES;
       const turretBox = isMaus
         ? MAUS_TURRET_BOX
         : t.spec.id === 'm60a3'
@@ -488,7 +531,13 @@ export class BallisticsSystem {
               ? T72B3_TURRET_BOX
               : t.spec.id === 't62m'
                 ? T62M_TURRET_BOX
-                : TURRET_BOX;
+                : t.spec.id === 'm1a1'
+                  ? M1A1_TURRET_BOX
+                  : t.spec.id === 'ztz96a'
+                    ? ZTZ96A_TURRET_BOX
+                    : t.spec.id === 't90m'
+                      ? T90M_TURRET_BOX
+                      : TURRET_BOX;
 
       _la.copy(a).applyMatrix4(inv);
       _lb.copy(b).applyMatrix4(inv);

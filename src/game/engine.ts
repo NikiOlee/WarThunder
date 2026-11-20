@@ -237,6 +237,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     flags.timeScale = 1;
   }
   let state: 'menu' | 'play' | 'pause' | 'matchEnd' = 'menu';
+  let idleFrames = 0;
   let hangarOpen = false;
   let battleStarted = false;
   let currentModeId = DEFAULT_MODE_ID;
@@ -281,6 +282,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   minimap.setWorld(world);
 
   function applyGraphics() {
+    idleFrames = 0;
     const sun = world.sun;
     const pr = isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.5) * settings.resolution;
     renderer.setPixelRatio(pr);
@@ -1889,6 +1891,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   });
 
   const onResize = () => {
+    idleFrames = 0;
     renderer.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
@@ -1942,6 +1945,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     const rawDt = clock.getDelta();
     let dt = Math.min(rawDt, 0.05);
 
+    if (state !== 'pause' && state !== 'matchEnd') idleFrames = 0;
     if (state === 'menu') {
       tank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
       menuCamera(dt);
@@ -1952,8 +1956,13 @@ export function initGame(mountEl: HTMLElement): () => void {
       return;
     }
     if (state === 'pause' || state === 'matchEnd') {
-      hitcam.draw(0);
-      render();
+      // Сцена заморожена: перерисовываем только несколько кадров после входа в паузу
+      // и после смены настроек/размера окна, дальше кадр не меняется.
+      if (idleFrames < 4) {
+        idleFrames++;
+        hitcam.draw(0);
+        render();
+      }
       scheduleNext();
       return;
     }

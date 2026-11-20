@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks } from './tanks';
 import { BARREL_HITBOX_BOUNDS, isPointInBarrelZone, resolveHit } from './damage';
 
-test('T-55, M60A3 Patton, T-62M, T-72B3, and Leopard 2A4 specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
+test('T-55, M60A3 Patton, T-62M, T-72B3, Leopard 2A4, M1A1 Abrams, ZTZ-96A, and T-90M specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
   const tanks = getAllTanks();
-  assert.equal(tanks.length, 5);
+  assert.equal(tanks.length, 8);
   assert.equal(tanks[0].id, 't55');
   assert.equal(tanks[0].name, 'Т-55');
   assert.equal(tanks[1].id, 'm60a3');
@@ -16,6 +16,12 @@ test('T-55, M60A3 Patton, T-62M, T-72B3, and Leopard 2A4 specs match order, spee
   assert.equal(tanks[3].name, 'Т-72Б3');
   assert.equal(tanks[4].id, 'leopard2a4');
   assert.equal(tanks[4].name, 'Leopard 2A4');
+  assert.equal(tanks[5].id, 'm1a1');
+  assert.equal(tanks[5].name, 'M1A1 Abrams');
+  assert.equal(tanks[6].id, 'ztz96a');
+  assert.equal(tanks[6].name, 'ZTZ-96A');
+  assert.equal(tanks[7].id, 't90m');
+  assert.equal(tanks[7].name, 'Т-90М');
 
   const t55 = getTankSpec(DEFAULT_TANK_ID);
   assert.equal(t55.maxSpeedKmh, 50);
@@ -63,6 +69,36 @@ test('T-55, M60A3 Patton, T-62M, T-72B3, and Leopard 2A4 specs match order, spee
   assert.equal(leo.maxRange, 650);
   assert.equal(leo.gunDamage, 70);
   assert.ok(leo.damage.fuel >= leo.maxHp);
+
+  const m1a1 = getTankSpec('m1a1');
+  assert.equal(m1a1.priceSilver, 6800);
+  assert.equal(m1a1.maxSpeedKmh, 70);
+  assert.ok(Math.abs(m1a1.maxSpeed * 3.6 - 70) < 0.01);
+  assert.equal(m1a1.reload, 2.9);
+  assert.equal(m1a1.maxRange, 680);
+  assert.equal(m1a1.gunDamage, 70);
+  assert.deepEqual(m1a1.frontDamageRange, [25, 35]);
+  assert.ok(m1a1.damage.fuel >= m1a1.maxHp);
+
+  const ztz96a = getTankSpec('ztz96a');
+  assert.equal(ztz96a.priceSilver, 8500);
+  assert.equal(ztz96a.maxSpeedKmh, 65);
+  assert.ok(Math.abs(ztz96a.maxSpeed * 3.6 - 65) < 0.01);
+  assert.equal(ztz96a.reload, 3.5);
+  assert.equal(ztz96a.maxRange, 700);
+  assert.equal(ztz96a.gunDamage, 80);
+  assert.deepEqual(ztz96a.frontDamageRange, [25, 30]);
+  assert.ok(ztz96a.damage.fuel >= ztz96a.maxHp);
+
+  const t90m = getTankSpec('t90m');
+  assert.equal(t90m.priceSilver, 10500);
+  assert.equal(t90m.maxSpeedKmh, 70);
+  assert.ok(Math.abs(t90m.maxSpeed * 3.6 - 70) < 0.01);
+  assert.equal(t90m.reload, 3.0);
+  assert.equal(t90m.maxRange, 730);
+  assert.equal(t90m.gunDamage, 75);
+  assert.deepEqual(t90m.frontDamageRange, [20, 28]);
+  assert.ok(t90m.damage.fuel >= t90m.maxHp);
 });
 
 test('Damage depends on attacker gunDamage and target armor zone (Patton and T-62M)', () => {
@@ -182,6 +218,47 @@ test('Damage depends on attacker gunDamage and target armor zone (Patton and T-6
   const leoFuel = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, m60Shell, 450, 'fuel', leo);
   assert.equal(leoFuel.result, 'fuel');
   assert.ok(leoFuel.damage >= leo.maxHp);
+});
+
+test('M1A1 Abrams, ZTZ-96A and T-90M reduce frontal damage, take full side/rear damage and die to a fuel hit', () => {
+  const m1a1 = getTankSpec('m1a1');
+  const ztz96a = getTankSpec('ztz96a');
+  const t90m = getTankSpec('t90m');
+  const strongShell = { muzzleVelocity: 750, penetrationMm: 420, gunDamage: 80 };
+  const t55Shell = { muzzleVelocity: 500, penetrationMm: 240, gunDamage: 60 };
+
+  const m1Front = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, strongShell, 745, 'turret', m1a1);
+  assert.equal(m1Front.result, 'pen');
+  assert.equal(m1Front.damage, 35);
+  const m1HullFront = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, strongShell, 745, 'hull', m1a1);
+  assert.equal(m1HullFront.result, 'pen');
+  assert.equal(m1HullFront.damage, 35);
+
+  const ztzFront = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, strongShell, 745, 'turret', ztz96a);
+  assert.equal(ztzFront.result, 'pen');
+  assert.equal(ztzFront.damage, 30);
+
+  const t90Front = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, strongShell, 745, 'turret', t90m);
+  assert.equal(t90Front.result, 'pen');
+  assert.equal(t90Front.damage, 28);
+
+  // Old 100mm AP cannot punch the modern composite front
+  const oldVsAbrams = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, t55Shell, 498, 'hull', m1a1);
+  assert.notEqual(oldVsAbrams.result, 'pen');
+
+  for (const target of [m1a1, ztz96a, t90m]) {
+    const side = resolveHit('hull', { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, t55Shell, 460, 'hull', target);
+    assert.equal(side.result, 'pen');
+    assert.equal(side.damage, 60);
+
+    const rear = resolveHit('hull', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, t55Shell, 460, 'hull', target);
+    assert.equal(rear.result, 'pen');
+    assert.equal(rear.damage, 60);
+
+    const fuel = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, t55Shell, 440, 'fuel', target);
+    assert.equal(fuel.result, 'fuel');
+    assert.ok(fuel.damage >= target.maxHp);
+  }
 });
 
 test('Frontal 200mm sloped armor on T-55 deals 50 damage vs T-55 gun and resists angled/long-range shots', () => {

@@ -99,11 +99,15 @@ body.menu #scoreboard,
 body.menu #roundBanner,
 body.menu #bossBar,
 body.menu #victoryBanner,
-body.menu #bossBar {
+body.menu #spectatorBar {
+  display: none !important;
+}
+
+#bossBar {
   left: 50%;
-  top: 14px;
+  top: 96px;
   transform: translateX(-50%);
-  width: min(720px, 70vw);
+  width: min(560px, 50vw);
   z-index: 9;
   text-align: center;
 }
@@ -153,10 +157,6 @@ body.menu #bossBar {
   letter-spacing: 6px;
   color: #8fe36a;
   white-space: nowrap;
-}
-
-#spectatorBar {
-  display: none !important;
 }
 
 #help {

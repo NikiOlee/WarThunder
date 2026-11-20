@@ -121,6 +121,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       scene.remove(boss.tank.root);
       ballistics.targets = ballistics.targets.filter((t) => t !== boss!.tank);
       boss = null;
+      $('bossBar').classList.add('hidden');
     }
   }
 
@@ -434,6 +435,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     spectateIdx = 0;
     $('spectatorBar').classList.add('hidden');
     hudCache.specVisible = false;
+    $('bossBar').classList.add('hidden');
     hudCache.bossVisible = false;
     playerDeadT = 0;
     $('dead').style.display = 'none';
@@ -683,6 +685,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       camera.updateProjectionMatrix();
     }
     if (!getModeDef(currentModeId).allowCheats) enforceCheatsOff();
+    $('bossBar').classList.add('hidden');
+    hudCache.bossVisible = false;
     document.body.className = 'menu';
     document.body.dataset.state = 'title';
     mouseDown = false;

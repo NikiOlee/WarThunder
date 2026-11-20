@@ -299,15 +299,25 @@ class AudioSys {
         this._burst(dst, t, 0.34, 0.5, 'bandpass', 540, 260, 0.6);
         this._burst(dst, t, 0.28, 0.28, 'lowpass', 1400, 480);
         break;
-      case 'mg':
-        this._tone(dst, 'triangle', 320, 95, t, 0.045, 0.48);
-        this._burst(dst, t, 0.055, 0.52, 'bandpass', 2200, 680, 0.9);
-        this._burst(dst, t, 0.022, 0.35, 'highpass', 3600, 3600);
+      case 'mg': {
+        const j = 0.94 + Math.random() * 0.12;
+        // Dry low-end mechanical punch (no hollow triangle sweep)
+        this._tone(dst, 'sine', 118 * j, 46, t, 0.036, 0.55);
+        // Wide propellant crack & gun-body bark
+        this._burst(dst, t, 0.068, 0.72, 'lowpass', 5200 * j, 520, 0.45);
+        // Sharp breech/muzzle transient + subtle steel bolt clack
+        this._burst(dst, t, 0.016, 0.42, 'highpass', 2400 * j, 2400, 0.5);
+        this._tone(dst, 'sawtooth', 1420 * j, 820, t, 0.012, 0.09);
+        // Short outdoor tail
+        this._burst(dst, t + 0.02, 0.09, 0.18, 'lowpass', 850, 220, 0.4);
         break;
-      case 'mgHit':
-        this._tone(dst, 'sine', 1850, 1150, t, 0.06, 0.28);
-        this._burst(dst, t, 0.03, 0.25, 'bandpass', 3200, 2400, 2.2);
+      }
+      case 'mgHit': {
+        const j = 0.92 + Math.random() * 0.16;
+        this._tone(dst, 'sine', 1240 * j, 860, t, 0.035, 0.15);
+        this._burst(dst, t, 0.025, 0.24, 'highpass', 2400, 2400, 0.7);
         break;
+      }
       default:
         break;
     }

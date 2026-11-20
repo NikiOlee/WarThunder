@@ -220,6 +220,10 @@ class AudioSys {
       case 'snap':
         this._burst(dst, t, 0.04, 0.6, 'highpass', 5000, 5000);
         break;
+      case 'flame':
+        this._burst(dst, t, 0.34, 0.42, 'bandpass', 540, 260, 0.6);
+        this._burst(dst, t, 0.28, 0.22, 'lowpass', 1400, 480);
+        break;
       default:
         break;
     }

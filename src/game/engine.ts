@@ -47,7 +47,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     powerPreference: 'high-performance',
     preserveDrawingBuffer: isSoftwareGl,
   });
-  renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = !isSoftwareGl;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -115,10 +115,45 @@ export function initGame(mountEl: HTMLElement): () => void {
       boss = new JuggernautBoss(scene, world, ballistics);
       getTankId(boss.tank);
     } else if (!want && boss) {
+      boss.dispose();
       scene.remove(boss.tank.root);
       ballistics.targets = ballistics.targets.filter((t) => t !== boss!.tank);
       boss = null;
     }
+  }
+
+  const allTanksList: Tank[] = [];
+  const teamATanks: Tank[] = [];
+  const teamBTanks: Tank[] = [];
+  const nonBossTanks: Tank[] = [];
+  const aliveAlliesCache: Tank[] = [];
+
+  function rebuildTankLists() {
+    allTanksList.length = 0;
+    teamATanks.length = 0;
+    teamBTanks.length = 0;
+    nonBossTanks.length = 0;
+    allTanksList.push(tank);
+    teamATanks.push(tank);
+    nonBossTanks.push(tank);
+    for (let i = 0; i < bots.length; i++) {
+      const bt = bots[i].tank;
+      allTanksList.push(bt);
+      nonBossTanks.push(bt);
+      if (bt.team === 'A') teamATanks.push(bt);
+      else teamBTanks.push(bt);
+    }
+    if (boss) {
+      allTanksList.push(boss.tank);
+      if (boss.tank.team === 'A') teamATanks.push(boss.tank);
+      else teamBTanks.push(boss.tank);
+    }
+  }
+
+  function countAlive(list: Tank[]): number {
+    let n = 0;
+    for (let i = 0; i < list.length; i++) if (list[i].alive) n++;
+    return n;
   }
 
   function syncTeamRoster(teamSize: number, hasBoss = false) {
@@ -159,18 +194,19 @@ export function initGame(mountEl: HTMLElement): () => void {
       getTankId(b.tank);
       bots.push(b);
     }
+    rebuildTankLists();
   }
 
   syncTeamRoster(getModeDef(DEFAULT_MODE_ID).teamSize, !!getModeDef(DEFAULT_MODE_ID).boss);
-  const allTanks = () => [tank, ...bots.map((b) => b.tank), ...(boss ? [boss.tank] : [])];
-  const tanksOf = (team: 'A' | 'B') => allTanks().filter((t) => t.team === team);
+  const allTanks = () => allTanksList.slice();
+  const tanksOf = (team: 'A' | 'B') => (team === 'A' ? teamATanks.slice() : teamBTanks.slice());
 
   let composer: EffectComposer | null = null;
   let bloomPass: UnrealBloomPass | null = null;
   let gradePass: ShaderPass | null = null;
   if (!isSoftwareGl) {
     try {
-      const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+      const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 2 });
       composer = new EffectComposer(renderer, rt);
       composer.addPass(new RenderPass(scene, camera));
       bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 1.0);
@@ -241,7 +277,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function applyGraphics() {
     const sun = world.sun;
-    const pr = isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2) * settings.resolution;
+    const pr = isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.5) * settings.resolution;
     renderer.setPixelRatio(pr);
     renderer.setSize(innerWidth, innerHeight);
     if (composer) {
@@ -249,7 +285,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       composer.setSize(innerWidth, innerHeight);
     }
     sun.castShadow = !isSoftwareGl && settings.shadows !== 'off';
-    const ms = settings.shadows === 'high' ? 4096 : 2048;
+    const ms = settings.shadows === 'high' ? 2048 : 1024;
     if (!isSoftwareGl && sun.shadow.mapSize.x !== ms) {
       sun.shadow.mapSize.set(ms, ms);
       if (sun.shadow.map) {
@@ -326,7 +362,9 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function updateModeScoreHud() {
     const activeMode = getModeDef(currentModeId);
-    $('alive').textContent = tanksOf('A').filter((t) => t.alive).length + ' v ' + tanksOf('B').filter((t) => t.alive).length;
+    const aliveStr = countAlive(teamATanks) + ' v ' + countAlive(teamBTanks);
+    $('alive').textContent = aliveStr;
+    hudCache.alive = aliveStr;
     if (activeMode.roundsToWin > 0) {
       $('modeTitleHud').textContent = `${activeMode.name.toUpperCase()} · РАУНД ${roundNum}`;
       $('teamAKills').textContent = String(teamARounds);
@@ -390,6 +428,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     spectateTarget = null;
     spectateIdx = 0;
     $('spectatorBar').classList.add('hidden');
+    hudCache.specVisible = false;
+    hudCache.bossVisible = false;
     playerDeadT = 0;
     $('dead').style.display = 'none';
     aim.yaw = 0;
@@ -453,6 +493,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       DEFAULT_TANK_ID,
     );
     bots.push(b);
+    rebuildTankLists();
   }
 
   function removeBots(team: 'A' | 'B' | null) {
@@ -464,6 +505,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       bots.splice(i, 1);
       n++;
     }
+    if (n > 0) rebuildTankLists();
     return n;
   }
 
@@ -598,10 +640,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       jugVictoryT = 0;
       $('victoryBanner').classList.add('hidden');
       $('bossBar').classList.add('hidden');
+      hudCache.bossVisible = false;
       spectating = false;
       spectateTarget = null;
       spectateIdx = 0;
       $('spectatorBar').classList.add('hidden');
+      hudCache.specVisible = false;
       $('dead').style.display = 'none';
       $('msg').style.opacity = '0';
       $('msg').textContent = '';
@@ -704,7 +748,12 @@ export function initGame(mountEl: HTMLElement): () => void {
   document.addEventListener('pointerlockerror', onPointerLockError);
 
   function getAliveAllies(): Tank[] {
-    return tanksOf('A').filter((t) => t.alive && t !== tank);
+    aliveAlliesCache.length = 0;
+    for (let i = 0; i < teamATanks.length; i++) {
+      const t = teamATanks[i];
+      if (t.alive && t !== tank) aliveAlliesCache.push(t);
+    }
+    return aliveAlliesCache;
   }
 
   function cycleSpectateTarget(step: number) {
@@ -1039,6 +1088,14 @@ export function initGame(mountEl: HTMLElement): () => void {
     dmg: $('dmgStat'),
     fps: $('fps'),
     tankTag: $('tankTag'),
+    bossBar: $('bossBar'),
+    bossFill: $('bossFill'),
+    bossHpText: $('bossHpText'),
+    bossFlameFill: $('bossFlameFill'),
+    bossFlameText: $('bossFlameText'),
+    specBar: $('spectatorBar'),
+    specName: $('specTargetName'),
+    specHp: $('specTargetHp'),
   };
   el.mv.textContent = String(tank.stats.muzzleVelocity);
   if (el.tankTag) el.tankTag.textContent = tank.spec.name;
@@ -1048,6 +1105,43 @@ export function initGame(mountEl: HTMLElement): () => void {
   const _pr = new THREE.Vector3();
   let fpsAcc = 0;
   let fpsN = 0;
+
+  const hudCache = {
+    speed: '',
+    gear: '',
+    hull: '',
+    tur: '',
+    range: '',
+    zoom: '',
+    comp: '',
+    mode: '',
+    ringP: '',
+    ringLoading: false,
+    ringBroken: false,
+    rtxt: '',
+    hpW: '',
+    hpBg: '',
+    tankTag: '',
+    bossVisible: false,
+    bossFillW: '',
+    bossHpText: '',
+    bossFlameW: '',
+    bossFlameOverheat: false,
+    bossFlameText: '',
+    kills: '',
+    alive: '',
+    dmg: '',
+    crossDisplay: '',
+    scopeDisplay: '',
+    gunDisplay: '',
+    gunSize: '',
+    gunMargin: '',
+    gunLeft: '',
+    gunTop: '',
+    specVisible: false,
+    specName: '',
+    specHp: '',
+  };
 
   const _ip = new THREE.Vector3();
   const _iv = new THREE.Vector3();
@@ -1076,15 +1170,51 @@ export function initGame(mountEl: HTMLElement): () => void {
   function updateHud(dt: number) {
     const v = Math.abs(tank.speed);
     const thr = (keys[settings.keys.forward] ? 1 : 0) - (keys[settings.keys.back] ? 1 : 0);
-    el.speed.textContent = String(Math.round(v * 3.6));
-    el.gear.textContent =
+
+    const speedTxt = String(Math.round(v * 3.6));
+    if (speedTxt !== hudCache.speed) {
+      hudCache.speed = speedTxt;
+      el.speed.textContent = speedTxt;
+    }
+
+    const gearTxt =
       tank.speed < -0.4 || (v < 0.4 && thr < 0) ? 'R' : v < 0.4 && thr === 0 ? 'N' : v < 3.5 ? '1' : v < 7 ? '2' : v < 10.5 ? '3' : '4';
-    el.hull.textContent = bearing(tank.heading);
-    el.tur.textContent = bearing(tank.turretWorldYaw);
-    el.range.textContent = aim.range ? Math.round(aim.range) + ' м' : '---';
-    el.zoom.textContent = 'x' + (mode === 'third' ? 1 : 60 / fovCur).toFixed(1);
-    el.comp.textContent = ballComp ? 'ВКЛ' : 'ВЫКЛ';
-    el.mode.textContent =
+    if (gearTxt !== hudCache.gear) {
+      hudCache.gear = gearTxt;
+      el.gear.textContent = gearTxt;
+    }
+
+    const hullTxt = bearing(tank.heading);
+    if (hullTxt !== hudCache.hull) {
+      hudCache.hull = hullTxt;
+      el.hull.textContent = hullTxt;
+    }
+
+    const turTxt = bearing(tank.turretWorldYaw);
+    if (turTxt !== hudCache.tur) {
+      hudCache.tur = turTxt;
+      el.tur.textContent = turTxt;
+    }
+
+    const rangeTxt = aim.range ? Math.round(aim.range) + ' м' : '---';
+    if (rangeTxt !== hudCache.range) {
+      hudCache.range = rangeTxt;
+      el.range.textContent = rangeTxt;
+    }
+
+    const zoomTxt = 'x' + (mode === 'third' ? 1 : 60 / fovCur).toFixed(1);
+    if (zoomTxt !== hudCache.zoom) {
+      hudCache.zoom = zoomTxt;
+      el.zoom.textContent = zoomTxt;
+    }
+
+    const compTxt = ballComp ? 'ВКЛ' : 'ВЫКЛ';
+    if (compTxt !== hudCache.comp) {
+      hudCache.comp = compTxt;
+      el.comp.textContent = compTxt;
+    }
+
+    const modeTxt =
       mode === 'third'
         ? 'ОТ ТРЕТЬЕГО ЛИЦА'
         : mode === 'sniper'
@@ -1092,33 +1222,107 @@ export function initGame(mountEl: HTMLElement): () => void {
           : binocFrozen
             ? 'БИНОКЛЬ - КЛИК: НАВЕСТИ БАШНЮ'
             : 'БИНОКЛЬ';
-    const broken = tank.gunDownT > 0;
-    el.ring.style.setProperty('--p', String(Math.round(tank.reloadFraction * 100)));
-    el.ring.classList.toggle('loading', !tank.ready && !broken);
-    el.ring.classList.toggle('broken', broken);
-    el.rtxt.textContent = broken ? Math.ceil(tank.gunDownT) + 'с' : tank.ready ? 'ГОТОВ' : tank.reloadTimer.toFixed(1);
-
-    const hpPct = Math.max(0, Math.min(100, (tank.hp / tank.maxHp) * 100));
-    el.hp.style.width = hpPct + '%';
-    el.hp.style.background = hpPct > 60 ? '#8fe36a' : hpPct > 30 ? '#ffb43c' : '#ff4a3a';
-    if (el.tankTag) el.tankTag.textContent = `${tank.spec.name} · ${Math.max(0, Math.round(tank.hp))}/${tank.maxHp}`;
-
-    const bossBar = $('bossBar');
-    if (boss && !matchEnded) {
-      bossBar.classList.remove('hidden');
-      const pct = Math.max(0, Math.min(100, (boss.tank.hp / boss.tank.maxHp) * 100));
-      $('bossFill').style.width = pct + '%';
-      $('bossHpText').textContent = `${Math.max(0, Math.ceil(boss.tank.hp))} / ${boss.tank.maxHp}`;
-    } else {
-      bossBar.classList.add('hidden');
+    if (modeTxt !== hudCache.mode) {
+      hudCache.mode = modeTxt;
+      el.mode.textContent = modeTxt;
     }
 
-    el.kills.textContent = String(kills);
-    el.alive.textContent = tanksOf('A').filter((t) => t.alive).length + ' v ' + tanksOf('B').filter((t) => t.alive).length;
+    const broken = tank.gunDownT > 0;
+    const ringP = String(Math.round(tank.reloadFraction * 100));
+    if (ringP !== hudCache.ringP) {
+      hudCache.ringP = ringP;
+      el.ring.style.setProperty('--p', ringP);
+    }
+    const ringLoading = !tank.ready && !broken;
+    if (ringLoading !== hudCache.ringLoading) {
+      hudCache.ringLoading = ringLoading;
+      el.ring.classList.toggle('loading', ringLoading);
+    }
+    if (broken !== hudCache.ringBroken) {
+      hudCache.ringBroken = broken;
+      el.ring.classList.toggle('broken', broken);
+    }
+    const rtxt = broken ? Math.ceil(tank.gunDownT) + 'с' : tank.ready ? 'ГОТОВ' : tank.reloadTimer.toFixed(1);
+    if (rtxt !== hudCache.rtxt) {
+      hudCache.rtxt = rtxt;
+      el.rtxt.textContent = rtxt;
+    }
+
+    const hpPct = Math.max(0, Math.min(100, (tank.hp / tank.maxHp) * 100));
+    const hpW = hpPct.toFixed(1) + '%';
+    if (hpW !== hudCache.hpW) {
+      hudCache.hpW = hpW;
+      el.hp.style.width = hpW;
+    }
+    const hpBg = hpPct > 60 ? '#8fe36a' : hpPct > 30 ? '#ffb43c' : '#ff4a3a';
+    if (hpBg !== hudCache.hpBg) {
+      hudCache.hpBg = hpBg;
+      el.hp.style.background = hpBg;
+    }
+    const tagTxt = `${tank.spec.name} · ${Math.max(0, Math.round(tank.hp))}/${tank.maxHp}`;
+    if (el.tankTag && tagTxt !== hudCache.tankTag) {
+      hudCache.tankTag = tagTxt;
+      el.tankTag.textContent = tagTxt;
+    }
+
+    const bossVisible = !!(boss && !matchEnded);
+    if (bossVisible !== hudCache.bossVisible) {
+      hudCache.bossVisible = bossVisible;
+      el.bossBar.classList.toggle('hidden', !bossVisible);
+    }
+    if (bossVisible && boss) {
+      const pct = Math.max(0, Math.min(100, (boss.tank.hp / boss.tank.maxHp) * 100));
+      const bossW = pct.toFixed(2) + '%';
+      if (bossW !== hudCache.bossFillW) {
+        hudCache.bossFillW = bossW;
+        el.bossFill.style.width = bossW;
+      }
+      const bossHp = `${Math.max(0, Math.ceil(boss.tank.hp))} / ${boss.tank.maxHp}`;
+      if (bossHp !== hudCache.bossHpText) {
+        hudCache.bossHpText = bossHp;
+        el.bossHpText.textContent = bossHp;
+      }
+
+      const heatPct = Math.round(boss.heatState.heat * 100);
+      const flameW = heatPct + '%';
+      if (flameW !== hudCache.bossFlameW) {
+        hudCache.bossFlameW = flameW;
+        el.bossFlameFill.style.width = flameW;
+      }
+      if (boss.heatState.overheated !== hudCache.bossFlameOverheat) {
+        hudCache.bossFlameOverheat = boss.heatState.overheated;
+        el.bossFlameFill.classList.toggle('overheat', boss.heatState.overheated);
+      }
+      const flameTxt = boss.heatState.overheated ? 'ПЕРЕГРЕВ · ОХЛАЖДЕНИЕ' : `ОГНЕМЁТ · ${heatPct}%`;
+      if (flameTxt !== hudCache.bossFlameText) {
+        hudCache.bossFlameText = flameTxt;
+        el.bossFlameText.textContent = flameTxt;
+      }
+    }
+
+    const killsTxt = String(kills);
+    if (killsTxt !== hudCache.kills) {
+      hudCache.kills = killsTxt;
+      el.kills.textContent = killsTxt;
+    }
+    const aliveTxt = countAlive(teamATanks) + ' v ' + countAlive(teamBTanks);
+    if (aliveTxt !== hudCache.alive) {
+      hudCache.alive = aliveTxt;
+      el.alive.textContent = aliveTxt;
+    }
+
     let d = '';
-    if (tank.immobT > 0) d += `ГУСЕНИЦА ПОВРЕЖДЕНА: ремонт ${Math.ceil(tank.immobT)} с<br>`;
-    if (tank.gunDownT > 0) d += `СТВОЛ ПОВРЕЖДЁН: ремонт ${Math.ceil(tank.gunDownT)} с`;
-    el.dmg.innerHTML = d;
+    if (tank.immobT > 0) d += `ГУСЕНИЦА ПОВРЕЖДЕНА: ремонт ${Math.ceil(tank.immobT)} с`;
+    if (tank.gunDownT > 0) d += (d ? '<br>' : '') + `СТВОЛ ПОВРЕЖДЁН: ремонт ${Math.ceil(tank.gunDownT)} с`;
+    if (boss && boss.playerFire.inFlame) {
+      d += (d ? '<br>' : '') + `В ОГНЕ: -${boss.playerFire.directDps} ХП/с`;
+    } else if (boss && boss.playerFire.burnRemaining > 0) {
+      d += (d ? '<br>' : '') + `ГОРЕНИЕ: -10 ХП/с (${Math.ceil(boss.playerFire.burnRemaining)} с)`;
+    }
+    if (d !== hudCache.dmg) {
+      hudCache.dmg = d;
+      el.dmg.innerHTML = d;
+    }
 
     if (flags.fps) {
       fpsAcc += dt;
@@ -1130,13 +1334,25 @@ export function initGame(mountEl: HTMLElement): () => void {
       }
     }
 
-    el.cross.style.display = !spectating && mode === 'third' ? 'block' : 'none';
+    const crossDisp = !spectating && mode === 'third' ? 'block' : 'none';
+    if (crossDisp !== hudCache.crossDisplay) {
+      hudCache.crossDisplay = crossDisp;
+      el.cross.style.display = crossDisp;
+    }
+
     const scoped = !spectating && mode !== 'third';
-    scopeCv.style.display = scoped ? 'block' : 'none';
+    const scopeDisp = scoped ? 'block' : 'none';
+    if (scopeDisp !== hudCache.scopeDisplay) {
+      hudCache.scopeDisplay = scopeDisp;
+      scopeCv.style.display = scopeDisp;
+    }
     if (scoped) drawScope();
 
     if (spectating) {
-      el.gun.style.display = 'none';
+      if (hudCache.gunDisplay !== 'none') {
+        hudCache.gunDisplay = 'none';
+        el.gun.style.display = 'none';
+      }
       return;
     }
 
@@ -1144,14 +1360,34 @@ export function initGame(mountEl: HTMLElement): () => void {
     tank.gunDirection(_gd);
     const impact = predictImpact();
     _pr.copy(impact).project(camera);
-    if (_pr.z > 1 || _pr.z < -1) el.gun.style.display = 'none';
-    else {
-      el.gun.style.display = 'block';
+    if (_pr.z > 1 || _pr.z < -1) {
+      if (hudCache.gunDisplay !== 'none') {
+        hudCache.gunDisplay = 'none';
+        el.gun.style.display = 'none';
+      }
+    } else {
+      if (hudCache.gunDisplay !== 'block') {
+        hudCache.gunDisplay = 'block';
+        el.gun.style.display = 'block';
+      }
       const sz = mode === 'third' ? 18 : 14;
-      el.gun.style.width = el.gun.style.height = sz + 'px';
-      el.gun.style.marginLeft = el.gun.style.marginTop = -sz / 2 + 'px';
-      el.gun.style.left = (_pr.x * 0.5 + 0.5) * innerWidth + 'px';
-      el.gun.style.top = (-_pr.y * 0.5 + 0.5) * innerHeight + 'px';
+      const szPx = sz + 'px';
+      if (szPx !== hudCache.gunSize) {
+        hudCache.gunSize = szPx;
+        hudCache.gunMargin = -sz / 2 + 'px';
+        el.gun.style.width = el.gun.style.height = szPx;
+        el.gun.style.marginLeft = el.gun.style.marginTop = hudCache.gunMargin;
+      }
+      const leftPx = Math.round((_pr.x * 0.5 + 0.5) * innerWidth) + 'px';
+      const topPx = Math.round((-_pr.y * 0.5 + 0.5) * innerHeight) + 'px';
+      if (leftPx !== hudCache.gunLeft) {
+        hudCache.gunLeft = leftPx;
+        el.gun.style.left = leftPx;
+      }
+      if (topPx !== hudCache.gunTop) {
+        hudCache.gunTop = topPx;
+        el.gun.style.top = topPx;
+      }
     }
   }
 
@@ -1265,6 +1501,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (gcon.open) gcon.close();
     spectating = false;
     $('spectatorBar').classList.add('hidden');
+    hudCache.specVisible = false;
     deadEl.style.display = 'none';
     showRoundBanner(null);
     setScoreboardOpen(false);
@@ -1284,6 +1521,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     msgEl.style.opacity = '0';
     msgEl.textContent = '';
     el.kills.textContent = String(kills);
+    hudCache.kills = String(kills);
     document.body.dataset.state = 'matchEnd';
     ui.showMatchEnd({
       won: winner === 'A',
@@ -1313,9 +1551,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     setScoreboardOpen(false);
     spectating = false;
     $('spectatorBar').classList.add('hidden');
+    hudCache.specVisible = false;
     deadEl.style.display = 'none';
     showRoundBanner(null);
     $('bossBar').classList.add('hidden');
+    hudCache.bossVisible = false;
     const vb = $('victoryBanner');
     vb.textContent = 'ПОБЕДА! ХОРОШАЯ РАБОТА!';
     vb.classList.remove('hidden');
@@ -1328,8 +1568,9 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (owner === tank) {
         kills = ++tank.matchKills;
         el.kills.textContent = String(kills);
+        hudCache.kills = String(kills);
       }
-      feed(`${owner ? owner.name : '?'}  >  ${target.name}`, 'ally');
+      feed(`${owner ? owner.name : '?'}  >  ${target.name}${suffix}`, 'ally');
       finishJuggernaut();
       return;
     }
@@ -1350,6 +1591,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         recordPlayerKill();
         kills = tank.matchKills;
         el.kills.textContent = String(kills);
+        hudCache.kills = String(kills);
         if (activeMode.silverRewards) {
           const reward = computeKillReward(kills);
           addSilver(reward.totalSilver);
@@ -1364,8 +1606,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       }
 
       if (activeMode.roundsToWin > 0 && roundPhase === 'active') {
-        const aliveA = tanksOf('A').filter((t) => t.alive).length;
-        const aliveB = tanksOf('B').filter((t) => t.alive).length;
+        const aliveA = countAlive(teamATanks);
+        const aliveB = countAlive(teamBTanks);
         const rEval = evaluateRoundState(aliveA, aliveB, teamARounds, teamBRounds, activeMode.roundsToWin, activeMode.victoryRewardSilver);
         if (rEval.roundEnded && rEval.roundWinner) {
           teamARounds = rEval.teamARounds;
@@ -1374,6 +1616,7 @@ export function initGame(mountEl: HTMLElement): () => void {
           roundEndT = rEval.matchFinished ? 2.0 : 2.5;
           spectating = false;
           $('spectatorBar').classList.add('hidden');
+          hudCache.specVisible = false;
           $('dead').style.display = 'none';
           const winTxt = rEval.roundWinner === 'A' ? 'ПОБЕДА В РАУНДЕ!' : 'РАУНД ПРОИГРАН';
           showRoundBanner(`РАУНД ${roundNum}: ${winTxt} (${teamARounds} : ${teamBRounds})`, rEval.roundWinner === 'A' ? '#8fe36a' : '#ff6a4a');
@@ -1396,13 +1639,17 @@ export function initGame(mountEl: HTMLElement): () => void {
     feed(`${owner ? owner.name : '?'}  >  ${target.name}${suffix}`, target.team === 'A' ? 'ally' : 'enemy');
   }
 
-  function resolveTankCollisions() {
-    const list = allTanks().filter((t) => !t.isBoss);
-    const byId = new Map<string, Tank>();
-    for (const t of list) byId.set(getTankId(t), t);
+  const collisionById = new Map<string, Tank>();
+  const movedSet = new Set<Tank>();
+  const ramHitsToApply: Array<{ attacker: Tank; victim: Tank; damage: number }> = [];
 
-    const moved = new Set<Tank>();
-    const ramHitsToApply: Array<{ attacker: Tank; victim: Tank; damage: number }> = [];
+  function resolveTankCollisions() {
+    const list = nonBossTanks;
+    collisionById.clear();
+    for (let i = 0; i < list.length; i++) collisionById.set(getTankId(list[i]), list[i]);
+
+    movedSet.clear();
+    ramHitsToApply.length = 0;
 
     for (let pass = 0; pass < 2; pass++) {
       for (let i = 0; i < list.length; i++) {
@@ -1436,24 +1683,24 @@ export function initGame(mountEl: HTMLElement): () => void {
             a.root.position.x += res.dxA;
             a.root.position.z += res.dzA;
             a.speed *= res.speedFactorA;
-            moved.add(a);
+            movedSet.add(a);
           }
           if (res.dxB !== 0 || res.dzB !== 0) {
             b.root.position.x += res.dxB;
             b.root.position.z += res.dzB;
             b.speed *= res.speedFactorB;
-            moved.add(b);
+            movedSet.add(b);
           }
           for (const hit of res.ramHits) {
-            const attacker = byId.get(hit.attackerId);
-            const victim = byId.get(hit.victimId);
+            const attacker = collisionById.get(hit.attackerId);
+            const victim = collisionById.get(hit.victimId);
             if (attacker && victim) ramHitsToApply.push({ attacker, victim, damage: hit.damage });
           }
         }
       }
     }
 
-    for (const t of moved) {
+    for (const t of movedSet) {
       t.syncAfterCollision();
     }
 
@@ -1500,8 +1747,9 @@ export function initGame(mountEl: HTMLElement): () => void {
   function resolveBossRam() {
     if (!boss || !boss.alive || matchEnded) return;
     const bp = boss.tank.root.position;
-    for (const v of allTanks()) {
-      if (v.isBoss || !v.alive) continue;
+    for (let i = 0; i < nonBossTanks.length; i++) {
+      const v = nonBossTanks[i];
+      if (!v.alive) continue;
       const d = Math.hypot(v.root.position.x - bp.x, v.root.position.z - bp.z);
       if (d > BOSS_RAM_DISTANCE) continue;
       // Смертельный таран: любой танк погибает мгновенно (Маус урона не получает) → штатный респавн
@@ -1628,22 +1876,30 @@ export function initGame(mountEl: HTMLElement): () => void {
     tank.updateTurret(dt, aim.yaw, aim.elev);
     tank.root.updateMatrixWorld(true);
 
-    const teams = { A: tanksOf('A'), B: tanksOf('B') };
-    const foes = { A: teams.B, B: teams.A };
-    for (const b of bots) {
+    for (let i = 0; i < bots.length; i++) {
+      const b = bots[i];
       if (flags.ai) {
-        b.update(dt, foes[b.team], ballistics.fx, {
+        b.update(dt, b.team === 'A' ? teamBTanks : teamATanks, ballistics.fx, {
           respawns: activeMode.respawns,
           allowBotAccuracy: activeMode.allowBotAccuracy,
-          allies: teams[b.team],
+          allies: b.team === 'A' ? teamATanks : teamBTanks,
         });
       } else {
         b.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
       }
     }
 
-    if (boss && flags.ai) boss.update(dt, teams.A, ballistics.fx);
-    else if (boss) boss.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
+    if (boss && flags.ai) {
+      boss.update(dt, teamATanks, ballistics.fx, (victim) => {
+        if (victim === tank) {
+          shake = Math.max(shake, 1.1);
+          showMsg('МАУС СЖЁГ ВАС ОГНЕМЁТОМ!', '#ff6a4a');
+        }
+        handleTankDestroyed(victim, boss!.tank, ' [ОГНЕМЁТ]');
+      });
+    } else if (boss) {
+      boss.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
+    }
 
     resolveTankCollisions();
     resolveBossRam();
@@ -1697,21 +1953,40 @@ export function initGame(mountEl: HTMLElement): () => void {
             spectateIdx = spectateIdx % allies.length;
             spectateTarget = allies[spectateIdx];
           }
-          $('spectatorBar').classList.remove('hidden');
-          $('specTargetName').textContent = spectateTarget.name;
-          $('specTargetHp').textContent = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ХП)`;
+          if (!hudCache.specVisible) {
+            hudCache.specVisible = true;
+            el.specBar.classList.remove('hidden');
+          }
+          if (spectateTarget.name !== hudCache.specName) {
+            hudCache.specName = spectateTarget.name;
+            el.specName.textContent = spectateTarget.name;
+          }
+          const specHpTxt = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ХП)`;
+          if (specHpTxt !== hudCache.specHp) {
+            hudCache.specHp = specHpTxt;
+            el.specHp.textContent = specHpTxt;
+          }
         } else {
           spectating = false;
-          $('spectatorBar').classList.add('hidden');
+          if (hudCache.specVisible) {
+            hudCache.specVisible = false;
+            el.specBar.classList.add('hidden');
+          }
         }
       } else {
         spectating = false;
         deadEl.style.display = 'none';
-        $('spectatorBar').classList.add('hidden');
+        if (hudCache.specVisible) {
+          hudCache.specVisible = false;
+          el.specBar.classList.add('hidden');
+        }
       }
     } else {
       spectating = false;
-      $('spectatorBar').classList.add('hidden');
+      if (hudCache.specVisible) {
+        hudCache.specVisible = false;
+        el.specBar.classList.add('hidden');
+      }
     }
 
     if (msgT > 0) {
@@ -1758,6 +2033,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     get world() {
       return world;
     },
+    get boss() {
+      return boss;
+    },
     tank,
     ballistics,
     aim,
@@ -1785,6 +2063,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     removeEventListener('resize', onResize);
     audio.engineSilence();
     audio.music('off');
+    if (boss) boss.dispose();
     world.dispose();
     renderer.dispose();
   };

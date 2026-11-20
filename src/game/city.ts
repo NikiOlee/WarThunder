@@ -527,6 +527,15 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
   }
   let time = 0;
 
+  const cloudSet = new Set<THREE.Object3D>(clouds);
+  const plumeSet = new Set<THREE.Object3D>(plumes.map((p) => p.sp));
+  for (const child of root.children) {
+    if (child !== sky && child !== sun && child !== sun.target && !cloudSet.has(child) && !plumeSet.has(child)) {
+      child.matrixAutoUpdate = false;
+      child.updateMatrix();
+    }
+  }
+
   function update(camPos: THREE.Vector3, focus: THREE.Vector3, dt = 0.016) {
     sky.position.copy(camPos);
     sun.target.position.copy(focus);

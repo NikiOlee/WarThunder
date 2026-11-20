@@ -123,7 +123,7 @@ export function normalAt(x: number, z: number, out = new THREE.Vector3()): THREE
 }
 
 const AXES = ['x', 'y', 'z'] as const;
-function rayBox(o: THREE.Vector3, d: THREE.Vector3, len: number, box: ObstacleBox) {
+function rayBox(o: THREE.Vector3, d: THREE.Vector3, len: number, box: ObstacleBox, outNormal: THREE.Vector3): number | null {
   let tmin = 0;
   let tmax = len;
   let nAxis: 'x' | 'y' | 'z' | null = null;
@@ -153,12 +153,9 @@ function rayBox(o: THREE.Vector3, d: THREE.Vector3, len: number, box: ObstacleBo
     if (t2 < tmax) tmax = t2;
     if (tmin > tmax) return null;
   }
-  const n = new THREE.Vector3(0, 1, 0);
-  if (nAxis) {
-    n.set(0, 0, 0);
-    n[nAxis] = nSign;
-  }
-  return { t: tmin, normal: n };
+  outNormal.set(0, nAxis ? 0 : 1, 0);
+  if (nAxis) outNormal[nAxis] = nSign;
+  return tmin;
 }
 
 export function makeCanvas(w: number, h: number): HTMLCanvasElement {
@@ -210,6 +207,10 @@ export function makeQueries(
 ) {
   const _dir = new THREE.Vector3();
   const _p = new THREE.Vector3();
+  const _ra = new THREE.Vector3();
+  const _rb = new THREE.Vector3();
+  const _tmpN = new THREE.Vector3();
+  const _bestN = new THREE.Vector3();
   const CELL = 24;
   const grid = new Map<number, ObstacleBox[]>();
   const out: ObstacleBox[] = [];
@@ -289,31 +290,45 @@ export function makeQueries(
     const len = _dir.length();
     if (len < 1e-7) return null;
     _dir.multiplyScalar(1 / len);
-    let best: { t: number; normal: THREE.Vector3; kind: 'ground' | 'obstacle'; obstacle: ObstacleBox | null } | null = null;
+    let bestT = Infinity;
+    let bestKind: 'ground' | 'obstacle' = 'ground';
+    let bestObstacle: ObstacleBox | null = null;
+    let hasBest = false;
     const cand = near(Math.min(a.x, b.x), Math.min(a.z, b.z), Math.max(a.x, b.x), Math.max(a.z, b.z));
     for (const o of cand) {
-      const r = rayBox(a, _dir, len, o);
-      if (r && (!best || r.t < best.t)) best = { t: r.t, normal: r.normal, kind: 'obstacle', obstacle: o };
+      const rt = rayBox(a, _dir, len, o, _tmpN);
+      if (rt !== null && (!hasBest || rt < bestT)) {
+        bestT = rt;
+        _bestN.copy(_tmpN);
+        bestKind = 'obstacle';
+        bestObstacle = o;
+        hasBest = true;
+      }
     }
-    const tt = segmentTerrain(a, _dir, best ? best.t : len, step);
+    const tt = segmentTerrain(a, _dir, hasBest ? bestT : len, step);
     if (tt !== null) {
       _p.copy(a).addScaledVector(_dir, tt);
-      best = { t: tt, normal: nFn(_p.x, _p.z), kind: 'ground', obstacle: null };
+      bestT = tt;
+      nFn(_p.x, _p.z, _bestN);
+      bestKind = 'ground';
+      bestObstacle = null;
+      hasBest = true;
     }
-    if (!best) return null;
+    if (!hasBest) return null;
     return {
-      ...best,
-      point: new THREE.Vector3().copy(a).addScaledVector(_dir, best.t),
+      t: bestT,
+      normal: _bestN.clone(),
+      kind: bestKind,
+      obstacle: bestObstacle,
+      point: new THREE.Vector3().copy(a).addScaledVector(_dir, bestT),
     };
   }
 
   function raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist = 2500): WorldHit | null {
-    const a = new THREE.Vector3();
-    const b = new THREE.Vector3();
     for (let t0 = 0; t0 < maxDist; t0 += 64) {
-      a.copy(origin).addScaledVector(dir, t0);
-      b.copy(origin).addScaledVector(dir, Math.min(t0 + 64, maxDist));
-      const h = segmentHit(a, b, t0 < 300 ? 2 : 5);
+      _ra.copy(origin).addScaledVector(dir, t0);
+      _rb.copy(origin).addScaledVector(dir, Math.min(t0 + 64, maxDist));
+      const h = segmentHit(_ra, _rb, t0 < 300 ? 2 : 5);
       if (h) {
         h.dist = t0 + h.t;
         return h;
@@ -698,6 +713,16 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     rocks.count = rc;
     rocks.computeBoundingSphere();
     root.add(rocks);
+  }
+
+  // Freeze static terrain, buildings, trees, grass, and rocks matrices so Three.js skips recomputing them each frame
+  terrain.matrixAutoUpdate = false;
+  terrain.updateMatrix();
+  for (const child of root.children) {
+    if (child !== sky && child !== sun && child !== sun.target && !clouds.includes(child as THREE.Group)) {
+      child.matrixAutoUpdate = false;
+      child.updateMatrix();
+    }
   }
 
   const q = makeQueries(obstacles, heightAt, normalAt);

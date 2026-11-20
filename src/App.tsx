@@ -117,6 +117,12 @@ export default function App() {
           <div id="bossFill" />
           <div id="bossHpText" className="boss-hp" />
         </div>
+        <div className="boss-flame-wrap">
+          <div id="bossFlameFill" />
+          <div id="bossFlameText" className="boss-flame-txt">
+            ОГНЕМЁТ
+          </div>
+        </div>
       </div>
       <div id="victoryBanner" className="hud hidden" data-testid="victory-banner" />
       <div id="spectatorBar" className="hud hidden" data-testid="spectator-bar">

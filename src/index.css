@@ -141,6 +141,33 @@ body.menu #spectatorBar {
   color: #fff;
   text-shadow: 0 0 4px #000;
 }
+.boss-flame-wrap {
+  position: relative;
+  height: 14px;
+  margin-top: 5px;
+  background: rgba(10, 8, 8, 0.85);
+  border: 1px solid #d9822b;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
+}
+#bossFlameFill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #ff9922, #ff3a1a);
+  transition: width 0.08s linear;
+}
+#bossFlameFill.overheat {
+  background: linear-gradient(90deg, #ff3a1a, #ff7b4a);
+}
+.boss-flame-txt {
+  position: absolute;
+  inset: 0;
+  line-height: 14px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: #fff;
+  text-shadow: 0 0 3px #000;
+}
 
 #victoryBanner {
   left: 50%;
@@ -162,8 +189,8 @@ body.menu #spectatorBar {
 #help {
   left: 14px;
   top: 12px;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.5;
   opacity: 0.82;
 }
 

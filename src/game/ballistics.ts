@@ -209,9 +209,15 @@ const M60_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.78, 1.04, -3.42), max: new THREE.Vector3(-1.05, 1.78, -1.25) },
   { part: 'fuel', min: new THREE.Vector3(-1.35, 1.08, -3.62), max: new THREE.Vector3(1.35, 1.78, -2.85) },
 ];
+const MAUS_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
+  { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
+  { part: 'trackR', min: new THREE.Vector3(-1.88, 0.03, -4.35), max: new THREE.Vector3(-1.18, 0.92, 4.15) },
+];
 // Turret-space hitbox (rotates with turretGroup!)
 const TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.35, 0.0, -1.85), max: new THREE.Vector3(1.35, 1.15, 1.6) };
 const M60_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.42, 0.0, -2.25), max: new THREE.Vector3(1.42, 1.32, 1.85) };
+const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
   part: 'barrel',
@@ -219,22 +225,35 @@ const BARREL_BOX: HitBox = {
   max: new THREE.Vector3(BARREL_HITBOX_BOUNDS.max.x, BARREL_HITBOX_BOUNDS.max.y, BARREL_HITBOX_BOUNDS.max.z),
 };
 
-function slab(o: THREE.Vector3, d: THREE.Vector3, len: number, box: HitBox) {
+const _slabN = new THREE.Vector3();
+const _la = new THREE.Vector3();
+const _lb = new THREE.Vector3();
+const _ld = new THREE.Vector3();
+const _ta = new THREE.Vector3();
+const _tb = new THREE.Vector3();
+const _td = new THREE.Vector3();
+const _ga = new THREE.Vector3();
+const _gb = new THREE.Vector3();
+const _gd = new THREE.Vector3();
+const _bestN = new THREE.Vector3();
+const _bestLd = new THREE.Vector3();
+
+function slab(o: THREE.Vector3, d: THREE.Vector3, len: number, box: HitBox, outN: THREE.Vector3): number | null {
   let tmin = 0;
   let tmax = len;
   let ax = -1;
   let sg = 0;
-  const oo = [o.x, o.y, o.z];
-  const dd = [d.x, d.y, d.z];
-  const mn = [box.min.x, box.min.y, box.min.z];
-  const mx = [box.max.x, box.max.y, box.max.z];
   for (let i = 0; i < 3; i++) {
-    if (Math.abs(dd[i]) < 1e-9) {
-      if (oo[i] < mn[i] || oo[i] > mx[i]) return null;
+    const oi = i === 0 ? o.x : i === 1 ? o.y : o.z;
+    const di = i === 0 ? d.x : i === 1 ? d.y : d.z;
+    const mni = i === 0 ? box.min.x : i === 1 ? box.min.y : box.min.z;
+    const mxi = i === 0 ? box.max.x : i === 1 ? box.max.y : box.max.z;
+    if (Math.abs(di) < 1e-9) {
+      if (oi < mni || oi > mxi) return null;
       continue;
     }
-    let t1 = (mn[i] - oo[i]) / dd[i];
-    let t2 = (mx[i] - oo[i]) / dd[i];
+    let t1 = (mni - oi) / di;
+    let t2 = (mxi - oi) / di;
     let s = -1;
     if (t1 > t2) {
       const x = t1;
@@ -250,12 +269,9 @@ function slab(o: THREE.Vector3, d: THREE.Vector3, len: number, box: HitBox) {
     if (t2 < tmax) tmax = t2;
     if (tmin > tmax) return null;
   }
-  const n = new THREE.Vector3(0, 1, 0);
-  if (ax >= 0) {
-    n.set(0, 0, 0);
-    n.setComponent(ax, sg);
-  }
-  return { t: tmin, n };
+  outN.set(0, ax < 0 ? 1 : 0, 0);
+  if (ax >= 0) outN.setComponent(ax, sg);
+  return tmin;
 }
 
 export interface TankHitEvent {
@@ -407,14 +423,10 @@ export class BallisticsSystem {
     if (len < 1e-7) return null;
     dir.multiplyScalar(1 / len);
 
-    let best: {
-      t: number;
-      n: THREE.Vector3;
-      part: HitPart;
-      tank: Tank;
-      ld: THREE.Vector3;
-      frame: 'root' | 'turret' | 'gun';
-    } | null = null;
+    let bestT = Infinity;
+    let bestPart: HitPart = 'hull';
+    let bestTank: Tank | null = null;
+    let bestFrame: 'root' | 'turret' | 'gun' = 'root';
 
     for (const t of this.targets) {
       if (!t.alive || t === p.owner || (p.owner && t.team === p.owner.team)) continue;
@@ -423,68 +435,84 @@ export class BallisticsSystem {
       const ig = this._invGun.get(t);
       if (!inv || !it || !ig) continue;
 
-      const hullBoxes = t.spec.id === 'm60a3' ? M60_HULL_BOXES : HULL_BOXES;
-      const turretBox = t.spec.id === 'm60a3' ? M60_TURRET_BOX : TURRET_BOX;
+      const isMaus = t.spec.id === 'maus';
+      const hullBoxes = isMaus ? MAUS_HULL_BOXES : t.spec.id === 'm60a3' ? M60_HULL_BOXES : HULL_BOXES;
+      const turretBox = isMaus ? MAUS_TURRET_BOX : t.spec.id === 'm60a3' ? M60_TURRET_BOX : TURRET_BOX;
 
-      const la = a.clone().applyMatrix4(inv);
-      const lb = b.clone().applyMatrix4(inv);
-      const ld = lb.clone().sub(la);
-      const ll = ld.length();
+      _la.copy(a).applyMatrix4(inv);
+      _lb.copy(b).applyMatrix4(inv);
+      _ld.subVectors(_lb, _la);
+      const ll = _ld.length();
       if (ll > 1e-7) {
-        ld.multiplyScalar(1 / ll);
+        _ld.multiplyScalar(1 / ll);
         for (const box of hullBoxes) {
-          const r = slab(la, ld, ll, box);
-          if (r && (!best || r.t < best.t - 0.02 || (Math.abs(r.t - best.t) <= 0.02 && box.part === 'fuel'))) {
-            best = { t: r.t, n: r.n, part: box.part, tank: t, ld: ld.clone(), frame: 'root' };
+          const rt = slab(_la, _ld, ll, box, _slabN);
+          if (rt !== null && (!bestTank || rt < bestT - 0.02 || (Math.abs(rt - bestT) <= 0.02 && box.part === 'fuel'))) {
+            bestT = rt;
+            _bestN.copy(_slabN);
+            bestPart = box.part;
+            bestTank = t;
+            _bestLd.copy(_ld);
+            bestFrame = 'root';
           }
         }
       }
 
-      const ta = a.clone().applyMatrix4(it);
-      const tb = b.clone().applyMatrix4(it);
-      const td = tb.clone().sub(ta);
-      const tl = td.length();
+      _ta.copy(a).applyMatrix4(it);
+      _tb.copy(b).applyMatrix4(it);
+      _td.subVectors(_tb, _ta);
+      const tl = _td.length();
       if (tl > 1e-7) {
-        td.multiplyScalar(1 / tl);
-        const r = slab(ta, td, tl, turretBox);
-        if (r && (!best || r.t < best.t)) {
-          best = { t: r.t, n: r.n, part: 'turret', tank: t, ld: td.clone(), frame: 'turret' };
+        _td.multiplyScalar(1 / tl);
+        const rt = slab(_ta, _td, tl, turretBox, _slabN);
+        if (rt !== null && (!bestTank || rt < bestT)) {
+          bestT = rt;
+          _bestN.copy(_slabN);
+          bestPart = 'turret';
+          bestTank = t;
+          _bestLd.copy(_td);
+          bestFrame = 'turret';
         }
       }
 
-      const ga = a.clone().applyMatrix4(ig);
-      const gb = b.clone().applyMatrix4(ig);
-      const gd = gb.clone().sub(ga);
-      const gl = gd.length();
+      _ga.copy(a).applyMatrix4(ig);
+      _gb.copy(b).applyMatrix4(ig);
+      _gd.subVectors(_gb, _ga);
+      const gl = _gd.length();
       if (gl > 1e-7) {
-        gd.multiplyScalar(1 / gl);
-        const r = slab(ga, gd, gl, BARREL_BOX);
-        if (r && (!best || r.t < best.t + (best.part === 'turret' ? 0.12 : 0))) {
-          best = { t: r.t, n: r.n, part: 'barrel', tank: t, ld: gd.clone(), frame: 'gun' };
+        _gd.multiplyScalar(1 / gl);
+        const rt = slab(_ga, _gd, gl, BARREL_BOX, _slabN);
+        if (rt !== null && (!bestTank || rt < bestT + (bestPart === 'turret' ? 0.12 : 0))) {
+          bestT = rt;
+          _bestN.copy(_slabN);
+          bestPart = 'barrel';
+          bestTank = t;
+          _bestLd.copy(_gd);
+          bestFrame = 'gun';
         }
       }
     }
 
-    if (!best) return null;
-    const t = best.tank;
+    if (!bestTank) return null;
+    const t = bestTank;
     const q =
-      best.frame === 'gun'
+      bestFrame === 'gun'
         ? t.gunPivot.getWorldQuaternion(this._q2)
-        : best.frame === 'turret'
+        : bestFrame === 'turret'
           ? t.turretGroup.getWorldQuaternion(this._q2)
           : t.root.getWorldQuaternion(this._q2);
-    const wn = best.n.clone().applyQuaternion(q);
-    const point = new THREE.Vector3().copy(a).addScaledVector(dir, best.t);
+    const wn = _bestN.clone().applyQuaternion(q);
+    const point = new THREE.Vector3().copy(a).addScaledVector(dir, bestT);
     const inv = this._inv.get(t)!;
     const lp = point.clone().applyMatrix4(inv);
     const ldRoot = dir.clone().transformDirection(inv);
 
-    let zone: string = best.part;
-    // Also detect internal rear-side fuel cell penetration inside hull rear corners
-    if (best.part === 'fuel' || (best.part === 'hull' && lp.z < -1.35 && Math.abs(lp.x) > 0.85 && lp.y > 0.85)) {
+    let zone: string = bestPart;
+    // Also detect internal rear-side fuel cell penetration inside hull rear corners (not on Maus)
+    if (bestPart === 'fuel' || (!t.isBoss && bestPart === 'hull' && lp.z < -1.35 && Math.abs(lp.x) > 0.85 && lp.y > 0.85)) {
       zone = 'fuel';
     }
-    return { kind: 'tank' as const, t: best.t, point, normal: wn, ln: best.n, ld: best.ld, part: best.part, zone, lp, ldRoot, tank: t };
+    return { kind: 'tank' as const, t: bestT, point, normal: wn, ln: _bestN.clone(), ld: _bestLd.clone(), part: bestPart, zone, lp, ldRoot, tank: t };
   }
 
   private _tankImpact(p: Projectile, hit: NonNullable<ReturnType<BallisticsSystem['_targetHit']>>) {
@@ -956,11 +984,22 @@ export class BallisticsSystem {
       this.light.intensity = 160 * this.lightT * this.lightT;
     }
     const lim = this.world.size * 0.6;
-    for (const t of this.targets) {
-      t.root.updateMatrixWorld(true);
-      this._inv.set(t, new THREE.Matrix4().copy(t.root.matrixWorld).invert());
-      this._invTurret.set(t, new THREE.Matrix4().copy(t.turretGroup.matrixWorld).invert());
-      this._invGun.set(t, new THREE.Matrix4().copy(t.gunPivot.matrixWorld).invert());
+    if (this.projectiles.length > 0) {
+      for (const t of this.targets) {
+        if (!t.alive) continue;
+        t.root.updateMatrixWorld(true);
+        let mInv = this._inv.get(t);
+        if (!mInv) this._inv.set(t, (mInv = new THREE.Matrix4()));
+        mInv.copy(t.root.matrixWorld).invert();
+
+        let mTur = this._invTurret.get(t);
+        if (!mTur) this._invTurret.set(t, (mTur = new THREE.Matrix4()));
+        mTur.copy(t.turretGroup.matrixWorld).invert();
+
+        let mGun = this._invGun.get(t);
+        if (!mGun) this._invGun.set(t, (mGun = new THREE.Matrix4()));
+        mGun.copy(t.gunPivot.matrixWorld).invert();
+      }
     }
 
     for (let i = this.projectiles.length - 1; i >= 0; i--) {

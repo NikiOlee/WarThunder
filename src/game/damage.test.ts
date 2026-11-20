@@ -136,3 +136,13 @@ test('Expanded zone around barrel and muzzle counts as barrel hit', () => {
   assert.equal(barrelHit.result, 'barrel');
   assert.ok(barrelHit.damage > 0);
 });
+
+test('Juggernaut Maus spec has 4000 HP (+3000), -5% speed/turret traverse, and 8.5s reload', () => {
+  const maus = getTankSpec('maus');
+  assert.equal(maus.id, 'maus');
+  assert.equal(maus.maxHp, 4000);
+  assert.ok(Math.abs(maus.maxSpeedKmh - 20.9) < 1e-6);
+  assert.ok(Math.abs(maus.maxSpeed - (22 * 0.95) / 3.6) < 1e-6);
+  assert.ok(Math.abs(maus.traverseRate - 16 * 0.95 * (Math.PI / 180)) < 1e-6);
+  assert.equal(maus.reload, 8.5);
+});

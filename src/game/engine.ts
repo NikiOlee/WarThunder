@@ -8,6 +8,7 @@ import { JuggernautBoss, BOSS_RAM_DISTANCE } from './boss';
 import { settings, onSettings, setSetting, type GameSettings } from './settings';
 import { audio } from './audio';
 import { HitCam } from './hitcam';
+import { Minimap } from './minimap';
 import { GameConsole, type ConsoleGameAPI } from './console';
 import { createUI } from './ui';
 import { getSelectedTankId, DEFAULT_TANK_ID } from './tanks';
@@ -274,6 +275,8 @@ export function initGame(mountEl: HTMLElement): () => void {
   let binocFrozen = false;
 
   const hitcam = new HitCam($<HTMLCanvasElement>('hitcam'));
+  const minimap = new Minimap($<HTMLCanvasElement>('minimap'));
+  minimap.setWorld(world);
 
   function applyGraphics() {
     const sun = world.sun;
@@ -357,6 +360,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
     for (const b of bots) b.respawn();
     if (boss) boss.respawn();
+    minimap.setWorld(world);
     battleStarted = false;
   }
 
@@ -448,9 +452,19 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('msg').style.opacity = '0';
     $('msg').textContent = '';
     updateModeScoreHud();
+    minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
     const activeMode = getModeDef(currentModeId);
     if (activeMode.roundsToWin > 0) {
       showMsg(`РАУНД ${roundNum}`, '#ffd27a');
+    }
+  }
+
+  function syncBattleMusic() {
+    const activeMode = getModeDef(currentModeId);
+    if (state === 'play' && !matchEnded && activeMode.boss && boss && boss.alive) {
+      audio.music('boss');
+    } else if (state === 'play') {
+      audio.music('off');
     }
   }
 
@@ -473,6 +487,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('feed').innerHTML = '';
     startRound(true);
     battleStarted = true;
+    syncBattleMusic();
   }
 
   function spawnBot(team: 'A' | 'B') {
@@ -513,10 +528,12 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (type === 'tracks') t.immobilize(10);
     else if (type === 'gun') t.disableGun(10);
     else if (type === 'fuel' || type === 'crit') {
+      if (!t.alive) return;
       t.destroy(true);
       const p = t.root.position;
       ballistics.fx.emit({ additive: true, x: p.x, y: p.y + 2, z: p.z, life: 0.8, s0: 10, s1: 30, r: 1, g: 0.6, b: 0.2, a: 1 });
       audio.play(type === 'fuel' ? 'fuelExplosion' : 'bigexplosion', p);
+      handleTankDestroyed(t, null, type === 'fuel' ? ' [БЕНЗОБАК]' : '');
     }
   }
 
@@ -599,9 +616,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     document.body.className = 'play';
     document.body.dataset.state = 'playing';
     ui.show(null);
-    audio.music('off');
+    syncBattleMusic();
     resizeScope();
     applyGraphics();
+    minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
     tryLock();
   }
 
@@ -613,6 +631,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     locked = false;
     for (const k in keys) keys[k] = false;
     audio.engineSilence();
+    audio.music('off');
     document.body.dataset.state = 'paused';
     ui.show('pause');
   }
@@ -622,6 +641,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     state = 'play';
     document.body.dataset.state = 'playing';
     ui.show(null);
+    syncBattleMusic();
     tryLock();
   }
 
@@ -975,17 +995,28 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   const scopeCv = $<HTMLCanvasElement>('scope');
   const sctx = scopeCv.getContext('2d')!;
+  const scopeState = {
+    key: '',
+  };
   function resizeScope() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     scopeCv.width = innerWidth * dpr;
     scopeCv.height = innerHeight * dpr;
     sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    scopeState.key = '';
   }
   resizeScope();
 
   function drawScope() {
     const W = innerWidth;
     const H = innerHeight;
+    const scopeBroken = tank.gunDownT > 0;
+    const scopeFracPct = Math.round(tank.reloadFraction * 100);
+    const rLabel = scopeBroken ? Math.ceil(tank.gunDownT) + 'с' : tank.ready ? 'ГОТОВ' : tank.reloadTimer.toFixed(1);
+    const fovRound = Math.round(fovCur * 20);
+    const key = `${W}x${H}|${mode}|${fovRound}|${scopeBroken ? 1 : 0}|${scopeFracPct}|${rLabel}`;
+    if (key === scopeState.key) return;
+    scopeState.key = key;
     const cx = W / 2;
     const cy = H / 2;
     const R = Math.min(W, H) * 0.47;
@@ -1510,6 +1541,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     for (const k in keys) keys[k] = false;
     if (document.pointerLockElement) document.exitPointerLock();
     audio.engineSilence();
+    audio.musicFadeOut(0.45);
     if (victorySilver > 0) {
       addSilver(victorySilver);
       matchSilverEarned += victorySilver;
@@ -1541,6 +1573,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   function finishJuggernaut() {
     if (matchEnded) return;
     matchEnded = true;
+    audio.musicFadeOut(0.45);
     const reward = getModeDef(currentModeId).victoryRewardSilver;
     addSilver(reward); // сохраняется в localStorage сразу
     matchSilverEarned += reward;
@@ -1883,6 +1916,7 @@ export function initGame(mountEl: HTMLElement): () => void {
           respawns: activeMode.respawns,
           allowBotAccuracy: activeMode.allowBotAccuracy,
           allies: b.team === 'A' ? teamATanks : teamBTanks,
+          rushBoss: !!activeMode.boss,
         });
       } else {
         b.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
@@ -2011,6 +2045,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
     audio.engineUpdate(Math.abs(tank.speed) / tank.stats.maxSpeed, input.throttle, tank.alive && !spectating);
     updateHud(dt);
+    minimap.update(allTanksList, tank, cam.yaw, spectateTarget, dt);
     hitcam.draw(dt);
     render();
     scheduleNext();

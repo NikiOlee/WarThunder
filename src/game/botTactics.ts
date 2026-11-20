@@ -136,6 +136,8 @@ export interface EngagementDriveInput {
   reloadTimer: number;
   yawErr: number;
   canSeeTarget: boolean;
+  rushBoss?: boolean;
+  botIndex?: number;
 }
 
 export interface EngagementDriveOutput {
@@ -145,8 +147,8 @@ export interface EngagementDriveOutput {
 }
 
 /**
- * Keeps bots inside the aggressive 90–200m lethal sweet-spot, flanking head-on
- * 200mm frontal armor and pushing confidently instead of parking at 320–360m.
+ * Keeps bots aggressively pushing and firing on the move (never stopping to shoot).
+ * When rushBoss=true (Juggernaut), bots swarm the Maus from varied flanking angles.
  */
 export function computeEngagementDrive(inp: EngagementDriveInput): EngagementDriveOutput {
   const range = Math.hypot(inp.dx, inp.dz);
@@ -158,9 +160,35 @@ export function computeEngagementDrive(inp: EngagementDriveInput): EngagementDri
   const frontDot = toBotX * Math.sin(inp.targetHeading) + toBotZ * Math.cos(inp.targetHeading);
   const headOn = frontDot > 0.65;
 
+  if (inp.rushBoss) {
+    // Meat-grinder rush against Maus: swarm from different angles at full speed and fire continuously
+    const spreadSlot = (inp.botIndex ?? 0) % 3;
+    if (!inp.canSeeTarget || range > 65) {
+      const spread = inp.flankSign * (0.18 + spreadSlot * 0.2);
+      return {
+        desiredHeading: wrapPi(directYaw + spread),
+        throttle: 1.0,
+        brake: false,
+      };
+    }
+    if (range > 26) {
+      const orbitOffset = inp.flankSign * (0.65 + spreadSlot * 0.16);
+      return {
+        desiredHeading: wrapPi(directYaw + orbitOffset),
+        throttle: 1.0,
+        brake: false,
+      };
+    }
+    return {
+      desiredHeading: wrapPi(directYaw + inp.flankSign * 1.15),
+      throttle: 0.92,
+      brake: false,
+    };
+  }
+
   if (!inp.canSeeTarget || range > 205) {
     // Push aggressively into 90–200m range along an offset flank line
-    const offset = inp.flankSign * (headOn ? 0.48 : 0.28);
+    const offset = inp.flankSign * (headOn ? 0.45 : 0.25);
     return {
       desiredHeading: wrapPi(directYaw + offset),
       throttle: 1.0,
@@ -169,44 +197,132 @@ export function computeEngagementDrive(inp: EngagementDriveInput): EngagementDri
   }
 
   if (range >= 90) {
-    // Sweet spot: 90–200m. Slow down briefly only when gun is ready and close to target lock;
-    // otherwise keep maneuvering around target's flank!
-    const readyToShoot = inp.reloadTimer <= 0.35 && inp.yawErr < 0.14;
-    if (readyToShoot) {
-      return {
-        desiredHeading: wrapPi(directYaw + inp.flankSign * 0.55),
-        throttle: 0.15,
-        brake: false,
-      };
-    }
-    const flankOffset = inp.flankSign * (headOn ? 0.72 : 0.48);
+    // Sweet spot: stay at full combat speed & fire on the move without braking!
+    const flankOffset = inp.flankSign * (headOn ? 0.65 : 0.42);
     return {
       desiredHeading: wrapPi(directYaw + flankOffset),
-      throttle: 0.78,
+      throttle: 0.92,
       brake: false,
     };
   }
 
-  // Close brawl (< 90m): orbit aggressively at ~70–85 deg to hit thin side/rear/fuel armor
+  // Close brawl (< 90m): orbit aggressively at ~55–68 deg to hit thin side/rear armor at full speed
   if (range > 34) {
     return {
-      desiredHeading: wrapPi(directYaw + inp.flankSign * 1.15),
-      throttle: 0.68,
+      desiredHeading: wrapPi(directYaw + inp.flankSign * 0.98),
+      throttle: 0.88,
       brake: false,
     };
   }
 
-  // Only ease back slightly if almost touching (< 34m) while reloading
   return {
-    desiredHeading: wrapPi(directYaw + inp.flankSign * 1.25),
-    throttle: inp.reloadTimer > 0.6 ? -0.45 : 0.35,
+    desiredHeading: wrapPi(directYaw + inp.flankSign * 1.18),
+    throttle: 0.82,
     brake: false,
   };
 }
 
+export interface AntiStuckState {
+  checkTimer: number;
+  anchorX: number;
+  anchorZ: number;
+  prevHeading: number;
+  headingAccum: number;
+  reverseT: number;
+  escapeT: number;
+  avoidSign: number;
+}
+
+export function createAntiStuckState(x: number, z: number, heading: number, avoidSign = 1): AntiStuckState {
+  return {
+    checkTimer: 0,
+    anchorX: x,
+    anchorZ: z,
+    prevHeading: heading,
+    headingAccum: 0,
+    reverseT: 0,
+    escapeT: 0,
+    avoidSign: avoidSign >= 0 ? 1 : -1,
+  };
+}
+
+export interface AntiStuckStepResult {
+  reversing: boolean;
+  escaping: boolean;
+  overrideThrottle: number | null;
+  overrideSteer: number | null;
+}
+
 /**
- * Computes angular tolerance for firing so bots shoot decisively whenever
- * the barrel is genuinely aligned with the enemy tank silhouette.
+ * Prevents bots from spinning in place or staying wedged against walls:
+ * if net displacement over ~1.15s is < 2.2m (or bot pirouettes without advancing),
+ * automatically reverses, turns the hull, and commits to driving clear.
+ */
+export function stepAntiStuck(
+  state: AntiStuckState,
+  x: number,
+  z: number,
+  heading: number,
+  dt: number,
+): AntiStuckStepResult {
+  const safeDt = Math.max(0, dt);
+  state.headingAccum += Math.abs(wrapPi(heading - state.prevHeading));
+  state.prevHeading = heading;
+
+  if (state.reverseT > 0) {
+    state.reverseT = Math.max(0, state.reverseT - safeDt);
+    return {
+      reversing: true,
+      escaping: false,
+      overrideThrottle: -1,
+      overrideSteer: state.avoidSign,
+    };
+  }
+
+  if (state.escapeT > 0) {
+    state.escapeT = Math.max(0, state.escapeT - safeDt);
+    return {
+      reversing: false,
+      escaping: true,
+      overrideThrottle: 1,
+      overrideSteer: state.avoidSign * 0.55,
+    };
+  }
+
+  state.checkTimer += safeDt;
+  if (state.checkTimer >= 1.15) {
+    const moved = Math.hypot(x - state.anchorX, z - state.anchorZ);
+    const stuckInPlace = moved < 2.2;
+    const spinningInCircle = state.headingAccum > 2.2 && moved < 6.5;
+    state.checkTimer = 0;
+    state.headingAccum = 0;
+    state.anchorX = x;
+    state.anchorZ = z;
+
+    if (stuckInPlace || spinningInCircle) {
+      state.avoidSign = -state.avoidSign;
+      state.reverseT = 1.05;
+      state.escapeT = 0.9;
+      return {
+        reversing: true,
+        escaping: false,
+        overrideThrottle: -1,
+        overrideSteer: state.avoidSign,
+      };
+    }
+  }
+
+  return {
+    reversing: false,
+    escaping: false,
+    overrideThrottle: null,
+    overrideSteer: null,
+  };
+}
+
+/**
+ * Computes angular tolerance for firing so bots shoot decisively on the move
+ * whenever the barrel is genuinely aligned with the enemy tank silhouette.
  */
 export function computeShotGate(params: {
   range: number;
@@ -221,8 +337,8 @@ export function computeShotGate(params: {
     return false;
   }
   const safeRange = Math.max(20, range);
-  const maxYaw = Math.max(0.032, Math.atan2(1.85, safeRange) * 1.35);
-  const maxElev = Math.max(0.028, Math.atan2(1.25, safeRange) * 1.35);
+  const maxYaw = Math.max(0.036, Math.atan2(2.05, safeRange) * 1.42);
+  const maxElev = Math.max(0.032, Math.atan2(1.4, safeRange) * 1.42);
   return yawErr <= maxYaw && elevErr <= maxElev;
 }
 

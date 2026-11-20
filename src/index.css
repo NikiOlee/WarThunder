@@ -339,9 +339,19 @@ body.menu #spectatorBar {
   background: #8fe36a;
 }
 
+#minimap {
+  left: 14px;
+  bottom: 98px;
+  width: 156px;
+  height: 156px;
+  background: rgba(12, 16, 10, 0.85);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.72);
+  z-index: 4;
+}
+
 #dmgStat {
   left: 14px;
-  bottom: 100px;
+  bottom: 264px;
   font-size: 13px;
   color: #ff9a6a;
   line-height: 1.5;

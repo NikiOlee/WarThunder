@@ -8,8 +8,11 @@ import {
   computeEngagementDrive,
   computeShotGate,
   computeWeakspotAimOffset,
+  createAntiStuckState,
   pickBestTarget,
   pickCombatSectorWaypoint,
+  stepAntiStuck,
+  type AntiStuckState,
   type SectorAlly,
   type SectorEnemy,
   type TargetCandidate,
@@ -74,6 +77,7 @@ export interface BotUpdateOptions {
   respawns?: boolean;
   allowBotAccuracy?: boolean;
   allies?: Tank[];
+  rushBoss?: boolean;
 }
 
 export class Bot {
@@ -95,10 +99,7 @@ export class Bot {
   flankSign: number;
   flankFlipT: number;
   avoid = 1;
-  reverseT = 0;
-  stuckT = 0;
-  lastPos: THREE.Vector3;
-  stuckCheck = 0;
+  antiStuck: AntiStuckState;
   noiseYaw = 0;
   noiseElev = 0;
   noiseT = 0;
@@ -107,6 +108,9 @@ export class Bot {
   private _a = new THREE.Vector3();
   private _b = new THREE.Vector3();
   private _d = new THREE.Vector3();
+  private _candidates: Array<TargetCandidate & { tank: Tank }> = [];
+  private _aliveEnemies: SectorEnemy[] = [];
+  private _sectorAllies: SectorAlly[] = [];
 
   constructor(scene: THREE.Scene, world: GameWorld, ballistics: BallisticsSystem, team: 'A' | 'B', index: number) {
     this.world = world;
@@ -141,7 +145,7 @@ export class Bot {
     this.flankFlipT = rnd(6, 12);
     this.thinkT = Math.random() * 0.35;
     this.obj = this._newObjective();
-    this.lastPos = this.tank.root.position.clone();
+    this.antiStuck = createAntiStuckState(this.tank.root.position.x, this.tank.root.position.z, this.tank.heading, index % 2 === 0 ? 1 : -1);
     this.baseSkill = rnd(0.88, 1.18);
     this.skill = this.baseSkill;
   }
@@ -163,9 +167,7 @@ export class Bot {
     this.deadT = 0;
     this.obj = this._newObjective();
     this.sectorT = 0;
-    this.reverseT = 0;
-    this.stuckCheck = 0;
-    this.lastPos.copy(this.tank.root.position);
+    this.antiStuck = createAntiStuckState(this.tank.root.position.x, this.tank.root.position.z, this.tank.heading, this.avoid);
   }
 
   private _blocked(angle: number, dist: number): boolean {
@@ -188,17 +190,20 @@ export class Bot {
     return !this.world.raycast(this._a, this._d, Math.max(0.5, dist - 3.5));
   }
 
-  private _pickTarget(enemies: Tank[], allies: Tank[]): void {
+  private _pickTarget(enemies: Tank[], allies: Tank[], rushBoss: boolean): void {
     const t = this.tank;
     const pos = t.root.position;
-    const candidates: Array<TargetCandidate & { tank: Tank }> = [];
+    const candidates = this._candidates;
+    candidates.length = 0;
+    const maxSight = rushBoss ? 1200 : 720;
 
-    for (const e of enemies) {
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
       if (!e.alive) continue;
       const dx = e.root.position.x - pos.x;
       const dz = e.root.position.z - pos.z;
       const range = Math.hypot(dx, dz);
-      if (range > 720) continue;
+      if (range > maxSight) continue;
       const los = this._hasLineOfSight(e);
       candidates.push({
         id: e.name,
@@ -222,11 +227,11 @@ export class Bot {
 
     if (chosen) {
       if (chosen.tank !== this.target) {
-        this.reactT = rnd(0.25, 0.55) / Math.max(0.65, this.skill);
+        this.reactT = rnd(0.18, 0.42) / Math.max(0.65, this.skill);
       }
       this.target = chosen.tank;
       this.targetVisible = true;
-      this.memoryT = 3.2;
+      this.memoryT = rushBoss ? 6.0 : 3.2;
       this.lastSeenPos.copy(chosen.tank.root.position);
       return;
     }
@@ -234,24 +239,36 @@ export class Bot {
     // Hold target in tactical memory briefly when terrain dips out of LOS
     if (this.target && this.target.alive && this.memoryT > 0) {
       this.targetVisible = false;
+      this.lastSeenPos.copy(this.target.root.position);
       return;
     }
 
     this.target = null;
     this.targetVisible = false;
 
-    // Refresh combat-sector waypoint toward active fights & wounded enemies
+    // Refresh combat-sector waypoint toward active fights, Maus, or wounded enemies
     this.sectorT -= 0.45;
     if (this.sectorT <= 0) {
-      this.sectorT = rnd(1.5, 2.8);
-      const aliveEnemies: SectorEnemy[] = [];
-      for (const e of enemies) {
+      this.sectorT = rushBoss ? 0.85 : rnd(1.3, 2.4);
+      const aliveEnemies = this._aliveEnemies;
+      aliveEnemies.length = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
         if (e.alive) aliveEnemies.push({ x: e.root.position.x, z: e.root.position.z, hp: e.hp, maxHp: e.maxHp });
       }
-      const sectorAllies: SectorAlly[] = [];
-      for (const a of allies) {
+      const sectorAllies = this._sectorAllies;
+      sectorAllies.length = 0;
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
         if (!a.alive || a === t) continue;
-        const nearEnemy = aliveEnemies.some((e) => Math.hypot(e.x - a.root.position.x, e.z - a.root.position.z) < 230);
+        let nearEnemy = false;
+        for (let j = 0; j < aliveEnemies.length; j++) {
+          const ae = aliveEnemies[j];
+          if (Math.hypot(ae.x - a.root.position.x, ae.z - a.root.position.z) < 230) {
+            nearEnemy = true;
+            break;
+          }
+        }
         sectorAllies.push({ x: a.root.position.x, z: a.root.position.z, inCombat: nearEnemy });
       }
       this.obj = pickCombatSectorWaypoint({
@@ -290,10 +307,11 @@ export class Bot {
     }
 
     const allies = options.allies || [];
+    const rushBoss = !!options.rushBoss;
     this.thinkT -= dt;
     if (this.thinkT <= 0) {
-      this.thinkT = rnd(0.28, 0.48);
-      this._pickTarget(enemies, allies);
+      this.thinkT = rushBoss ? 0.25 : rnd(0.28, 0.48);
+      this._pickTarget(enemies, allies, rushBoss);
     }
 
     this.noiseT -= dt;
@@ -308,7 +326,7 @@ export class Bot {
     const tg = this.target && this.target.alive ? this.target : null;
     const maxEffectiveRange = t.stats.maxRange - 12;
 
-    // 1. Drive hull first so steering doesn't drag turret off-target after aiming
+    // 1. Drive hull relentlessly without braking to shoot
     let throttle = 1;
     let steer = 0;
     let brake = false;
@@ -327,6 +345,8 @@ export class Bot {
         reloadTimer: t.reloadTimer,
         yawErr: curYawErr,
         canSeeTarget: this.targetVisible,
+        rushBoss,
+        botIndex: this.index,
       });
       desired = drive.desiredHeading;
       throttle = drive.throttle;
@@ -338,16 +358,17 @@ export class Bot {
       desired = Math.atan2(dx, dz);
     }
 
-    // Repel steering away from nearby friendly/other tanks to prevent bunching or ram-locks
+    // Gentle separation from nearby allies so packs don't snag each other while rushing
     let sepX = 0;
     let sepZ = 0;
-    for (const a of allies) {
-      if (a === t) continue;
+    for (let i = 0; i < allies.length; i++) {
+      const a = allies[i];
+      if (a === t || !a.alive) continue;
       const rx = pos.x - a.root.position.x;
       const rz = pos.z - a.root.position.z;
       const d = Math.hypot(rx, rz);
-      if (d > 0.1 && d < 12) {
-        const w = (12 - d) / 12;
+      if (d > 0.1 && d < 10.5) {
+        const w = (10.5 - d) / 10.5;
         sepX += (rx / d) * w;
         sepZ += (rz / d) * w;
       }
@@ -355,39 +376,31 @@ export class Bot {
     if (sepX !== 0 || sepZ !== 0) {
       const repYaw = Math.atan2(sepX, sepZ);
       const repDiff = wrapPi(repYaw - desired);
-      desired = wrapPi(desired + clamp(repDiff * 0.45, -0.75, 0.75));
+      desired = wrapPi(desired + clamp(repDiff * 0.4, -0.65, 0.65));
     }
 
     const err = wrapPi(desired - t.heading);
-    steer = clamp(err * 2.4, -1, 1);
-    if (Math.abs(err) > 1.1 && throttle > 0) throttle = 0.3;
+    steer = clamp(err * 2.6, -1, 1);
+    if (Math.abs(err) > 1.35 && throttle > 0) throttle = 0.65;
 
     // Multi-ray forward obstacle avoidance
-    if (throttle > 0 && (this._blocked(0, 26) || this._blocked(0.24, 20) || this._blocked(-0.24, 20))) {
-      const l = this._blocked(0.65, 24);
-      const r = this._blocked(-0.65, 24);
+    if (throttle > 0 && (this._blocked(0, 22) || this._blocked(0.24, 17) || this._blocked(-0.24, 17))) {
+      const l = this._blocked(0.65, 22);
+      const r = this._blocked(-0.65, 22);
       this.avoid = l && !r ? -1 : !l && r ? 1 : this.avoid;
       steer = this.avoid;
-      throttle = 0.45;
+      throttle = 0.72;
     }
 
-    this.stuckCheck += dt;
-    if (this.stuckCheck > 1.35) {
-      const moved = pos.distanceTo(this.lastPos);
-      if (throttle > 0.25 && moved < 2.0) {
-        this.reverseT = 1.35;
-        this.avoid = -this.avoid;
-        this.flankSign = -this.flankSign;
-      }
-      this.lastPos.copy(pos);
-      this.stuckCheck = 0;
-    }
-
-    if (this.reverseT > 0) {
-      this.reverseT -= dt;
-      throttle = -1;
-      steer = this.avoid;
+    const stuckRes = stepAntiStuck(this.antiStuck, pos.x, pos.z, t.heading, dt);
+    if (stuckRes.overrideThrottle !== null) {
+      throttle = stuckRes.overrideThrottle;
+      steer = stuckRes.overrideSteer ?? steer;
       brake = false;
+      if (stuckRes.reversing) {
+        this.avoid = this.antiStuck.avoidSign;
+        this.flankSign = this.antiStuck.avoidSign;
+      }
     }
 
     t.update(dt, { throttle, steer, brake }, fx);

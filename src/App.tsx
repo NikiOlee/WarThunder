@@ -21,6 +21,7 @@ export default function App() {
       <div id="crosshair" />
       <div id="gunMark" />
       <canvas id="hitcam" />
+      <canvas id="minimap" className="hud" width={156} height={156} data-testid="minimap" />
 
       <div id="help" className="hud" />
       <div id="modeLabel" className="hud">

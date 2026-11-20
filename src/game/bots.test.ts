@@ -4,8 +4,10 @@ import {
   computeEngagementDrive,
   computeShotGate,
   computeWeakspotAimOffset,
+  createAntiStuckState,
   pickBestTarget,
   pickCombatSectorWaypoint,
+  stepAntiStuck,
 } from './botTactics';
 import { computePlayerSkillRating, resolveBotSkillMultiplier } from './playerSkill';
 
@@ -59,7 +61,7 @@ test('Bots advance into active combat sectors and toward wounded enemies when oc
   assert.ok(wp.x > -40);
 });
 
-test('Engagement drive pushes aggressively into 90-200m and flanks head-on armor without parking at 340m', () => {
+test('Engagement drive fires on the move without braking or slowing when ready to shoot', () => {
   const farDrive = computeEngagementDrive({
     dx: 0,
     dz: 330,
@@ -72,6 +74,18 @@ test('Engagement drive pushes aggressively into 90-200m and flanks head-on armor
   assert.equal(farDrive.throttle, 1.0);
   assert.equal(farDrive.brake, false);
 
+  const readyMidDrive = computeEngagementDrive({
+    dx: 0,
+    dz: 140,
+    targetHeading: Math.PI,
+    flankSign: 1,
+    reloadTimer: 0.0,
+    yawErr: 0.01,
+    canSeeTarget: true,
+  });
+  assert.ok(readyMidDrive.throttle >= 0.88);
+  assert.equal(readyMidDrive.brake, false);
+
   const brawlDrive = computeEngagementDrive({
     dx: 0,
     dz: 135,
@@ -83,6 +97,60 @@ test('Engagement drive pushes aggressively into 90-200m and flanks head-on armor
   });
   assert.ok(brawlDrive.throttle >= 0.7);
   assert.ok(Math.abs(brawlDrive.desiredHeading) > 0.4);
+});
+
+test('rushBoss swarm pushes Maus at full speed from varied flanking angles by botIndex', () => {
+  const d0 = computeEngagementDrive({
+    dx: 0,
+    dz: 120,
+    targetHeading: Math.PI,
+    flankSign: 1,
+    reloadTimer: 0,
+    yawErr: 0.02,
+    canSeeTarget: true,
+    rushBoss: true,
+    botIndex: 0,
+  });
+  const d2 = computeEngagementDrive({
+    dx: 0,
+    dz: 120,
+    targetHeading: Math.PI,
+    flankSign: 1,
+    reloadTimer: 0,
+    yawErr: 0.02,
+    canSeeTarget: true,
+    rushBoss: true,
+    botIndex: 2,
+  });
+  assert.equal(d0.throttle, 1.0);
+  assert.equal(d2.throttle, 1.0);
+  assert.equal(d0.brake, false);
+  assert.ok(d2.desiredHeading > d0.desiredHeading);
+});
+
+test('stepAntiStuck triggers reverse and escape turn when wedged against wall or spinning in place', () => {
+  // 1. Stuck against wall (< 2.2m displacement over 1.2s)
+  const wallState = createAntiStuckState(10, 10, 0, 1);
+  let res = stepAntiStuck(wallState, 10.4, 10.2, 0.1, 0.6);
+  assert.equal(res.reversing, false);
+  res = stepAntiStuck(wallState, 10.8, 10.3, 0.2, 0.6);
+  assert.equal(res.reversing, true);
+  assert.equal(res.overrideThrottle, -1);
+  assert.equal(res.overrideSteer, -1); // flips avoidSign from +1 to -1
+
+  // Finish reverse phase, then transition into forward escape drive
+  stepAntiStuck(wallState, 7, 7, -0.4, 1.1);
+  res = stepAntiStuck(wallState, 6, 6, -0.5, 0.2);
+  assert.equal(res.escaping, true);
+  assert.equal(res.overrideThrottle, 1);
+
+  // 2. Spinning in circles (> 2.2 rad turn with < 6.5m net displacement)
+  const spinState = createAntiStuckState(0, 0, 0, -1);
+  stepAntiStuck(spinState, 1, 0, 1.5, 0.6);
+  const spinRes = stepAntiStuck(spinState, 1.2, 0.2, 3.0, 0.6);
+  assert.equal(spinRes.reversing, true);
+  assert.equal(spinRes.overrideThrottle, -1);
+  assert.equal(spinRes.overrideSteer, 1);
 });
 
 test('Shot gate fires decisively at realistic combat alignment instead of rejecting 1-degree errors', () => {

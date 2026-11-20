@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Tank } from './tank';
 import { BallisticsSystem, G } from './ballistics';
-import { computeShotGate } from './botTactics';
+import { computeShotGate, createAntiStuckState, stepAntiStuck, type AntiStuckState } from './botTactics';
 import { BOSS_TANK_ID } from './tanks';
 import {
   FLAME_RANGE_M,
@@ -58,9 +58,7 @@ export class JuggernautBoss {
 
   private thinkT = 0;
   private avoid = 1;
-  private reverseT = 0;
-  private stuckT = 0;
-  private lastPos = new THREE.Vector3();
+  private antiStuck: AntiStuckState;
   private _a = new THREE.Vector3();
   private _b = new THREE.Vector3();
   private _gd = new THREE.Vector3();
@@ -86,7 +84,7 @@ export class JuggernautBoss {
     });
     this.tank.isBot = true;
     ballistics.addTarget(this.tank);
-    this.lastPos.copy(this.tank.root.position);
+    this.antiStuck = createAntiStuckState(this.tank.root.position.x, this.tank.root.position.z, this.tank.heading, 1);
 
     // Аккуратная прямая струя огня (20 м): конусообразное полупрозрачное пламя + яркое ядро
     this.flameGroup = new THREE.Group();
@@ -128,9 +126,7 @@ export class JuggernautBoss {
   respawn(): void {
     this.tank.reset(0, 0, 0, BOSS_TANK_ID);
     this.target = null;
-    this.reverseT = 0;
-    this.stuckT = 0;
-    this.lastPos.copy(this.tank.root.position);
+    this.antiStuck = createAntiStuckState(this.tank.root.position.x, this.tank.root.position.z, this.tank.heading, 1);
     this.heatState = createFlamethrowerHeatState();
     this.fireStates.clear();
     this.flameGroup.visible = false;
@@ -222,8 +218,8 @@ export class JuggernautBoss {
       const dz = tg.root.position.z - pos.z;
       const desired = Math.atan2(dx, dz);
       const err = wrapPi(desired - t.heading);
-      steer = clamp(err * 2.4, -1, 1);
-      if (Math.abs(err) > 1.2) throttle = 0.3;
+      steer = clamp(err * 2.6, -1, 1);
+      if (Math.abs(err) > 1.35) throttle = 0.65;
     } else {
       throttle = 0;
     }
@@ -233,22 +229,16 @@ export class JuggernautBoss {
       const r = this._blocked(-0.7, 20);
       this.avoid = l && !r ? -1 : !l && r ? 1 : this.avoid;
       steer = this.avoid;
-      throttle = 0.4;
+      throttle = 0.7;
     }
 
-    this.stuckT += dt;
-    if (this.stuckT > 1.6) {
-      if (throttle > 0.25 && pos.distanceTo(this.lastPos) < 1.2) {
-        this.reverseT = 1.5;
-        this.avoid = -this.avoid;
+    if (tg) {
+      const stuckRes = stepAntiStuck(this.antiStuck, pos.x, pos.z, t.heading, dt);
+      if (stuckRes.overrideThrottle !== null) {
+        throttle = stuckRes.overrideThrottle;
+        steer = stuckRes.overrideSteer ?? steer;
+        if (stuckRes.reversing) this.avoid = this.antiStuck.avoidSign;
       }
-      this.lastPos.copy(pos);
-      this.stuckT = 0;
-    }
-    if (this.reverseT > 0) {
-      this.reverseT -= dt;
-      throttle = -1;
-      steer = this.avoid;
     }
 
     t.update(dt, { throttle, steer, brake: false }, fx);
@@ -293,11 +283,24 @@ export class JuggernautBoss {
         if (shot) this.ballistics.fire({ ...shot, owner: t });
       }
 
-      // Огнемёт включается без фиксированного КД на дистанции до 20 м (с учётом выноса ствола ~2 м)
+      // Огнемёт включается без фиксированного КД, если главная цель или любой ближайший враг в радиусе 20 м
       t.flameMuzzleWorld(this._nozzle);
       const nozzleDist = Math.hypot(tg.root.position.x - this._nozzle.x, tg.root.position.z - this._nozzle.z);
-      if (nozzleDist <= FLAME_RANGE_M + 1.2 && yawErr <= 0.65 && hasLos) {
+      if (nozzleDist <= FLAME_RANGE_M + 1.5 && yawErr <= 0.75 && hasLos) {
         wantFlame = true;
+      } else {
+        for (let i = 0; i < hunters.length; i++) {
+          const h = hunters[i];
+          if (!h.alive) continue;
+          const hd = Math.hypot(h.root.position.x - this._nozzle.x, h.root.position.z - this._nozzle.z);
+          if (hd <= FLAME_RANGE_M + 1.5) {
+            const hYaw = Math.atan2(h.root.position.x - this._nozzle.x, h.root.position.z - this._nozzle.z);
+            if (Math.abs(wrapPi(hYaw - t.turretWorldYaw)) <= 0.78 && this._los(h)) {
+              wantFlame = true;
+              break;
+            }
+          }
+        }
       }
     } else {
       t.updateTurret(dt, t.heading, 0);

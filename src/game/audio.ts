@@ -4,6 +4,76 @@ import { settings, onSettings } from './settings';
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
+export interface BossMusicStepData {
+  step32: number;
+  phrase: number;
+  isStop: boolean;
+  bassMidi: number | null;
+  bassAccent: boolean;
+  kick: boolean;
+  snare: boolean;
+  stutterHat: boolean;
+  stabMidi: number | null;
+}
+
+// D Phrygian / Locrian industrial metal chug & breakcore chop pattern (32 x 16th-note steps)
+const BOSS_BASS_PATTERN: ReadonlyArray<number | null> = [
+  38, 38, null, 38, 39, null, 38, 38,
+  null, 38, 41, null, 38, null, 39, 38,
+  38, null, 38, 38, null, 44, 38, null,
+  39, 38, null, null, 41, 39, null, null, // bars end in choked stop (steps 30-31)
+];
+const BOSS_STAB_PATTERN: ReadonlyArray<number | null> = [
+  62, null, null, null, null, null, 63, null,
+  null, null, 68, null, null, null, null, null,
+  62, null, null, 69, null, null, null, null,
+  63, null, null, null, null, null, null, null,
+];
+const BOSS_KICK_STEPS = new Set([0, 3, 6, 7, 10, 12, 16, 18, 21, 22, 24, 28, 29]);
+const BOSS_SNARE_STEPS = new Set([4, 11, 14, 20, 26, 27]);
+const BOSS_STUTTER_STEPS = new Set([2, 5, 9, 13, 15, 19, 23, 25]);
+
+export function getBossMusicStepData(step: number): BossMusicStepData {
+  const step32 = ((step % 32) + 32) % 32;
+  const phrase = Math.floor(step / 32) % 4;
+  // Sudden dramatic choked pause on the tail of every 4th bar (steps 29-31) and bar 2 (steps 30-31)
+  const isStop =
+    step32 === 30 ||
+    step32 === 31 ||
+    (phrase === 3 && step32 >= 28) ||
+    (phrase === 1 && (step32 === 15 || step32 === 27));
+
+  let bassMidi = isStop ? null : BOSS_BASS_PATTERN[step32];
+  if (bassMidi !== null && phrase === 2 && (step32 === 8 || step32 === 24)) {
+    bassMidi += 1; // tritone / Phrygian tension lift on phrase 2
+  }
+  const bassAccent = bassMidi !== null && (step32 === 0 || step32 === 4 || step32 === 16 || step32 === 21);
+
+  return {
+    step32,
+    phrase,
+    isStop,
+    bassMidi,
+    bassAccent,
+    kick: !isStop && BOSS_KICK_STEPS.has(step32),
+    snare: !isStop && BOSS_SNARE_STEPS.has(step32),
+    stutterHat: !isStop && BOSS_STUTTER_STEPS.has(step32),
+    stabMidi: isStop ? null : BOSS_STAB_PATTERN[step32],
+  };
+}
+
+function makeDistortionCurve(amount = 42): Float32Array<ArrayBuffer> {
+  const samples = 1024;
+  const buf = new ArrayBuffer(samples * 4);
+  const curve = new Float32Array(buf);
+  const deg = Math.PI / 180;
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
 interface EngineNodes {
   lp: BiquadFilterNode;
   g: GainNode;
@@ -22,7 +92,8 @@ class AudioSys {
   cam: THREE.Camera | null = null;
   private _engine: EngineNodes | null = null;
   private _mt: ReturnType<typeof setInterval> | null = null;
-  musicMode: 'off' | 'menu' | 'battle' = 'off';
+  private _fadeTimer: ReturnType<typeof setTimeout> | null = null;
+  musicMode: 'off' | 'menu' | 'battle' | 'boss' = 'off';
   step = 0;
   nextT = 0;
 
@@ -31,6 +102,8 @@ class AudioSys {
   sfxBus!: GainNode;
   engineBus!: GainNode;
   musicSess: GainNode | null = null;
+  private bossDistNode: WaveShaperNode | null = null;
+  private bossDriveGain: GainNode | null = null;
   noiseBuf!: AudioBuffer;
 
   constructor() {
@@ -42,7 +115,9 @@ class AudioSys {
       if (this.ctx.state === 'suspended') this.ctx.resume();
       return true;
     }
-    const AC = typeof window !== 'undefined' && (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+    const AC =
+      typeof window !== 'undefined' &&
+      (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
     if (!AC) return false;
     const ctx = (this.ctx = new AC());
     this.master = ctx.createGain();
@@ -72,9 +147,10 @@ class AudioSys {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(settings.master, t, 0.05);
-    this.musicBus.gain.setTargetAtTime(settings.music * 0.9, t, 0.05);
+    this.musicBus.gain.setTargetAtTime(settings.music * 0.85, t, 0.05);
     this.sfxBus.gain.setTargetAtTime(settings.sfx, t, 0.05);
-    this.engineBus.gain.setTargetAtTime(settings.engine, t, 0.05);
+    // Keep engine warm and unobtrusive relative to cannon/flamethrower/music
+    this.engineBus.gain.setTargetAtTime(settings.engine * 0.72, t, 0.05);
   }
 
   setListener(cam: THREE.Camera): void {
@@ -184,7 +260,6 @@ class AudioSys {
         this._tone(dst, 'sine', 45, 20, t, 2.5, 1.0);
         break;
       case 'fuelExplosion':
-        // Violent fuel-tank detonation: initial armor crack + deep sub-bass blast + sustained fuel fire roar
         this._explosion(dst, t, 2.3);
         this._tone(dst, 'sawtooth', 160, 26, t, 0.9, 0.8);
         this._tone(dst, 'sine', 52, 18, t, 2.8, 1.2);
@@ -221,8 +296,8 @@ class AudioSys {
         this._burst(dst, t, 0.04, 0.6, 'highpass', 5000, 5000);
         break;
       case 'flame':
-        this._burst(dst, t, 0.34, 0.42, 'bandpass', 540, 260, 0.6);
-        this._burst(dst, t, 0.28, 0.22, 'lowpass', 1400, 480);
+        this._burst(dst, t, 0.34, 0.5, 'bandpass', 540, 260, 0.6);
+        this._burst(dst, t, 0.28, 0.28, 'lowpass', 1400, 480);
         break;
       default:
         break;
@@ -244,7 +319,6 @@ class AudioSys {
     } else if (name === 'click') {
       this._tone(this.sfxBus, 'square', 700, 500, t, 0.04, 0.18);
     } else if (name === 'fuelCrit') {
-      // Sharp unmistakable critical hit confirmation audio cue for fuel tank explosion
       this._tone(this.sfxBus, 'triangle', 1480, 1860, t, 0.09, 0.32);
       this._tone(this.sfxBus, 'triangle', 1980, 2400, t + 0.08, 0.14, 0.3);
       this._tone(this.sfxBus, 'sine', 160, 55, t, 0.28, 0.35);
@@ -262,38 +336,43 @@ class AudioSys {
 
   private _startEngine(): void {
     const ctx = this.ctx!;
+    // Warm muffled diesel rumble: triangle sub + softly lowpassed sawtooth, zero square harshness
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 400;
+    lp.frequency.value = 180;
+    lp.Q.value = 0.6;
     const g = ctx.createGain();
     g.gain.value = 0;
     const o1 = ctx.createOscillator();
     o1.type = 'sawtooth';
     const o2 = ctx.createOscillator();
-    o2.type = 'square';
+    o2.type = 'triangle';
     o1.connect(lp);
     o2.connect(lp);
     lp.connect(g);
     g.connect(this.engineBus);
+
     const n = this._noise();
     const nl = ctx.createBiquadFilter();
     nl.type = 'lowpass';
-    nl.frequency.value = 220;
+    nl.frequency.value = 145;
     const ng = ctx.createGain();
-    ng.gain.value = 0.3;
+    ng.gain.value = 0.08;
     n.connect(nl);
     nl.connect(ng);
     ng.connect(this.engineBus);
+
     const t = this._noise();
     const tb = ctx.createBiquadFilter();
     tb.type = 'bandpass';
-    tb.frequency.value = 1300;
-    tb.Q.value = 0.8;
+    tb.frequency.value = 420;
+    tb.Q.value = 0.6;
     const tg = ctx.createGain();
     tg.gain.value = 0;
     t.connect(tb);
     tb.connect(tg);
     tg.connect(this.engineBus);
+
     o1.start();
     o2.start();
     n.start();
@@ -306,14 +385,14 @@ class AudioSys {
     if (!this._engine) this._startEngine();
     const e = this._engine!;
     const t = this.ctx.currentTime;
-    const rpm = alive ? 0.2 + 0.5 * clamp(speedN, 0, 1) + 0.25 * Math.abs(throttle) : 0;
-    const f = 32 + rpm * 85;
-    e.o1.frequency.setTargetAtTime(f, t, 0.12);
-    e.o2.frequency.setTargetAtTime(f * 0.5, t, 0.12);
-    e.lp.frequency.setTargetAtTime(250 + rpm * 1300, t, 0.12);
-    e.g.gain.setTargetAtTime(alive ? 0.16 + 0.22 * rpm : 0, t, 0.2);
-    e.ng.gain.setTargetAtTime(alive ? 0.25 : 0.02, t, 0.3);
-    e.tg.gain.setTargetAtTime(alive ? clamp(speedN, 0, 1) * 0.2 : 0, t, 0.15);
+    const rpm = alive ? 0.18 + 0.52 * clamp(speedN, 0, 1) + 0.22 * Math.abs(throttle) : 0;
+    const f = 24 + rpm * 46;
+    e.o1.frequency.setTargetAtTime(f, t, 0.14);
+    e.o2.frequency.setTargetAtTime(f * 0.5, t, 0.14);
+    e.lp.frequency.setTargetAtTime(120 + rpm * 240, t, 0.14);
+    e.g.gain.setTargetAtTime(alive ? 0.08 + 0.1 * rpm : 0, t, 0.22);
+    e.ng.gain.setTargetAtTime(alive ? 0.07 + 0.04 * rpm : 0.01, t, 0.3);
+    e.tg.gain.setTargetAtTime(alive ? clamp(speedN, 0, 1) * 0.055 : 0, t, 0.18);
   }
 
   engineSilence(): void {
@@ -341,39 +420,155 @@ class AudioSys {
     lfo.start();
   }
 
-  music(mode: 'off' | 'menu' | 'battle'): void {
-    if (!this.ctx) return;
-    if (this.musicMode === mode && this._mt) return;
-    this.musicMode = mode;
-    if (mode === 'off') {
-      if (this._mt) {
-        clearInterval(this._mt);
-        this._mt = null;
-      }
-      if (this.musicSess) {
-        this.musicSess.disconnect();
-        this.musicSess = null;
-      }
+  private _clearMusicLoop(): void {
+    if (this._fadeTimer) {
+      clearTimeout(this._fadeTimer);
+      this._fadeTimer = null;
+    }
+    if (this._mt) {
+      clearInterval(this._mt);
+      this._mt = null;
+    }
+    if (this.musicSess) {
+      this.musicSess.disconnect();
+      this.musicSess = null;
+    }
+    this.bossDistNode = null;
+    this.bossDriveGain = null;
+  }
+
+  music(mode: 'off' | 'menu' | 'battle' | 'boss'): void {
+    if (!this.ctx) {
+      this.musicMode = mode;
       return;
     }
-    if (this._mt) return;
-    this.musicSess = this.ctx.createGain();
-    this.musicSess.connect(this.musicBus);
+    if (this.musicMode === mode && (mode === 'off' || this._mt)) return;
+    this._clearMusicLoop();
+    this.musicMode = mode;
+    if (mode === 'off') return;
+
+    const sess = this.ctx.createGain();
+    sess.gain.value = mode === 'boss' ? 0.42 : 1.0;
+    sess.connect(this.musicBus);
+    this.musicSess = sess;
+
+    if (mode === 'boss') {
+      const shaper = this.ctx.createWaveShaper();
+      shaper.curve = makeDistortionCurve(44);
+      shaper.oversample = '2x';
+      const postLp = this.ctx.createBiquadFilter();
+      postLp.type = 'lowpass';
+      postLp.frequency.value = 1750;
+      const driveGain = this.ctx.createGain();
+      driveGain.gain.value = 0.58;
+      driveGain.connect(shaper);
+      shaper.connect(postLp);
+      postLp.connect(sess);
+      this.bossDistNode = shaper;
+      this.bossDriveGain = driveGain;
+    }
+
     this.step = 0;
-    this.nextT = this.ctx.currentTime + 0.15;
-    this._mt = setInterval(() => this._sched(), 30);
+    this.nextT = this.ctx.currentTime + 0.08;
+    this._mt = setInterval(() => this._sched(), 25);
+  }
+
+  musicFadeOut(durSec = 0.45): void {
+    this.musicMode = 'off';
+    if (this._mt) {
+      clearInterval(this._mt);
+      this._mt = null;
+    }
+    if (this._fadeTimer) {
+      clearTimeout(this._fadeTimer);
+      this._fadeTimer = null;
+    }
+    const sess = this.musicSess;
+    if (!sess || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    sess.gain.cancelScheduledValues(t);
+    sess.gain.setValueAtTime(Math.max(0.0001, sess.gain.value), t);
+    sess.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(0.08, durSec));
+    this._fadeTimer = setTimeout(() => {
+      if (this.musicSess === sess) {
+        sess.disconnect();
+        this.musicSess = null;
+        this.bossDistNode = null;
+        this.bossDriveGain = null;
+      }
+      this._fadeTimer = null;
+    }, Math.ceil((durSec + 0.08) * 1000));
   }
 
   private _sched(): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    const bpm = this.musicMode === 'battle' ? 100 : 72;
+    const bpm = this.musicMode === 'boss' ? 156 : this.musicMode === 'battle' ? 100 : 72;
     const sd = 60 / bpm / 4;
-    if (this.nextT < ctx.currentTime - 0.5) this.nextT = ctx.currentTime + 0.05;
-    while (this.nextT < ctx.currentTime + 0.25) {
-      this._musicStep(this.step, this.nextT, sd);
+    if (this.nextT < ctx.currentTime - 0.5) this.nextT = ctx.currentTime + 0.04;
+    while (this.nextT < ctx.currentTime + 0.22) {
+      if (this.musicMode === 'boss') {
+        this._bossStep(this.step, this.nextT, sd);
+      } else {
+        this._musicStep(this.step, this.nextT, sd);
+      }
       this.nextT += sd;
       this.step++;
+    }
+  }
+
+  private _bossStep(step: number, t: number, sd: number): void {
+    const mb = this.musicSess;
+    const ctx = this.ctx;
+    if (!mb || !ctx) return;
+    const d = getBossMusicStepData(step);
+    if (d.isStop) return;
+
+    // 1. Heavy distorted industrial djent bass / octave growl
+    if (d.bassMidi !== null && this.bossDriveGain) {
+      const f = mtof(d.bassMidi);
+      const dur = d.bassAccent ? sd * 1.45 : sd * 0.78;
+      this._tone(this.bossDriveGain, 'sawtooth', f, f * 0.985, t, dur, d.bassAccent ? 0.52 : 0.38);
+      this._tone(mb, 'triangle', f * 0.5, f * 0.5, t, dur, d.bassAccent ? 0.34 : 0.24);
+    }
+
+    // 2. Breakcore punchy kick (clipped sub + crisp transient click)
+    if (d.kick) {
+      this._tone(mb, 'sine', 165, 36, t, 0.14, 0.62);
+      this._burst(mb, t, 0.025, 0.24, 'bandpass', 2400, 1200, 1.1);
+    }
+
+    // 3. Industrial metallic snare & choppy stutters
+    if (d.snare) {
+      this._burst(mb, t, 0.11, 0.36, 'bandpass', 1850, 950, 0.9);
+      this._tone(mb, 'square', 280, 125, t, 0.075, 0.18);
+    }
+    if (d.stutterHat) {
+      this._burst(mb, t, 0.032, 0.11, 'highpass', 5800, 5800);
+    }
+
+    // 4. Dark-synth alarm stabs (sawtooth detuned fifth / minor second bite)
+    if (d.stabMidi !== null) {
+      const f = mtof(d.stabMidi);
+      const len = sd * 1.9;
+      for (const ratio of [1, 1.498]) {
+        const o = ctx.createOscillator();
+        const bp = ctx.createBiquadFilter();
+        const g = ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f * ratio, t);
+        bp.type = 'bandpass';
+        bp.frequency.setValueAtTime(1600, t);
+        bp.frequency.exponentialRampToValueAtTime(700, t + len);
+        bp.Q.value = 1.6;
+        g.gain.setValueAtTime(0.14, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        o.connect(bp);
+        bp.connect(g);
+        g.connect(mb);
+        o.start(t);
+        o.stop(t + len + 0.04);
+      }
     }
   }
 

@@ -5,7 +5,8 @@ import { Tank } from './tank';
 import { BallisticsSystem, G, DRAG_K, SUBSTEP } from './ballistics';
 import { Bot, setMap } from './bots';
 import { JuggernautBoss, BOSS_RAM_DISTANCE } from './boss';
-import { settings, onSettings, setSetting, type GameSettings } from './settings';
+import { settings, onSettings, setSetting, keyName, type GameSettings } from './settings';
+import { isMgExhausted } from './machineGun';
 import { audio } from './audio';
 import { HitCam } from './hitcam';
 import { Minimap } from './minimap';
@@ -314,8 +315,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     const n = (c: string) => (c || '').replace('Key', '').replace('Space', 'ПРОБЕЛ').replace('ShiftLeft', 'SHIFT').replace('Backquote', '~');
     $('help').innerHTML =
       `<b>${n(K.forward)}/${n(K.back)}</b> газ/реверс &nbsp; <b>${n(K.left)}/${n(K.right)}</b> поворот &nbsp; <b>${n(K.brake)}</b> тормоз<br>` +
-      `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> огонь &nbsp; <b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>TAB</b> счёт<br>` +
-      `<b>КОЛЕСО</b> зум &nbsp; <b>${n(K.comp)}</b> баллист. комп. &nbsp; <b>${n(K.console)}</b> консоль &nbsp; <b>ESC</b> пауза`;
+      `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> орудие &nbsp; <b>${n(K.mg)}</b> пулемёт &nbsp; <b>R</b> лента<br>` +
+      `<b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>${n(K.comp)}</b> вычисл. &nbsp; <b>TAB</b> счёт &nbsp; <b>ESC</b> пауза`;
   }
 
   const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', '*']);
@@ -825,6 +826,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     else if (e.code === K.binoc) setMode(mode === 'binoc' ? 'third' : 'binoc');
     else if (e.code === K.comp) ballComp = !ballComp;
     else if (e.code === K.post) setSetting('post', !settings.post);
+    else if (e.code === 'KeyR' && mode !== 'binoc') tank.reloadMg();
+    else if (e.code === K.mg && mode !== 'binoc' && isMgExhausted(tank.mgState)) {
+      showMsg('ПАТРОНЫ ПУЛЕМЁТА КОНЧИЛИСЬ', '#ff6a4a');
+    }
   };
   const onKeyUp = (e: KeyboardEvent) => {
     keys[e.code] = false;
@@ -1127,6 +1132,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     specBar: $('spectatorBar'),
     specName: $('specTargetName'),
     specHp: $('specTargetHp'),
+    mgHud: $('mgHud'),
+    mgKeyLabel: $('mgKeyLabel'),
+    mgAmmo: $('mgAmmo'),
+    mgBarFill: $('mgBarFill'),
+    mgStateTxt: $('mgStateTxt'),
   };
   el.mv.textContent = String(tank.stats.muzzleVelocity);
   if (el.tankTag) el.tankTag.textContent = tank.spec.name;
@@ -1172,6 +1182,12 @@ export function initGame(mountEl: HTMLElement): () => void {
     specVisible: false,
     specName: '',
     specHp: '',
+    mgKey: '',
+    mgAmmo: '',
+    mgBarW: '',
+    mgStateTxt: '',
+    mgReloading: false,
+    mgEmpty: false,
   };
 
   const _ip = new THREE.Vector3();
@@ -1290,10 +1306,51 @@ export function initGame(mountEl: HTMLElement): () => void {
       hudCache.hpBg = hpBg;
       el.hp.style.background = hpBg;
     }
-    const tagTxt = `${tank.spec.name} · ${Math.max(0, Math.round(tank.hp))}/${tank.maxHp}`;
+    const displayHp = tank.alive && tank.hp > 0 ? Math.ceil(tank.hp) : 0;
+    const tagTxt = `${tank.spec.name} · ${displayHp}/${tank.maxHp}`;
     if (el.tankTag && tagTxt !== hudCache.tankTag) {
       hudCache.tankTag = tagTxt;
       el.tankTag.textContent = tagTxt;
+    }
+
+    const mgSpec = tank.stats.mg;
+    const mgSt = tank.mgState;
+    const mgKeyTxt = `ПУЛЕМЁТ [${keyName(settings.keys.mg).toUpperCase()}]`;
+    if (mgKeyTxt !== hudCache.mgKey) {
+      hudCache.mgKey = mgKeyTxt;
+      el.mgKeyLabel.textContent = mgKeyTxt;
+    }
+    const mgAmmoTxt = `${mgSt.magAmmo} / ${mgSt.reserveAmmo}`;
+    if (mgAmmoTxt !== hudCache.mgAmmo) {
+      hudCache.mgAmmo = mgAmmoTxt;
+      el.mgAmmo.textContent = mgAmmoTxt;
+    }
+    const mgReloading = mgSt.reloadT > 0;
+    const mgEmpty = !mgReloading && isMgExhausted(mgSt);
+    if (mgReloading !== hudCache.mgReloading) {
+      hudCache.mgReloading = mgReloading;
+      el.mgHud.classList.toggle('reloading', mgReloading);
+    }
+    if (mgEmpty !== hudCache.mgEmpty) {
+      hudCache.mgEmpty = mgEmpty;
+      el.mgHud.classList.toggle('empty', mgEmpty);
+    }
+    const mgFrac = mgReloading ? 1 - mgSt.reloadT / Math.max(0.1, mgSpec.reloadTime) : mgSt.magAmmo / Math.max(1, mgSpec.magSize);
+    const mgBarW = Math.round(clamp(mgFrac, 0, 1) * 100) + '%';
+    if (mgBarW !== hudCache.mgBarW) {
+      hudCache.mgBarW = mgBarW;
+      el.mgBarFill.style.width = mgBarW;
+    }
+    const mgTxt = mgReloading
+      ? `ПЕРЕЗАРЯДКА ${mgSt.reloadT.toFixed(1)}с`
+      : mgEmpty
+        ? 'ПАТРОНЫ КОНЧИЛИСЬ'
+        : mgSt.magAmmo < mgSpec.magSize && mgSt.reserveAmmo > 0
+          ? 'ГОТОВ · R ЛЕНТА'
+          : 'ГОТОВ';
+    if (mgTxt !== hudCache.mgStateTxt) {
+      hudCache.mgStateTxt = mgTxt;
+      el.mgStateTxt.textContent = mgTxt;
     }
 
     const bossVisible = !!(boss && !matchEnded);
@@ -1801,24 +1858,28 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   ballistics.onTankHit((e) => {
     if (e.owner === tank) {
-      if (e.target.team === 'B') {
+      if (!e.isMg && e.target.team === 'B') {
         recordPlayerHit(e.result === 'pen' || e.result === 'crit' || e.result === 'fuel', e.damage);
       }
       if (e.result === 'fuel') {
         showMsg('ВЗРЫВ БЕНЗОБАКА — УНИЧТОЖЕН!', '#ff4c2a');
       } else if (e.destroyed) {
         showMsg('ЦЕЛЬ УНИЧТОЖЕНА', '#ff6a4a');
-      } else {
+      } else if (!e.isMg) {
         showMsg(RESULT_TXT[e.result] || 'ПОПАДАНИЕ', RESULT_COL[e.result] || '#ffd27a');
       }
-      if (settings.hitcam) hitcam.show(e);
+      if (settings.hitcam && !e.isMg) hitcam.show(e);
     }
     if (e.target === tank) {
-      shake = Math.max(shake, e.result === 'fuel' ? 1.1 : 0.5);
-      showMsg('ПО ВАМ ПОПАЛИ: ' + (RESULT_TXT[e.result] || ''), '#ff9a7a');
+      if (!e.isMg) {
+        shake = Math.max(shake, e.result === 'fuel' ? 1.1 : 0.5);
+        showMsg('ПО ВАМ ПОПАЛИ: ' + (RESULT_TXT[e.result] || ''), '#ff9a7a');
+      } else {
+        shake = Math.max(shake, 0.06);
+      }
     }
     if (e.destroyed) {
-      const suffix = e.result === 'fuel' ? ' [БЕНЗОБАК]' : '';
+      const suffix = e.result === 'fuel' ? ' [БЕНЗОБАК]' : e.isMg ? ' [ПУЛЕМЁТ]' : '';
       handleTankDestroyed(e.target, e.owner, suffix);
     }
   });
@@ -2035,6 +2096,12 @@ export function initGame(mountEl: HTMLElement): () => void {
         ballistics.fire({ ...shot, owner: tank });
         kick += mode === 'third' ? 0.018 : 0.0035;
         shake = mode === 'third' ? 0.18 : 0;
+      }
+    }
+    if (!spectating && !matchEnded && keys[K.mg] && mode !== 'binoc' && !consoleOpen) {
+      const mgShot = tank.fireMg();
+      if (mgShot) {
+        ballistics.fire({ ...mgShot, owner: tank });
       }
     }
 

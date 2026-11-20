@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getTankSpec, type TankSpec } from './tanks';
+import { createMgState, startMgReload, stepMgState, tryFireMg, type MachineGunState } from './machineGun';
 import type { GameWorld } from './world';
 import type { Particles } from './ballistics';
 
@@ -140,6 +141,7 @@ export class Tank {
   gunElev = 0;
   reloadTimer = 0;
   recoil = 0;
+  mgState: MachineGunState;
 
   root: THREE.Group;
   hullMat!: THREE.MeshStandardMaterial;
@@ -148,6 +150,7 @@ export class Tank {
   gunPivot!: THREE.Group;
   barrelGroup!: THREE.Group;
   muzzle!: THREE.Object3D;
+  mgMuzzle!: THREE.Object3D;
   flameMuzzle: THREE.Object3D | null = null;
   sightObj!: THREE.Object3D;
   binocObj!: THREE.Object3D;
@@ -160,6 +163,7 @@ export class Tank {
     this.team = opts.team || 'A';
     this.spec = getTankSpec(opts.specId || 't55');
     this.stats = this.spec;
+    this.mgState = createMgState(this.spec.mg);
     this.name = opts.name || this.spec.name;
     this.tint = opts.tint || [1, 1, 1];
     this.hp = this.spec.maxHp;
@@ -415,6 +419,15 @@ export class Tank {
       this.flameMuzzle.position.set(-0.44, -0.02, 1.62);
       this.gunPivot.add(this.flameMuzzle);
 
+      // Coaxial MG 34 barrel opposite the flamethrower nozzle
+      const mausMgPipe = new THREE.CylinderGeometry(0.028, 0.034, 1.12, 8);
+      mausMgPipe.rotateX(Math.PI / 2);
+      add(mausMgPipe, metalMat, 0.44, -0.02, 0.62, this.gunPivot);
+
+      this.mgMuzzle = new THREE.Object3D();
+      this.mgMuzzle.position.set(0.44, -0.02, 1.24);
+      this.gunPivot.add(this.mgMuzzle);
+
       this.muzzle = new THREE.Object3D();
       this.muzzle.position.set(0, 0, 5.72);
       this.barrelGroup.add(this.muzzle);
@@ -561,6 +574,15 @@ export class Tank {
       add(mtip, metalMat, 0, 0, 4.62, this.barrelGroup);
       add(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 6), metalMat, 0, 0.17, 4.6, this.barrelGroup);
 
+      // Coaxial machine gun barrel beside 105mm mantlet
+      const m60MgPipe = new THREE.CylinderGeometry(0.032, 0.038, 0.96, 8);
+      m60MgPipe.rotateX(Math.PI / 2);
+      add(m60MgPipe, metalMat, 0.36, 0.02, 0.65, this.gunPivot);
+
+      this.mgMuzzle = new THREE.Object3D();
+      this.mgMuzzle.position.set(0.36, 0.02, 1.2);
+      this.gunPivot.add(this.mgMuzzle);
+
       this.muzzle = new THREE.Object3D();
       this.muzzle.position.set(0, 0, 4.82);
       this.barrelGroup.add(this.muzzle);
@@ -697,6 +719,15 @@ export class Tank {
       const evac = new THREE.CylinderGeometry(0.145, 0.145, 0.72, 12);
       evac.rotateX(Math.PI / 2);
       add(evac, hullMat, 0, 0, 3.65, this.barrelGroup);
+
+      // Coaxial PKT machine gun barrel beside D-10T2S mantlet
+      const t55MgPipe = new THREE.CylinderGeometry(0.026, 0.032, 0.88, 8);
+      t55MgPipe.rotateX(Math.PI / 2);
+      add(t55MgPipe, metalMat, 0.33, 0.02, 0.58, this.gunPivot);
+
+      this.mgMuzzle = new THREE.Object3D();
+      this.mgMuzzle.position.set(0.33, 0.02, 1.08);
+      this.gunPivot.add(this.mgMuzzle);
 
       this.muzzle = new THREE.Object3D();
       this.muzzle.position.set(0, 0, 4.55);
@@ -870,6 +901,7 @@ export class Tank {
     this._springX += this._springV * dt;
 
     if (this.reloadTimer > 0) this.reloadTimer = Math.max(0, this.reloadTimer - dt);
+    if (this.alive) stepMgState(this.mgState, st.mg, dt);
     this.recoil = Math.max(0, this.recoil - dt * 2.2);
 
     const hw = isMaus ? 1.9 : 1.75;
@@ -980,6 +1012,7 @@ export class Tank {
     this.gunElev = 0;
     this.reloadTimer = 0;
     this.recoil = 0;
+    this.mgState = createMgState(this.stats.mg);
     this.root.position.set(x, 0, z);
     this._sampleGround(0, true);
     this._applyPose();
@@ -1073,9 +1106,46 @@ export class Tank {
     };
   }
 
+  fireMg() {
+    if (!this.alive) return null;
+    const mg = this.stats.mg;
+    if (!tryFireMg(this.mgState, mg)) return null;
+    const pos = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    this.mgMuzzleWorld(pos);
+    this.gunDirection(dir);
+    const sp = mg.spread;
+    if (sp > 0) {
+      dir.x += (Math.random() * 2 - 1) * sp;
+      dir.y += (Math.random() * 2 - 1) * sp;
+      dir.z += (Math.random() * 2 - 1) * sp;
+      dir.normalize();
+    }
+    return {
+      pos,
+      dir,
+      speed: mg.muzzleVelocity,
+      caliber: 0.012,
+      penetrationMm: 18,
+      maxRange: mg.maxRange,
+      type: 'MG' as const,
+      mgDamage: mg.damage,
+    };
+  }
+
+  reloadMg(): boolean {
+    if (!this.alive) return false;
+    return startMgReload(this.mgState, this.stats.mg);
+  }
+
   muzzleWorld(out: THREE.Vector3): THREE.Vector3 {
     this.muzzle.updateWorldMatrix(true, false);
     return this.muzzle.getWorldPosition(out);
+  }
+  mgMuzzleWorld(out: THREE.Vector3): THREE.Vector3 {
+    const obj = this.mgMuzzle || this.muzzle;
+    obj.updateWorldMatrix(true, false);
+    return obj.getWorldPosition(out);
   }
   flameMuzzleWorld(out: THREE.Vector3): THREE.Vector3 {
     const obj = this.flameMuzzle || this.muzzle;

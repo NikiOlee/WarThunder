@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BARREL_HITBOX_BOUNDS, resolveHit, type HitPart, type HitResolution } from './damage';
+import { BARREL_HITBOX_BOUNDS, resolveHit, resolveMgHit, type HitPart, type HitResolution } from './damage';
 import { audio } from './audio';
 import { BOSS_BASE_DAMAGE } from './tanks';
 import type { Tank } from './tank';
@@ -280,6 +280,7 @@ export interface TankHitEvent {
   result: string;
   damage: number;
   destroyed: boolean;
+  isMg?: boolean;
   point: THREE.Vector3;
   zone: string;
   part: HitPart;
@@ -297,7 +298,7 @@ export interface ImpactEvent {
   velocity: THREE.Vector3;
   speed: number;
   distance: number;
-  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number };
+  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; mgDamage?: number };
 }
 
 interface Projectile {
@@ -311,7 +312,7 @@ interface Projectile {
   group: THREE.Group;
   trail: THREE.Line;
   trailPos: Float32Array;
-  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number };
+  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; mgDamage?: number };
   owner: Tank | null;
 }
 
@@ -516,19 +517,27 @@ export class BallisticsSystem {
   }
 
   private _tankImpact(p: Projectile, hit: NonNullable<ReturnType<BallisticsSystem['_targetHit']>>) {
+    const isMg = p.shell.type === 'MG';
     const speed = p.vel.length();
-    let r = resolveHit(hit.part, hit.ln, hit.ld, p.shell, speed, hit.zone, hit.tank.spec);
     const t = hit.tank;
     const fx = this.fx;
     const pt = hit.point;
-    if (p.owner && p.owner.isBoss) {
-      // Смертельная пушка Мауса: любое попадание — мгновенный взрыв, броня игнорируется.
-      r = { ...r, result: 'crit', damage: 999999 };
-    } else if (t.isBoss) {
-      // Босс: 50 ХП за выстрел × коэффициент орудия атакующего, броня Мауса не учитывается.
-      if (r.result !== 'ricochet') {
-        const coef = p.owner ? p.owner.spec.bossDamageCoef : 1;
-        r = { ...r, result: 'pen', damage: BOSS_BASE_DAMAGE * coef };
+    let r: HitResolution;
+
+    if (isMg) {
+      // Пулемётные пули обходят правило босса (50 ХП) и не детонируют бензобак с одного попадания: < 1 ХП.
+      r = resolveMgHit(hit.part, p.shell.mgDamage ?? p.owner?.spec.mg.damage ?? 0.35);
+    } else {
+      r = resolveHit(hit.part, hit.ln, hit.ld, p.shell, speed, hit.zone, hit.tank.spec);
+      if (p.owner && p.owner.isBoss) {
+        // Смертельная пушка Мауса: любое попадание — мгновенный взрыв, броня игнорируется.
+        r = { ...r, result: 'crit', damage: 999999 };
+      } else if (t.isBoss) {
+        // Босс: 50 ХП за выстрел × коэффициент орудия атакующего, броня Мауса не учитывается.
+        if (r.result !== 'ricochet') {
+          const coef = p.owner ? p.owner.spec.bossDamageCoef : 1;
+          r = { ...r, result: 'pen', damage: BOSS_BASE_DAMAGE * coef };
+        }
       }
     }
     if (t.god && r.result !== 'ricochet' && r.result !== 'nopen') {
@@ -579,109 +588,137 @@ export class BallisticsSystem {
       }
     };
 
-    switch (r.result) {
-      case 'ricochet':
-        flash(1.6);
-        sparks(10, 20);
-        audio.play('ricochet', pt);
-        break;
-      case 'nopen':
-        flash(2.2);
-        smoke(6);
-        audio.play('nopen', pt);
-        break;
-      case 'track':
-        flash(2);
-        sparks(14, 18);
-        smoke(5);
+    if (isMg) {
+      flash(0.75);
+      sparks(4, 11);
+      if (r.result !== 'nopen') {
         t.hp -= r.damage;
-        t.immobilize(10);
-        audio.play('track', pt);
-        break;
-      case 'barrel':
-        flash(2);
-        sparks(12, 22);
-        t.hp -= r.damage;
-        t.disableGun(10);
-        audio.play('barrel', pt);
-        break;
-      default: {
-        this._impact(p, { point: pt, normal: hit.normal, kind: 'tank', obstacle: null }, true);
-        t.hp -= r.damage;
-        const isFuel = r.result === 'fuel';
-        if (isFuel) {
-          audio.play('fuelExplosion', pt, 1.25);
-        } else {
-          audio.play('hitpen', pt);
-        }
-
-        if (t.hp <= 0 && t.alive) {
-          destroyed = true;
-          t.destroy(isFuel || r.result === 'crit');
-          const big = isFuel ? 2.4 : 1;
-          fx.emit({
-            additive: true,
-            x: pt.x,
-            y: pt.y + 1,
-            z: pt.z,
-            life: 0.55 * big,
-            s0: 6 * big,
-            s1: 19 * big,
-            r: 1,
-            g: isFuel ? 0.48 : 0.6,
-            b: isFuel ? 0.1 : 0.2,
-            a: 1,
-          });
+      }
+      audio.play('mgHit', pt, 0.75);
+      if (t.hp <= 0 && t.alive) {
+        destroyed = true;
+        t.destroy(false);
+        fx.emit({
+          additive: true,
+          x: pt.x,
+          y: pt.y + 1,
+          z: pt.z,
+          life: 0.55,
+          s0: 6,
+          s1: 19,
+          r: 1,
+          g: 0.6,
+          b: 0.2,
+          a: 1,
+        });
+        audio.play('bigexplosion', pt);
+        this.lightT = 1.4;
+      }
+    } else {
+      switch (r.result) {
+        case 'ricochet':
+          flash(1.6);
+          sparks(10, 20);
+          audio.play('ricochet', pt);
+          break;
+        case 'nopen':
+          flash(2.2);
+          smoke(6);
+          audio.play('nopen', pt);
+          break;
+        case 'track':
+          flash(2);
+          sparks(14, 18);
+          smoke(5);
+          t.hp -= r.damage;
+          t.immobilize(10);
+          audio.play('track', pt);
+          break;
+        case 'barrel':
+          flash(2);
+          sparks(12, 22);
+          t.hp -= r.damage;
+          t.disableGun(10);
+          audio.play('barrel', pt);
+          break;
+        default: {
+          this._impact(p, { point: pt, normal: hit.normal, kind: 'tank', obstacle: null }, true);
+          t.hp -= r.damage;
+          const isFuel = r.result === 'fuel';
           if (isFuel) {
-            this._spawnShockwave(t.root.position);
-            for (let i = 0; i < 36; i++) {
-              fx.emit({
-                additive: true,
-                x: pt.x,
-                y: pt.y + 1.4,
-                z: pt.z,
-                vx: rnd(-22, 22),
-                vy: rnd(6, 28),
-                vz: rnd(-22, 22),
-                life: rnd(0.7, 1.6),
-                s0: 3.8,
-                s1: 1.0,
-                r: 1,
-                g: rnd(0.32, 0.62),
-                b: 0.08,
-                a: 1,
-                drag: 0.9,
-                grav: -12,
-              });
-            }
-            for (let i = 0; i < 18; i++) {
-              fx.emit({
-                x: pt.x + rnd(-1.5, 1.5),
-                y: pt.y + 1.8,
-                z: pt.z + rnd(-1.5, 1.5),
-                vx: rnd(-5, 5),
-                vy: rnd(5, 14),
-                vz: rnd(-5, 5),
-                life: rnd(2.4, 4.2),
-                s0: 2.8,
-                s1: 9.5,
-                r: 0.14,
-                g: 0.11,
-                b: 0.09,
-                a: 0.85,
-                drag: 0.7,
-                grav: 1.1,
-              });
-            }
+            audio.play('fuelExplosion', pt, 1.25);
           } else {
-            audio.play('bigexplosion', pt);
+            audio.play('hitpen', pt);
           }
-          this.lightT = 1.6 * big;
+
+          if (t.hp <= 0 && t.alive) {
+            destroyed = true;
+            t.destroy(isFuel || r.result === 'crit');
+            const big = isFuel ? 2.4 : 1;
+            fx.emit({
+              additive: true,
+              x: pt.x,
+              y: pt.y + 1,
+              z: pt.z,
+              life: 0.55 * big,
+              s0: 6 * big,
+              s1: 19 * big,
+              r: 1,
+              g: isFuel ? 0.48 : 0.6,
+              b: isFuel ? 0.1 : 0.2,
+              a: 1,
+            });
+            if (isFuel) {
+              this._spawnShockwave(t.root.position);
+              for (let i = 0; i < 36; i++) {
+                fx.emit({
+                  additive: true,
+                  x: pt.x,
+                  y: pt.y + 1.4,
+                  z: pt.z,
+                  vx: rnd(-22, 22),
+                  vy: rnd(6, 28),
+                  vz: rnd(-22, 22),
+                  life: rnd(0.7, 1.6),
+                  s0: 3.8,
+                  s1: 1.0,
+                  r: 1,
+                  g: rnd(0.32, 0.62),
+                  b: 0.08,
+                  a: 1,
+                  drag: 0.9,
+                  grav: -12,
+                });
+              }
+              for (let i = 0; i < 18; i++) {
+                fx.emit({
+                  x: pt.x + rnd(-1.5, 1.5),
+                  y: pt.y + 1.8,
+                  z: pt.z + rnd(-1.5, 1.5),
+                  vx: rnd(-5, 5),
+                  vy: rnd(5, 14),
+                  vz: rnd(-5, 5),
+                  life: rnd(2.4, 4.2),
+                  s0: 2.8,
+                  s1: 9.5,
+                  r: 0.14,
+                  g: 0.11,
+                  b: 0.09,
+                  a: 0.85,
+                  drag: 0.7,
+                  grav: 1.1,
+                });
+              }
+            } else {
+              audio.play('bigexplosion', pt);
+            }
+            this.lightT = 1.6 * big;
+          }
         }
       }
     }
 
-    if (p.owner && p.owner.isPlayer) {
+    if (p.owner && p.owner.isPlayer && (!isMg || destroyed)) {
       audio.ui(r.result === 'fuel' ? 'fuelCrit' : 'tick');
     }
     for (const fn of this.tankListeners) {
@@ -691,6 +728,7 @@ export class BallisticsSystem {
         result: r.result,
         damage: r.damage,
         destroyed,
+        isMg,
         point: pt.clone(),
         zone: hit.zone,
         part: hit.part,
@@ -711,6 +749,7 @@ export class BallisticsSystem {
     penetrationMm = 240,
     maxRange = DEFAULT_MAX_RANGE,
     type = 'AP',
+    mgDamage,
     owner = null,
   }: {
     pos: THREE.Vector3;
@@ -720,24 +759,35 @@ export class BallisticsSystem {
     penetrationMm?: number;
     maxRange?: number;
     type?: string;
+    mgDamage?: number;
     owner?: Tank | null;
   }): void {
+    const isMg = type === 'MG';
     const d = this._v.copy(dir);
-    d.x += rnd(-1, 1) * 0.00015;
-    d.y += rnd(-1, 1) * 0.00015;
-    d.z += rnd(-1, 1) * 0.00015;
-    d.normalize();
+    if (!isMg) {
+      d.x += rnd(-1, 1) * 0.00015;
+      d.y += rnd(-1, 1) * 0.00015;
+      d.z += rnd(-1, 1) * 0.00015;
+      d.normalize();
+    }
     const group = new THREE.Group();
     const streak = new THREE.Mesh(this.streakGeo, this.streakMat);
-    streak.scale.z = 9;
-    group.add(streak, new THREE.Mesh(this.coreGeo, this.coreMat));
+    if (isMg) {
+      streak.scale.set(0.55, 0.55, 4.2);
+      const core = new THREE.Mesh(this.coreGeo, this.coreMat);
+      core.scale.setScalar(0.38);
+      group.add(streak, core);
+    } else {
+      streak.scale.z = 9;
+      group.add(streak, new THREE.Mesh(this.coreGeo, this.coreMat));
+    }
     const tp = new Float32Array(TRAIL_N * 3);
     const tc = new Float32Array(TRAIL_N * 3);
     for (let i = 0; i < TRAIL_N; i++) {
-      const f = Math.pow(1 - i / (TRAIL_N - 1), 1.6);
+      const f = Math.pow(1 - i / (TRAIL_N - 1), 1.6) * (isMg ? 0.55 : 1);
       tc[i * 3] = f;
-      tc[i * 3 + 1] = f * 0.55;
-      tc[i * 3 + 2] = f * 0.18;
+      tc[i * 3 + 1] = f * (isMg ? 0.72 : 0.55);
+      tc[i * 3 + 2] = f * (isMg ? 0.28 : 0.18);
       tp[i * 3] = pos.x;
       tp[i * 3 + 1] = pos.y;
       tp[i * 3 + 2] = pos.z;
@@ -762,11 +812,41 @@ export class BallisticsSystem {
       group,
       trail,
       trailPos: tp,
-      shell: { type, caliber, muzzleVelocity: speed, penetrationMm, maxRange },
+      shell: { type, caliber, muzzleVelocity: speed, penetrationMm, maxRange, mgDamage },
       owner,
     });
-    this._muzzleFlash(pos, d);
-    audio.play('cannon', pos, 1, !!(owner && owner.isPlayer));
+    if (isMg) {
+      this._mgMuzzleFlash(pos, d);
+      audio.play('mg', pos, 0.55, !!(owner && owner.isPlayer));
+    } else {
+      this._muzzleFlash(pos, d);
+      audio.play('cannon', pos, 1, !!(owner && owner.isPlayer));
+    }
+  }
+
+  private _mgMuzzleFlash(p: THREE.Vector3, d: THREE.Vector3): void {
+    const fx = this.fx;
+    fx.emit({ additive: true, x: p.x, y: p.y, z: p.z, life: 0.045, s0: 1.05, s1: 0.35, r: 1, g: 0.9, b: 0.55, a: 0.95 });
+    for (let i = 0; i < 2; i++) {
+      const s = rnd(14, 34);
+      fx.emit({
+        additive: true,
+        x: p.x + d.x * 0.3,
+        y: p.y + d.y * 0.3,
+        z: p.z + d.z * 0.3,
+        vx: d.x * s + rnd(-3, 3),
+        vy: d.y * s + rnd(-3, 3),
+        vz: d.z * s + rnd(-3, 3),
+        life: rnd(0.04, 0.08),
+        s0: 0.45,
+        s1: 0.12,
+        r: 1,
+        g: 0.78,
+        b: 0.35,
+        a: 0.85,
+        drag: 5,
+      });
+    }
   }
 
   private _muzzleFlash(p: THREE.Vector3, d: THREE.Vector3): void {
@@ -821,6 +901,30 @@ export class BallisticsSystem {
     const pt = hit.point;
     const n = hit.normal;
     const ground = hit.kind === 'ground';
+    if (p.shell.type === 'MG') {
+      const dirt = ground ? [0.45, 0.38, 0.28] : [0.65, 0.63, 0.58];
+      fx.emit({ additive: true, x: pt.x, y: pt.y + 0.1, z: pt.z, life: 0.08, s0: 0.6, s1: 0.2, r: 1, g: 0.85, b: 0.45, a: 0.85 });
+      for (let i = 0; i < 3; i++) {
+        fx.emit({
+          x: pt.x,
+          y: pt.y + 0.1,
+          z: pt.z,
+          vx: n.x * rnd(2, 6) + rnd(-3, 3),
+          vy: n.y * rnd(2, 6) + rnd(1, 4),
+          vz: n.z * rnd(2, 6) + rnd(-3, 3),
+          life: rnd(0.25, 0.5),
+          s0: 0.35,
+          s1: 0.9,
+          r: dirt[0],
+          g: dirt[1],
+          b: dirt[2],
+          a: 0.5,
+          drag: 1.4,
+          grav: -8,
+        });
+      }
+      return;
+    }
     const dust = ground ? [0.46, 0.4, 0.3] : [0.62, 0.61, 0.58];
     const dirt = ground ? [0.3, 0.23, 0.15] : [0.5, 0.48, 0.44];
     const sc = Math.max(1, p.shell.caliber / 0.075);
@@ -1051,20 +1155,22 @@ export class BallisticsSystem {
         continue;
       }
       if (expiredByRange) {
-        // Shell reaches 400m max range and disappears with a faint mid-air puff
-        this.fx.emit({
-          x: p.pos.x,
-          y: p.pos.y,
-          z: p.pos.z,
-          life: 0.55,
-          s0: 0.7,
-          s1: 2.0,
-          r: 0.6,
-          g: 0.58,
-          b: 0.54,
-          a: 0.35,
-          drag: 1.5,
-        });
+        if (p.shell.type !== 'MG') {
+          // Shell reaches max range and disappears with a faint mid-air puff
+          this.fx.emit({
+            x: p.pos.x,
+            y: p.pos.y,
+            z: p.pos.z,
+            life: 0.55,
+            s0: 0.7,
+            s1: 2.0,
+            r: 0.6,
+            g: 0.58,
+            b: 0.54,
+            a: 0.35,
+            drag: 1.5,
+          });
+        }
         this._remove(i);
         continue;
       }
@@ -1073,13 +1179,13 @@ export class BallisticsSystem {
         continue;
       }
 
-      if (!p.snapped && audio.cam && p.owner && !p.owner.isPlayer && p.pos.distanceToSquared(audio.cam.position) < 400) {
+      if (!p.snapped && p.shell.type !== 'MG' && audio.cam && p.owner && !p.owner.isPlayer && p.pos.distanceToSquared(audio.cam.position) < 400) {
         p.snapped = true;
         audio.play('snap', p.pos, 1);
       }
       p.group.position.copy(p.pos);
       p.group.lookAt(p.pos.x + p.vel.x, p.pos.y + p.vel.y, p.pos.z + p.vel.z);
-      p.group.children[0].scale.z = Math.min(14, 4 + p.vel.length() * 0.012);
+      p.group.children[0].scale.z = p.shell.type === 'MG' ? 4.2 : Math.min(14, 4 + p.vel.length() * 0.012);
       const tp = p.trailPos;
       tp.copyWithin(3, 0, (TRAIL_N - 1) * 3);
       tp[0] = p.pos.x;

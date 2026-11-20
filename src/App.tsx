@@ -22,6 +22,20 @@ export default function App() {
       <div id="gunMark" />
       <canvas id="hitcam" />
       <canvas id="minimap" className="hud" width={156} height={156} data-testid="minimap" />
+      <div id="mgHud" className="hud" data-testid="mg-hud">
+        <div className="mg-head">
+          <span id="mgKeyLabel">ПУЛЕМЁТ [F]</span>
+          <span id="mgAmmo" data-testid="mg-ammo">
+            100 / 300
+          </span>
+        </div>
+        <div className="mg-bar">
+          <div id="mgBarFill" />
+        </div>
+        <div id="mgStateTxt" className="mg-state">
+          ГОТОВ
+        </div>
+      </div>
 
       <div id="help" className="hud" />
       <div id="modeLabel" className="hud">

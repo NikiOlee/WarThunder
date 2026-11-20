@@ -299,6 +299,15 @@ class AudioSys {
         this._burst(dst, t, 0.34, 0.5, 'bandpass', 540, 260, 0.6);
         this._burst(dst, t, 0.28, 0.28, 'lowpass', 1400, 480);
         break;
+      case 'mg':
+        this._tone(dst, 'triangle', 320, 95, t, 0.045, 0.48);
+        this._burst(dst, t, 0.055, 0.52, 'bandpass', 2200, 680, 0.9);
+        this._burst(dst, t, 0.022, 0.35, 'highpass', 3600, 3600);
+        break;
+      case 'mgHit':
+        this._tone(dst, 'sine', 1850, 1150, t, 0.06, 0.28);
+        this._burst(dst, t, 0.03, 0.25, 'bandpass', 3200, 2400, 2.2);
+        break;
       default:
         break;
     }

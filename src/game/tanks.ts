@@ -1,3 +1,5 @@
+import type { MachineGunSpec } from './machineGun';
+
 const DEG = Math.PI / 180;
 const TANK_STORAGE_KEY = 'ironsky.selectedTank.v1';
 
@@ -41,6 +43,7 @@ export interface TankSpec {
     sideRear: number;
     fuel: number;
   };
+  mg: MachineGunSpec;
 }
 
 export const DEFAULT_TANK_ID = 't55';
@@ -84,6 +87,17 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       sideRear: 60,
       fuel: 999,
     },
+    mg: {
+      name: '7.62-мм пулемёт ПКТ',
+      damage: 0.35,
+      fireRate: 10,
+      magSize: 100,
+      totalAmmo: 400,
+      reloadTime: 3.2,
+      muzzleVelocity: 820,
+      maxRange: 360,
+      spread: 0.0085,
+    },
   },
   m60a3: {
     id: 'm60a3',
@@ -122,6 +136,17 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       front: 40,
       sideRear: 55,
       fuel: 999,
+    },
+    mg: {
+      name: '12.7-мм пулемёт M85',
+      damage: 0.65,
+      fireRate: 11,
+      magSize: 120,
+      totalAmmo: 480,
+      reloadTime: 3.0,
+      muzzleVelocity: 860,
+      maxRange: 420,
+      spread: 0.007,
     },
   },
 };
@@ -163,6 +188,17 @@ export const MAUS_SPEC: TankSpec = {
     turretTop: 60,
   },
   damage: { front: 50, sideRear: 50, fuel: 50 },
+  mg: {
+    name: '7.92-мм спаренный MG 34',
+    damage: 0.55,
+    fireRate: 10,
+    magSize: 150,
+    totalAmmo: 600,
+    reloadTime: 3.5,
+    muzzleVelocity: 820,
+    maxRange: 380,
+    spread: 0.008,
+  },
 };
 
 export function getAllTanks(): TankSpec[] {

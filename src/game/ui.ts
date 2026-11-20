@@ -330,6 +330,7 @@ export function createUI(h: UIHandlers) {
       <div class="hstat"><span>Дальность полёта снаряда</span><b>${spec.maxRange} м</b></div>
       <div class="hstat"><span>Прочность корпуса</span><b>${spec.maxHp} ед.</b></div>
       <div class="hstat"><span>Орудие</span><b>${spec.gunName}</b></div>
+      <div class="hstat"><span>Пулемёт (${spec.mg.magSize}/${spec.mg.totalAmmo})</span><b>${spec.mg.name} · ${spec.mg.damage.toFixed(2)} ед.</b></div>
       <div class="hstat"><span>Лобовая броня</span><b>${frontArmorLabel}</b></div>
       <div class="hstat"><span>Урон при пробитии лба</span><b>${spec.damage.front} ед.</b></div>
       <div class="hstat"><span>Урон в борта и корму</span><b>${spec.damage.sideRear} ед.</b></div>

@@ -349,6 +349,80 @@ body.menu #spectatorBar {
   z-index: 4;
 }
 
+#mgHud {
+  left: 182px;
+  bottom: 98px;
+  width: 164px;
+  padding: 8px 10px;
+  background: rgba(12, 16, 10, 0.85);
+  border: 1px solid rgba(138, 140, 90, 0.55);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.72);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #b9b59a;
+  z-index: 4;
+  text-shadow: none;
+}
+
+#mgHud .mg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+#mgKeyLabel {
+  color: #ffd27a;
+  font-weight: bold;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+
+#mgAmmo {
+  color: #fff;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+#mgHud .mg-bar {
+  height: 6px;
+  background: #2b2b25;
+  border: 1px solid #555;
+  margin: 5px 0 4px;
+}
+
+#mgBarFill {
+  height: 100%;
+  width: 100%;
+  background: #ffd27a;
+}
+
+#mgHud .mg-state {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: #8fe36a;
+  white-space: nowrap;
+}
+
+#mgHud.reloading #mgBarFill {
+  background: #ffb43c;
+}
+
+#mgHud.reloading .mg-state {
+  color: #ffb43c;
+}
+
+#mgHud.empty #mgBarFill {
+  background: #ff4a3a;
+}
+
+#mgHud.empty .mg-state,
+#mgHud.empty #mgAmmo {
+  color: #ff6a4a;
+}
+
 #dmgStat {
   left: 14px;
   bottom: 264px;
@@ -823,7 +897,7 @@ select {
 }
 
 .hangar-right-wrap {
-  width: min(370px, 40vw);
+  width: min(415px, 42vw);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -848,7 +922,7 @@ select {
   flex-direction: column;
   max-height: 100%;
   overflow: auto;
-  padding: 20px 22px;
+  padding: 14px 18px;
   background: rgba(14, 18, 12, 0.94);
   border: 1px solid #8a8c5a;
   box-shadow: 0 0 32px rgba(0, 0, 0, 0.85);
@@ -861,55 +935,59 @@ select {
   justify-content: space-between;
   gap: 10px;
   border-bottom: 1px solid rgba(154, 165, 138, 0.28);
-  padding-bottom: 10px;
-  margin-bottom: 10px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
 }
 
 .hangar-info-head h3 {
   margin: 0;
-  font-size: 28px;
-  letter-spacing: 4px;
+  font-size: 21px;
+  letter-spacing: 2px;
   color: #ffd27a;
+  white-space: nowrap;
 }
 
 .hangar-info-role {
-  font-size: 12px;
+  font-size: 11px;
   color: #9aa58a;
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 
 .hangar-info-desc {
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.38;
   color: #c9c7b0;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .hangar-stats {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: 2px;
+  margin-bottom: 8px;
 }
 
 .hstat {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 6px 0;
+  gap: 10px;
+  padding: 3px 0;
   border-bottom: 1px solid rgba(120, 130, 100, 0.16);
-  font-size: 13px;
+  font-size: 11.5px;
 }
 
 .hstat span {
   color: #b9b59a;
+  white-space: nowrap;
 }
 
 .hstat b {
   color: #fff;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .hstat-warn b {

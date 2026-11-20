@@ -409,6 +409,7 @@ export class Bot {
     let aimYaw: number;
     let aimElev = 0;
     let canShoot = false;
+    let canShootMg = false;
 
     if (tg) {
       const mv = t.stats.muzzleVelocity;
@@ -452,14 +453,23 @@ export class Bot {
       t.gunDirection(t._gd);
       const elevErr = Math.abs(Math.asin(clamp(t._gd.y, -1, 1)) - aimElev);
 
+      const hasLos = this.targetVisible && this._hasLineOfSight(tg);
       canShoot = computeShotGate({
         range,
         maxEffectiveRange,
         reactT: this.reactT,
         yawErr,
         elevErr,
-        hasLineOfSight: this.targetVisible && this._hasLineOfSight(tg),
+        hasLineOfSight: hasLos,
       });
+      canShootMg =
+        hasLos &&
+        this.reactT <= 0 &&
+        range <= t.stats.mg.maxRange - 25 &&
+        range <= 145 &&
+        yawErr < 0.08 &&
+        elevErr < 0.07 &&
+        (t.reloadTimer > 0.65 || t.gunDownT > 0);
     } else {
       const dx = this.obj.x - pos.x;
       const dz = this.obj.z - pos.z;
@@ -472,6 +482,10 @@ export class Bot {
     if (canShoot) {
       const shot = t.fire();
       if (shot) this.ballistics.fire({ ...shot, owner: t });
+    }
+    if (canShootMg) {
+      const mgShot = t.fireMg();
+      if (mgShot) this.ballistics.fire({ ...mgShot, owner: t });
     }
   }
 }

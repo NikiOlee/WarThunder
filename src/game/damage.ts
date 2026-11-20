@@ -154,3 +154,18 @@ export function resolveHit(
     zone: isRear ? 'rear' : isTop ? 'deck' : 'side',
   };
 }
+
+/**
+ * Machine gun bullet resolution: deals tiny chip damage (< 1 HP, scaled by attacker tank price)
+ * without triggering cannon-grade fuel tank instant kills or track/barrel 1-shot breaks.
+ */
+export function resolveMgHit(part: HitPart, mgDamage: number): HitResolution {
+  const safeDmg = clamp(mgDamage, 0.05, 0.99);
+  return {
+    result: 'pen',
+    damage: safeDmg,
+    base: 0,
+    angleDeg: 0,
+    zone: part,
+  };
+}

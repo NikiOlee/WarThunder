@@ -94,7 +94,7 @@ test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and locks
 
 test('Training mode unlocks cheats and bot accuracy, while 5v5 rounds mode enables spectator and round wins', () => {
   const all = getAllModes();
-  assert.equal(all.length, 3);
+  assert.equal(all.length, 4);
 
   const training = getModeDef('training');
   assert.equal(training.name, 'Тренировка');
@@ -141,4 +141,14 @@ test('Scoreboard sorting orders by highest kills, then fewest deaths, then playe
   assert.equal(sorted[0].name, 'Т-55 A3');
   assert.equal(sorted[1].name, 'ВЫ (Т-55)');
   assert.equal(sorted[2].name, 'Т-55 A2');
+});
+
+test('Джагернаут: 6 охотников против босса, респавн включён, награда 1500', () => {
+  const m = getModeDef('juggernaut');
+  assert.equal(m.name, 'Джагернаут');
+  assert.equal(m.teamSize, 6);
+  assert.equal(m.boss, true);
+  assert.equal(m.respawns, true);
+  assert.equal(m.victoryRewardSilver, 1500);
+  assert.equal(m.allowCheats, false);
 });

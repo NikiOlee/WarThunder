@@ -111,6 +111,14 @@ export default function App() {
       <div id="dmgStat" className="hud" />
       <div id="msg" className="hud" />
       <div id="roundBanner" className="hud hidden" data-testid="round-banner" />
+      <div id="bossBar" className="hud hidden" data-testid="boss-bar">
+        <div className="boss-name">МАУС</div>
+        <div className="boss-track">
+          <div id="bossFill" />
+          <div id="bossHpText" className="boss-hp" />
+        </div>
+      </div>
+      <div id="victoryBanner" className="hud hidden" data-testid="victory-banner" />
       <div id="spectatorBar" className="hud hidden" data-testid="spectator-bar">
         <div className="spec-title">РЕЖИМ НАБЛЮДАТЕЛЯ</div>
         <div className="spec-target">

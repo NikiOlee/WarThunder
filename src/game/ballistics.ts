@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BARREL_HITBOX_BOUNDS, resolveHit, type HitPart, type HitResolution } from './damage';
 import { audio } from './audio';
+import { BOSS_BASE_DAMAGE } from './tanks';
 import type { Tank } from './tank';
 import type { GameWorld, ObstacleBox } from './world';
 
@@ -492,6 +493,16 @@ export class BallisticsSystem {
     const t = hit.tank;
     const fx = this.fx;
     const pt = hit.point;
+    if (p.owner && p.owner.isBoss) {
+      // Смертельная пушка Мауса: любое попадание — мгновенный взрыв, броня игнорируется.
+      r = { ...r, result: 'crit', damage: 999999 };
+    } else if (t.isBoss) {
+      // Босс: 50 ХП за выстрел × коэффициент орудия атакующего, броня Мауса не учитывается.
+      if (r.result !== 'ricochet') {
+        const coef = p.owner ? p.owner.spec.bossDamageCoef : 1;
+        r = { ...r, result: 'pen', damage: BOSS_BASE_DAMAGE * coef };
+      }
+    }
     if (t.god && r.result !== 'ricochet' && r.result !== 'nopen') {
       r = { ...r, result: 'nopen', damage: 0 };
     }

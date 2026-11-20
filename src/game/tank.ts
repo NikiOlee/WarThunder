@@ -92,6 +92,9 @@ export class Tank {
   god = false;
   isPlayer = false;
   isBot = false;
+  get isBoss(): boolean {
+    return this.spec.id === 'maus';
+  }
   matchKills = 0;
   matchDeaths = 0;
 

@@ -97,7 +97,65 @@ body.menu #scope,
 body.menu #dead,
 body.menu #scoreboard,
 body.menu #roundBanner,
-body.menu #spectatorBar {
+body.menu #bossBar,
+body.menu #victoryBanner,
+body.menu #bossBar {
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  width: min(720px, 70vw);
+  z-index: 9;
+  text-align: center;
+}
+#bossBar .boss-name {
+  font-size: 20px;
+  font-weight: bold;
+  letter-spacing: 8px;
+  color: #ff6a4a;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+  margin-bottom: 4px;
+}
+#bossBar .boss-track {
+  position: relative;
+  height: 26px;
+  background: rgba(10, 8, 8, 0.85);
+  border: 2px solid #ff6a4a;
+  box-shadow: 0 0 22px rgba(0, 0, 0, 0.8);
+}
+#bossFill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #a01c10, #ff4a3a);
+  transition: width 0.2s linear;
+}
+#bossBar .boss-hp {
+  position: absolute;
+  inset: 0;
+  line-height: 26px;
+  font-size: 15px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 4px #000;
+}
+
+#victoryBanner {
+  left: 50%;
+  top: 40%;
+  transform: translate(-50%, -50%);
+  padding: 28px 60px;
+  background: rgba(10, 22, 10, 0.9);
+  border: 3px solid #8fe36a;
+  box-shadow: 0 0 60px rgba(143, 227, 106, 0.45);
+  text-align: center;
+  z-index: 20;
+  font-size: clamp(30px, 5vw, 64px);
+  font-weight: bold;
+  letter-spacing: 6px;
+  color: #8fe36a;
+  white-space: nowrap;
+}
+
+#spectatorBar {
   display: none !important;
 }
 

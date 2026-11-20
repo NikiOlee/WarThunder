@@ -1,4 +1,4 @@
-export type GameModeId = 'tdm100' | 'rounds5v5' | 'training' | (string & {});
+export type GameModeId = 'tdm100' | 'rounds5v5' | 'training' | 'juggernaut' | (string & {});
 
 export interface GameModeDef {
   id: GameModeId;
@@ -14,6 +14,8 @@ export interface GameModeDef {
   allowBotAccuracy: boolean;
   silverRewards: boolean;
   victoryRewardSilver: number;
+  /** Босс-режим: вместо вражеской команды один ИИ-босс (Маус) в центре карты. */
+  boss?: boolean;
 }
 
 export const DEFAULT_MODE_ID: GameModeId = 'tdm100';
@@ -63,6 +65,23 @@ export const GAME_MODES: Record<string, GameModeDef> = {
     allowBotAccuracy: true,
     silverRewards: false,
     victoryRewardSilver: 0,
+  },
+  juggernaut: {
+    id: 'juggernaut',
+    name: 'Джагернаут',
+    shortDesc:
+      'Охотники (вы + 5 союзных ботов) против одного ИИ-босса «Маус» с 1000 ХП в центре карты. Маус убивает любой танк с одного выстрела или тарана — фокусируйте огонь! +1500 серебра за победу.',
+    teamSize: 6,
+    targetKills: 0,
+    roundsToWin: 0,
+    respawns: true,
+    spectatorOnDeath: false,
+    allowConsole: true,
+    allowCheats: false,
+    allowBotAccuracy: false,
+    silverRewards: false,
+    victoryRewardSilver: 1500,
+    boss: true,
   },
 };
 

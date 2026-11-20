@@ -33,6 +33,8 @@ export interface TankSpec {
   caliber: number; // meters
   penetrationMm: number;
   maxHp: number;
+  /** Множитель урона по боссу в режиме «Джагернаут» (база 50 ХП за выстрел). */
+  bossDamageCoef: number;
   armor: TankArmorSpec;
   damage: {
     front: number;
@@ -66,6 +68,7 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
     caliber: 0.1,
     penetrationMm: 240,
     maxHp: 120,
+    bossDamageCoef: 1.0,
     armor: {
       hullFront: 200,
       hullSide: 80,
@@ -104,6 +107,7 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
     caliber: 0.105,
     penetrationMm: 255,
     maxHp: 120,
+    bossDamageCoef: 1.2,
     armor: {
       hullFront: 215,
       hullSide: 75,
@@ -122,11 +126,51 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
   },
 };
 
+export const BOSS_TANK_ID = 'maus';
+export const BOSS_BASE_DAMAGE = 50;
+
+/** Босс режима «Джагернаут». Не входит в каталог ангара и не продаётся. */
+export const MAUS_SPEC: TankSpec = {
+  id: BOSS_TANK_ID,
+  name: 'Маус',
+  role: 'Сверхтяжёлый танк (босс)',
+  country: 'Германия',
+  gunName: '128-мм пушка KwK 44',
+  description: 'ИИ-босс режима «Джагернаут». Медленный, но смертоносный.',
+  priceSilver: 0,
+  maxSpeedKmh: 22,
+  maxSpeed: 22 / 3.6,
+  maxReverse: 2.5,
+  traverseRate: 16 * DEG,
+  elevRate: 12 * DEG,
+  elevMin: -6 * DEG,
+  elevMax: 18 * DEG,
+  reload: 6.0,
+  muzzleVelocity: 520,
+  maxRange: 600,
+  caliber: 0.128,
+  penetrationMm: 9999,
+  maxHp: 1000,
+  bossDamageCoef: 0,
+  armor: {
+    hullFront: 350,
+    hullSide: 190,
+    hullRear: 160,
+    deck: 60,
+    turretFront: 240,
+    turretSide: 200,
+    turretRear: 200,
+    turretTop: 60,
+  },
+  damage: { front: 50, sideRear: 50, fuel: 50 },
+};
+
 export function getAllTanks(): TankSpec[] {
   return Object.values(TANK_CATALOG);
 }
 
 export function getTankSpec(id?: string | null): TankSpec {
+  if (id === BOSS_TANK_ID) return MAUS_SPEC;
   if (id && TANK_CATALOG[id]) return TANK_CATALOG[id];
   return TANK_CATALOG[DEFAULT_TANK_ID];
 }

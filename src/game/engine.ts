@@ -4,6 +4,7 @@ import { createCityWorld } from './city';
 import { Tank } from './tank';
 import { BallisticsSystem, G, DRAG_K, SUBSTEP } from './ballistics';
 import { Bot, setMap } from './bots';
+import { JuggernautBoss, BOSS_RAM_DISTANCE } from './boss';
 import { settings, onSettings, setSetting, type GameSettings } from './settings';
 import { audio } from './audio';
 import { HitCam } from './hitcam';
@@ -95,6 +96,8 @@ export function initGame(mountEl: HTMLElement): () => void {
   ballistics.addTarget(tank);
 
   const bots: Bot[] = [];
+  let boss: JuggernautBoss | null = null;
+  let jugVictoryT = 0;
   const tankIds = new Map<Tank, string>();
   let nextTankSeq = 1;
   const getTankId = (t: Tank) => {
@@ -107,9 +110,21 @@ export function initGame(mountEl: HTMLElement): () => void {
   };
   getTankId(tank);
 
-  function syncTeamRoster(teamSize: number) {
+  function syncBoss(want: boolean) {
+    if (want && !boss) {
+      boss = new JuggernautBoss(scene, world, ballistics);
+      getTankId(boss.tank);
+    } else if (!want && boss) {
+      scene.remove(boss.tank.root);
+      ballistics.targets = ballistics.targets.filter((t) => t !== boss!.tank);
+      boss = null;
+    }
+  }
+
+  function syncTeamRoster(teamSize: number, hasBoss = false) {
+    syncBoss(hasBoss);
     const wantAllies = Math.max(0, teamSize - 1);
-    const wantEnemies = Math.max(1, teamSize);
+    const wantEnemies = hasBoss ? 0 : Math.max(1, teamSize);
 
     const removeExtra = (team: 'A' | 'B', keep: number) => {
       let seen = 0;
@@ -146,8 +161,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
   }
 
-  syncTeamRoster(getModeDef(DEFAULT_MODE_ID).teamSize);
-  const allTanks = () => [tank, ...bots.map((b) => b.tank)];
+  syncTeamRoster(getModeDef(DEFAULT_MODE_ID).teamSize, !!getModeDef(DEFAULT_MODE_ID).boss);
+  const allTanks = () => [tank, ...bots.map((b) => b.tank), ...(boss ? [boss.tank] : [])];
   const tanksOf = (team: 'A' | 'B') => allTanks().filter((t) => t.team === team);
 
   let composer: EffectComposer | null = null;
@@ -296,11 +311,16 @@ export function initGame(mountEl: HTMLElement): () => void {
       b.world = world;
       b.tank.world = world;
     }
+    if (boss) {
+      boss.world = world;
+      boss.tank.world = world;
+    }
     old.dispose();
     applyMapLook();
     applyGraphics();
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
     for (const b of bots) b.respawn();
+    if (boss) boss.respawn();
     battleStarted = false;
   }
 
@@ -312,6 +332,11 @@ export function initGame(mountEl: HTMLElement): () => void {
       $('teamAKills').textContent = String(teamARounds);
       $('teamBKills').textContent = String(teamBRounds);
       $('modeGoalHud').textContent = `/ ${activeMode.roundsToWin}`;
+    } else if (activeMode.boss) {
+      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      $('teamAKills').textContent = String(teamAKills);
+      $('teamBKills').textContent = String(teamBKills);
+      $('modeGoalHud').textContent = '· УНИЧТОЖЬТЕ МАУСА';
     } else if (activeMode.targetKills > 0) {
       $('modeTitleHud').textContent = activeMode.name.toUpperCase();
       $('teamAKills').textContent = String(teamAKills);
@@ -347,6 +372,13 @@ export function initGame(mountEl: HTMLElement): () => void {
       tank.matchDeaths = 0;
     }
     $('mv').textContent = String(tank.stats.muzzleVelocity);
+    if (boss) {
+      boss.respawn();
+      boss.tank.matchKills = 0;
+      boss.tank.matchDeaths = 0;
+    }
+    jugVictoryT = 0;
+    $('victoryBanner').classList.add('hidden');
     for (const b of bots) {
       b.respawn();
       if (isFirstRound) {
@@ -384,7 +416,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function newBattle() {
     const activeMode = getModeDef(currentModeId);
-    syncTeamRoster(activeMode.teamSize);
+    syncTeamRoster(activeMode.teamSize, !!activeMode.boss);
     if (!activeMode.allowCheats || !flags.svCheats) {
       enforceCheatsOff();
     }
@@ -563,6 +595,9 @@ export function initGame(mountEl: HTMLElement): () => void {
       roundEndT = 0;
       pendingRoundMatchWinner = null;
       showRoundBanner(null);
+      jugVictoryT = 0;
+      $('victoryBanner').classList.add('hidden');
+      $('bossBar').classList.add('hidden');
       spectating = false;
       spectateTarget = null;
       spectateIdx = 0;
@@ -575,6 +610,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
       tank.name = `ВЫ (${tank.spec.name})`;
       for (const b of bots) b.respawn();
+      if (boss) boss.respawn();
       mode = 'third';
       fovCur = settings.fov;
       menuAngle = 0;
@@ -610,7 +646,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (gcon.open) gcon.close();
       battleStarted = false;
       matchEnded = false;
-      syncTeamRoster(def.teamSize);
+      syncTeamRoster(def.teamSize, !!def.boss);
       updateHelp();
     },
     onSelectTank: (tankId: string) => {
@@ -1067,6 +1103,16 @@ export function initGame(mountEl: HTMLElement): () => void {
     el.hp.style.background = hpPct > 60 ? '#8fe36a' : hpPct > 30 ? '#ffb43c' : '#ff4a3a';
     if (el.tankTag) el.tankTag.textContent = `${tank.spec.name} · ${Math.max(0, Math.round(tank.hp))}/${tank.maxHp}`;
 
+    const bossBar = $('bossBar');
+    if (boss && !matchEnded) {
+      bossBar.classList.remove('hidden');
+      const pct = Math.max(0, Math.min(100, (boss.tank.hp / boss.tank.maxHp) * 100));
+      $('bossFill').style.width = pct + '%';
+      $('bossHpText').textContent = `${Math.max(0, Math.ceil(boss.tank.hp))} / ${boss.tank.maxHp}`;
+    } else {
+      bossBar.classList.add('hidden');
+    }
+
     el.kills.textContent = String(kills);
     el.alive.textContent = tanksOf('A').filter((t) => t.alive).length + ' v ' + tanksOf('B').filter((t) => t.alive).length;
     let d = '';
@@ -1171,6 +1217,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       $('sbTeamScore').textContent = `РАУНД ${roundNum} · МЫ ${teamARounds} : ${teamBRounds} ВРАГИ (до ${activeMode.roundsToWin})`;
     } else if (activeMode.targetKills > 0) {
       $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (цель: ${activeMode.targetKills})`;
+    } else if (activeMode.boss) {
+      $('sbTeamScore').textContent = boss ? `МАУС: ${Math.max(0, Math.round(boss.tank.hp))} / ${boss.tank.maxHp} ХП` : '';
     } else {
       $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (тренировка)`;
     }
@@ -1252,7 +1300,39 @@ export function initGame(mountEl: HTMLElement): () => void {
     });
   }
 
+  function finishJuggernaut() {
+    if (matchEnded) return;
+    matchEnded = true;
+    const reward = getModeDef(currentModeId).victoryRewardSilver;
+    addSilver(reward); // сохраняется в localStorage сразу
+    matchSilverEarned += reward;
+    ui.refreshSilver();
+    audio.ui('victory');
+    showSilverToast(reward, 'Маус уничтожен', true);
+    mouseDown = false;
+    setScoreboardOpen(false);
+    spectating = false;
+    $('spectatorBar').classList.add('hidden');
+    deadEl.style.display = 'none';
+    showRoundBanner(null);
+    $('bossBar').classList.add('hidden');
+    const vb = $('victoryBanner');
+    vb.textContent = 'ПОБЕДА! ХОРОШАЯ РАБОТА!';
+    vb.classList.remove('hidden');
+    jugVictoryT = 1.8;
+  }
+
   function handleTankDestroyed(target: Tank, owner: Tank | null, suffix = '') {
+    if (target.isBoss) {
+      target.matchDeaths++;
+      if (owner === tank) {
+        kills = ++tank.matchKills;
+        el.kills.textContent = String(kills);
+      }
+      feed(`${owner ? owner.name : '?'}  >  ${target.name}`, 'ally');
+      finishJuggernaut();
+      return;
+    }
     if (!matchEnded) {
       const activeMode = getModeDef(currentModeId);
       target.matchDeaths++;
@@ -1317,7 +1397,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function resolveTankCollisions() {
-    const list = allTanks();
+    const list = allTanks().filter((t) => !t.isBoss);
     const byId = new Map<string, Tank>();
     for (const t of list) byId.set(getTankId(t), t);
 
@@ -1414,6 +1494,27 @@ export function initGame(mountEl: HTMLElement): () => void {
         audio.play('bigexplosion', pt);
         handleTankDestroyed(r.victim, r.attacker, ' [ТАРАН]');
       }
+    }
+  }
+
+  function resolveBossRam() {
+    if (!boss || !boss.alive || matchEnded) return;
+    const bp = boss.tank.root.position;
+    for (const v of allTanks()) {
+      if (v.isBoss || !v.alive) continue;
+      const d = Math.hypot(v.root.position.x - bp.x, v.root.position.z - bp.z);
+      if (d > BOSS_RAM_DISTANCE) continue;
+      // Смертельный таран: любой танк погибает мгновенно (Маус урона не получает) → штатный респавн
+      v.hp = 0;
+      v.destroy(true);
+      const p = v.root.position;
+      ballistics.fx.emit({ additive: true, x: p.x, y: p.y + 2, z: p.z, life: 0.8, s0: 10, s1: 30, r: 1, g: 0.6, b: 0.2, a: 1 });
+      audio.play('bigexplosion', p);
+      if (v === tank) {
+        shake = Math.max(shake, 1.1);
+        showMsg('МАУС РАЗДАВИЛ ВАС!', '#ff4c2a');
+      }
+      handleTankDestroyed(v, boss.tank, ' [ТАРАН]');
     }
   }
 
@@ -1541,7 +1642,22 @@ export function initGame(mountEl: HTMLElement): () => void {
       }
     }
 
+    if (boss && flags.ai) boss.update(dt, teams.A, ballistics.fx);
+    else if (boss) boss.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
+
     resolveTankCollisions();
+    resolveBossRam();
+
+    if (jugVictoryT > 0) {
+      jugVictoryT -= Math.min(rawDt, 0.5);
+      if (jugVictoryT <= 0) {
+        jugVictoryT = 0;
+        toMenu();
+        render();
+        scheduleNext();
+        return;
+      }
+    }
 
     if (activeMode.roundsToWin > 0 && roundPhase === 'intermission') {
       roundEndT -= Math.min(rawDt, 0.5);

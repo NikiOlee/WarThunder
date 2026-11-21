@@ -1,4 +1,5 @@
 import type { TankHitEvent } from './ballistics';
+import { getHitCamResult, t } from './i18n';
 
 const M = (name: string, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, kind = 'module') => ({
   name,
@@ -133,12 +134,9 @@ export class HitCam {
     g.lineWidth = 1.5;
     g.strokeRect(0.75, 0.75, W - 1.5, H - 1.5);
 
-    const [label, color] =
-      info.result === 'fuel'
-        ? RESULT.fuel
-        : info.destroyed
-          ? ['Цель уничтожена', '#ff6a4a']
-          : RESULT[info.result] || ['', '#fff'];
+    const hitRes = getHitCamResult(info.result, info.destroyed);
+    const label = hitRes.label;
+    const color = hitRes.color;
     g.font = 'bold 13px Consolas, monospace';
     g.textBaseline = 'middle';
     g.fillStyle = '#9fb59a';
@@ -230,8 +228,8 @@ export class HitCam {
     g.font = '10px Consolas, monospace';
     g.fillStyle = 'rgba(160,190,150,0.7)';
     g.textAlign = 'center';
-    g.fillText('СВЕРХУ', tcx, 182);
-    g.fillText('СБОКУ', scx, 182);
+    g.fillText(t('hcTopView'), tcx, 182);
+    g.fillText(t('hcSideView'), scx, 182);
     g.globalAlpha = 1;
   }
 }

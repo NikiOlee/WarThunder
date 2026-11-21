@@ -1,6 +1,6 @@
 import {
   detectTouchDeviceHint,
-  KEY_LABELS,
+  getKeyLabels,
   keyName,
   resetSettings,
   setKeyBind,
@@ -10,6 +10,7 @@ import {
   type ControlMode,
   type GameSettings,
   type KeyAction,
+  type SupportedLanguage,
 } from './settings';
 import { audio } from './audio';
 import { getAllTanks, getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
@@ -23,6 +24,15 @@ import {
   MAX_MATCH_HISTORY,
   summarizeMatchHistory,
 } from './matchHistory';
+import {
+  applyDocumentLanguage,
+  getLanguage,
+  getMapText,
+  getModeText,
+  getTankText,
+  setLanguage,
+  t,
+} from './i18n';
 
 interface SettingItem {
   k?: keyof GameSettings;
@@ -37,48 +47,50 @@ interface SettingItem {
   controlOnly?: ControlMode;
 }
 
-const TABS: Record<string, { label: string; items: SettingItem[] }> = {
-  sound: {
-    label: 'Звук',
-    items: [
-      { k: 'master', t: 'range', l: 'Общая громкость', min: 0, max: 1, step: 0.05, pct: true },
-      { k: 'music', t: 'range', l: 'Музыка', min: 0, max: 1, step: 0.05, pct: true },
-      { k: 'sfx', t: 'range', l: 'Звуки (выстрелы, взрывы)', min: 0, max: 1, step: 0.05, pct: true },
-      { k: 'engine', t: 'range', l: 'Двигатель и гусеницы', min: 0, max: 1, step: 0.05, pct: true },
-    ],
-  },
-  controls: {
-    label: 'Управление',
-    items: [
-      { k: 'sens', t: 'range', l: 'Чувствительность мыши', min: 0.2, max: 3, step: 0.05, controlOnly: 'pc' },
-      { k: 'touchSens', t: 'range', l: 'Чувствительность свайпа', min: 0.3, max: 2.8, step: 0.05, controlOnly: 'touch' },
-      { k: 'sensSniper', t: 'range', l: 'Чувствительность в прицеле', min: 0.2, max: 3, step: 0.05 },
-      { k: 'invertY', t: 'check', l: 'Инвертировать вертикаль' },
-      { t: 'keys', controlOnly: 'pc' },
-    ],
-  },
-  graphics: {
-    label: 'Графика',
-    items: [
-      { k: 'shadows', t: 'select', l: 'Тени', opts: [['off', 'Выкл'], ['medium', 'Средние'], ['high', 'Высокие']] },
-      { k: 'post', t: 'check', l: 'Пост-обработка (свечение, тонемаппинг)' },
-      { k: 'bloom', t: 'range', l: 'Сила свечения', min: 0, max: 1, step: 0.05 },
-      { k: 'grass', t: 'select', num: true, l: 'Трава', opts: [[0, 'Выкл'], [0.5, 'Средняя'], [1, 'Высокая']] },
-      { k: 'drawDist', t: 'select', l: 'Дальность прорисовки', opts: [['low', 'Низкая'], ['medium', 'Средняя'], ['high', 'Высокая']] },
-      { k: 'resolution', t: 'select', num: true, l: 'Разрешение рендера', opts: [[0.6, '60%'], [0.8, '80%'], [1, '100%']] },
-      { k: 'fov', t: 'range', l: 'Поле зрения (FOV)', min: 50, max: 95, step: 1 },
-      { k: 'vignette', t: 'check', l: 'Виньетка' },
-    ],
-  },
-  game: {
-    label: 'Игра',
-    items: [
-      { k: 'hitcam', t: 'check', l: 'Камера попадания (рентген)' },
-      { k: 'hints', t: 'check', l: 'Подсказки по управлению' },
-      { k: 'botSkill', t: 'range', l: 'Меткость ботов', min: 0.4, max: 1.8, step: 0.05 },
-    ],
-  },
-};
+function getLocalizedTabs(): Record<string, { label: string; items: SettingItem[] }> {
+  return {
+    sound: {
+      label: t('tabSound'),
+      items: [
+        { k: 'master', t: 'range', l: t('setMaster'), min: 0, max: 1, step: 0.05, pct: true },
+        { k: 'music', t: 'range', l: t('setMusic'), min: 0, max: 1, step: 0.05, pct: true },
+        { k: 'sfx', t: 'range', l: t('setSfx'), min: 0, max: 1, step: 0.05, pct: true },
+        { k: 'engine', t: 'range', l: t('setEngine'), min: 0, max: 1, step: 0.05, pct: true },
+      ],
+    },
+    controls: {
+      label: t('tabControls'),
+      items: [
+        { k: 'sens', t: 'range', l: t('setSens'), min: 0.2, max: 3, step: 0.05, controlOnly: 'pc' },
+        { k: 'touchSens', t: 'range', l: t('setTouchSens'), min: 0.3, max: 2.8, step: 0.05, controlOnly: 'touch' },
+        { k: 'sensSniper', t: 'range', l: t('setSensSniper'), min: 0.2, max: 3, step: 0.05 },
+        { k: 'invertY', t: 'check', l: t('setInvertY') },
+        { t: 'keys', controlOnly: 'pc' },
+      ],
+    },
+    graphics: {
+      label: t('tabGraphics'),
+      items: [
+        { k: 'shadows', t: 'select', l: t('setShadows'), opts: [['off', t('optOff')], ['medium', t('optMed')], ['high', t('optHigh')]] },
+        { k: 'post', t: 'check', l: t('setPost') },
+        { k: 'bloom', t: 'range', l: t('setBloom'), min: 0, max: 1, step: 0.05 },
+        { k: 'grass', t: 'select', num: true, l: t('setGrass'), opts: [[0, t('optOff')], [0.5, t('optMed')], [1, t('optHigh')]] },
+        { k: 'drawDist', t: 'select', l: t('setDrawDist'), opts: [['low', t('optLow')], ['medium', t('optMed')], ['high', t('optHigh')]] },
+        { k: 'resolution', t: 'select', num: true, l: t('setResolution'), opts: [[0.6, '60%'], [0.8, '80%'], [1, '100%']] },
+        { k: 'fov', t: 'range', l: t('setFov'), min: 50, max: 95, step: 1 },
+        { k: 'vignette', t: 'check', l: t('setVignette') },
+      ],
+    },
+    game: {
+      label: t('tabGame'),
+      items: [
+        { k: 'hitcam', t: 'check', l: t('setHitcam') },
+        { k: 'hints', t: 'check', l: t('setHints') },
+        { k: 'botSkill', t: 'range', l: t('setBotSkill'), min: 0.4, max: 1.8, step: 0.05 },
+      ],
+    },
+  };
+}
 
 export interface MapDef {
   id: string;
@@ -121,6 +133,7 @@ export function createUI(h: UIHandlers) {
   const $ = (id: string) => document.getElementById(id)!;
   const menu = $('menu');
   const panels: Record<string, HTMLElement> = {
+    languageSelect: $('languageSelectPanel'),
     controlSelect: $('controlSelectPanel'),
     main: $('mainPanel'),
     pause: $('pausePanel'),
@@ -139,9 +152,11 @@ export function createUI(h: UIHandlers) {
     from: 'main',
     currentScreen: 'main' as string | null,
     show(which: string | null) {},
-    openSettings(from: string, t?: string) {},
+    openSettings(from: string, tTab?: string) {},
     showMatchEnd(summary: MatchEndSummary) {},
     refreshSilver() {},
+    updateAllStaticTexts() {},
+    renderLanguageCards() {},
   };
 
   let tab = 'sound';
@@ -151,6 +166,243 @@ export function createUI(h: UIHandlers) {
     setSetting('controlMode', nextMode);
     setSetting('controlChosen', true);
     document.body.dataset.control = nextMode;
+  }
+
+  function renderLanguageCards(): void {
+    const cur = getLanguage();
+    $('bLangRu')?.classList.toggle('selected', cur === 'ru');
+    $('bLangSr')?.classList.toggle('selected', cur === 'sr');
+    $('bLangEn')?.classList.toggle('selected', cur === 'en');
+
+    $('badgeLangRu')?.classList.toggle('hidden', cur !== 'ru');
+    $('badgeLangSr')?.classList.toggle('hidden', cur !== 'sr');
+    $('badgeLangEn')?.classList.toggle('hidden', cur !== 'en');
+
+    const backBtn = $('bLangBack');
+    if (backBtn) {
+      backBtn.style.display = settings.languageChosen ? 'inline-block' : 'none';
+      backBtn.textContent = t('btnDone');
+    }
+  }
+  ui.renderLanguageCards = renderLanguageCards;
+
+  function updateAllStaticTexts(): void {
+    applyDocumentLanguage();
+
+    // Main panel
+    const bPlay = $('bPlay');
+    if (bPlay) bPlay.textContent = h.started() ? t('btnContinueBattle') : t('btnPlay');
+    const bNew = $('bNew');
+    if (bNew) bNew.textContent = t('btnNewBattle');
+    const bModes = $('bModes');
+    if (bModes) bModes.textContent = t('btnModes');
+    const bMaps = $('bMaps');
+    if (bMaps) bMaps.textContent = t('btnMaps');
+    const bHangar = $('bHangar');
+    if (bHangar) bHangar.textContent = t('btnHangar');
+    const bSet = $('bSet');
+    if (bSet) bSet.textContent = t('btnSettings');
+    const bHistory = $('bHistory');
+    if (bHistory) bHistory.textContent = t('btnHistory');
+    const bCtl = $('bCtl');
+    if (bCtl) bCtl.textContent = t('btnControls');
+    // Note: bLang text remains invariant «Язык/Language/Jezik»
+    const playEaster = $('playEaster');
+    if (playEaster) playEaster.textContent = t('playEaster');
+    const mainTag = document.querySelector('#mainPanel .tag');
+    if (mainTag) mainTag.textContent = t('tankBattleTag');
+
+    // Language Select panel
+    const langTag = $('langTag');
+    if (langTag) langTag.textContent = t('langChooseTitle');
+    const langIntro = $('langIntro');
+    if (langIntro) langIntro.textContent = t('langIntro');
+    const badgeLangRu = $('badgeLangRu');
+    if (badgeLangRu) badgeLangRu.textContent = t('langBadgeSelected', undefined, 'ru');
+    const badgeLangSr = $('badgeLangSr');
+    if (badgeLangSr) badgeLangSr.textContent = t('langBadgeSelected', undefined, 'sr');
+    const badgeLangEn = $('badgeLangEn');
+    if (badgeLangEn) badgeLangEn.textContent = t('langBadgeSelected', undefined, 'en');
+    const bLangBack = $('bLangBack');
+    if (bLangBack) bLangBack.textContent = t('btnDone');
+
+    // Control Select panel
+    const ctrlTag = document.querySelector('#controlSelectPanel .tag');
+    if (ctrlTag) ctrlTag.textContent = t('ctrlChooseTitle');
+    const ctrlIntro = document.querySelector('#controlSelectPanel .ctrl-intro');
+    if (ctrlIntro) ctrlIntro.textContent = t('ctrlIntro');
+    const ctrlRecPc = $('ctrlRecPc');
+    if (ctrlRecPc) ctrlRecPc.textContent = t('ctrlRecommended');
+    const ctrlRecTouch = $('ctrlRecTouch');
+    if (ctrlRecTouch) ctrlRecTouch.textContent = t('ctrlRecommended');
+    const choosePcTitle = document.querySelector('#bChoosePc .ctrl-card-title');
+    if (choosePcTitle) choosePcTitle.textContent = t('ctrlPcTitle');
+    const choosePcDesc = document.querySelector('#bChoosePc .ctrl-card-desc');
+    if (choosePcDesc) choosePcDesc.textContent = t('ctrlPcDesc');
+    const chooseTouchTitle = document.querySelector('#bChooseTouch .ctrl-card-title');
+    if (chooseTouchTitle) chooseTouchTitle.textContent = t('ctrlTouchTitle');
+    const chooseTouchDesc = document.querySelector('#bChooseTouch .ctrl-card-desc');
+    if (chooseTouchDesc) chooseTouchDesc.textContent = t('ctrlTouchDesc');
+
+    // Hangar Screen
+    const hTitle = document.querySelector('#hangarScreen .hangar-title');
+    if (hTitle) hTitle.textContent = t('hangarTitle');
+    const hSub = document.querySelector('#hangarScreen .hangar-sub');
+    if (hSub) hSub.textContent = t('hangarSub');
+    const hsLabel = document.querySelector('#hangarSilver .hs-label');
+    if (hsLabel) hsLabel.textContent = t('hangarSilver');
+    const bHangarBack = $('bHangarBack');
+    if (bHangarBack) bHangarBack.textContent = t('hangarBackBtn');
+    const hSecLabel = document.querySelector('#hangarScreen .hangar-sec-label');
+    if (hSecLabel) hSecLabel.textContent = t('hangarRoster');
+    const hHint = $('hangarHint');
+    if (hHint) hHint.textContent = t('hangarHint');
+    const bHSelect = $('bHangarSelect');
+    if (bHSelect) bHSelect.textContent = t('hangarBtnSelect');
+
+    // Map & Mode Panels
+    const mapH2 = document.querySelector('#mapPanel h2');
+    if (mapH2) mapH2.textContent = t('mapPanelTitle');
+    const bMapsBack = $('bMapsBack');
+    if (bMapsBack) bMapsBack.textContent = t('btnDone');
+    const modeH2 = document.querySelector('#modePanel h2');
+    if (modeH2) modeH2.textContent = t('modePanelTitle');
+    const bModesBack = $('bModesBack');
+    if (bModesBack) bModesBack.textContent = t('btnDone');
+
+    // Battle History
+    const histH2 = document.querySelector('#historyPanel h2');
+    if (histH2) histH2.textContent = t('histTitle');
+    const histEmpty = $('historyEmpty');
+    if (histEmpty) histEmpty.textContent = t('histEmpty');
+    const bHistClear = $('bHistoryClear');
+    if (bHistClear) bHistClear.textContent = t('histClearBtn');
+    const bHistBack = $('bHistoryBack');
+    if (bHistBack) bHistBack.textContent = t('btnBack');
+
+    // Pause Panel
+    const pauseH2 = document.querySelector('#pausePanel h2');
+    if (pauseH2) pauseH2.textContent = t('pauseTitle');
+    const bResume = $('bResume');
+    if (bResume) bResume.textContent = t('btnResume');
+    const bPauseSet = $('bPauseSet');
+    if (bPauseSet) bPauseSet.textContent = t('btnSettings');
+    const bToMenu = $('bToMenu');
+    if (bToMenu) bToMenu.textContent = t('btnBackToMenu');
+
+    // Match End Panel
+    const bMeHangar = $('bMeHangar');
+    if (bMeHangar) bMeHangar.textContent = t('btnToHangar');
+    const bMeMenu = $('bMeMenu');
+    if (bMeMenu) bMeMenu.textContent = t('btnBackToMenu');
+    const bMeAgain = $('bMeAgain');
+    if (bMeAgain) bMeAgain.textContent = t('btnNewBattle');
+
+    // Settings Panel
+    const setH2 = document.querySelector('#settingsPanel h2');
+    if (setH2) setH2.textContent = t('settingsTitle');
+    const bReset = $('bReset');
+    if (bReset) bReset.textContent = t('btnReset');
+    const bBack = $('bBack');
+    if (bBack) bBack.textContent = t('btnBack');
+
+    // Scoreboard
+    const sbSub = document.querySelector('#scoreboard .sb-sub');
+    if (sbSub) sbSub.textContent = t('sbSub');
+    const bSbClose = $('bSbClose');
+    if (bSbClose) bSbClose.textContent = t('btnClose');
+    const sbAlly = document.querySelector('#scoreboard .sb-col-title.ally');
+    if (sbAlly) sbAlly.textContent = t('sbAllies');
+    const sbEnemy = document.querySelector('#scoreboard .sb-col-title.enemy');
+    if (sbEnemy) sbEnemy.textContent = t('sbEnemies');
+
+    // Battle HUD static elements
+    const rbRangeLbl = $('rbRangeLbl');
+    if (rbRangeLbl) rbRangeLbl.textContent = t('hudDistance');
+    const rbZoomLbl = $('rbZoomLbl');
+    if (rbZoomLbl) rbZoomLbl.textContent = t('hudZoom');
+    const rbCompLbl = $('rbCompLbl');
+    if (rbCompLbl) rbCompLbl.textContent = t('hudComp');
+    const rbMvLbl = $('rbMvLbl');
+    if (rbMvLbl) rbMvLbl.textContent = t('hudMv');
+    const rbMvUnit = $('rbMvUnit');
+    if (rbMvUnit) rbMvUnit.textContent = t('hudMps');
+
+    const statusSpeedLbl = $('statusSpeedLbl');
+    if (statusSpeedLbl) statusSpeedLbl.textContent = t('hudKmh');
+    const statusGearLbl = $('statusGearLbl');
+    if (statusGearLbl) statusGearLbl.textContent = t('hudGear');
+    const statusHullLbl = $('statusHullLbl');
+    if (statusHullLbl) statusHullLbl.textContent = t('hudHull');
+    const statusTurretLbl = $('statusTurretLbl');
+    if (statusTurretLbl) statusTurretLbl.textContent = t('hudTurret');
+
+    const hpLbl = $('hpLbl');
+    if (hpLbl) hpLbl.textContent = t('hudDurability');
+    const hpKillsLbl = $('hpKillsLbl');
+    if (hpKillsLbl) hpKillsLbl.textContent = t('hudKills');
+    const hpAliveLbl = $('hpAliveLbl');
+    if (hpAliveLbl) hpAliveLbl.textContent = t('hudAlive');
+
+    const msAllyLbl = $('msAllyLbl');
+    if (msAllyLbl) msAllyLbl.textContent = t('hudWe');
+    const msEnemyLbl = $('msEnemyLbl');
+    if (msEnemyLbl) msEnemyLbl.textContent = t('hudEnemiesText');
+    const msTimerLbl = $('msTimerLbl');
+    if (msTimerLbl) msTimerLbl.textContent = t('hudRemaining');
+
+    const bossFlameTxt = document.querySelector('#bossBar .boss-flame-txt');
+    if (bossFlameTxt) bossFlameTxt.textContent = t('hudBossFlame');
+
+    const specTitle = document.querySelector('#spectatorBar .spec-title');
+    if (specTitle) specTitle.textContent = t('hudSpectatorTitle');
+    const specTargetLbl = $('specTargetLbl');
+    if (specTargetLbl) specTargetLbl.textContent = t('hudWatching');
+    const bSpecPrev = $('bSpecPrev');
+    if (bSpecPrev) bSpecPrev.textContent = t('hudSpecPrev');
+    const bSpecNext = $('bSpecNext');
+    if (bSpecNext) bSpecNext.textContent = t('hudSpecNext');
+    const specHint = document.querySelector('#spectatorBar .spec-hint');
+    if (specHint) specHint.textContent = t('hudSpecHint');
+
+    // Touch HUD static labels
+    const tBtnScore = $('tBtnScore');
+    if (tBtnScore) tBtnScore.textContent = t('tBtnScore');
+    const tBtnPause = $('tBtnPause');
+    if (tBtnPause) tBtnPause.textContent = t('tBtnPause');
+    const tBtnBinoc = $('tBtnBinoc');
+    if (tBtnBinoc) tBtnBinoc.textContent = t('tBtnBinoc');
+    const tBtnSniper = $('tBtnSniper');
+    if (tBtnSniper) tBtnSniper.textContent = t('tBtnSniper');
+    const tBtnMgReload = $('tBtnMgReload');
+    if (tBtnMgReload) tBtnMgReload.textContent = t('tBtnMgReload');
+    const tBtnMgLabel = document.querySelector('#tBtnMg .tbtn-label');
+    if (tBtnMgLabel) tBtnMgLabel.textContent = t('tBtnMgPad');
+    const tBtnFireLabel = document.querySelector('#tBtnFire .tbtn-label');
+    if (tBtnFireLabel) tBtnFireLabel.textContent = t('tBtnFire');
+  }
+  ui.updateAllStaticTexts = updateAllStaticTexts;
+
+  function selectLanguage(lang: SupportedLanguage): void {
+    const isFirstLaunch = !settings.languageChosen;
+    setLanguage(lang);
+    updateAllStaticTexts();
+    renderLanguageCards();
+
+    if (isFirstLaunch) {
+      if (!settings.controlChosen) {
+        show('controlSelect');
+      } else {
+        show('main');
+      }
+    } else {
+      if (ui.currentScreen === 'hangar') renderHangar();
+      else if (ui.currentScreen === 'history') renderHistory();
+      else if (ui.currentScreen === 'settings') renderSettings();
+      else if (ui.currentScreen === 'modes') renderModes();
+      else if (ui.currentScreen === 'maps') renderMaps();
+      else if (ui.currentScreen === 'main') show('main');
+    }
   }
 
   function show(which: string | null): void {
@@ -166,36 +418,43 @@ export function createUI(h: UIHandlers) {
     for (const k in panels) panels[k].classList.toggle('hidden', k !== which);
     document.body.dataset.screen = which;
 
-    if (which === 'controlSelect') {
+    if (which === 'languageSelect') {
+      renderLanguageCards();
+    } else if (which === 'controlSelect') {
       const preferTouch = detectTouchDeviceHint();
       $('ctrlRecPc').classList.toggle('hidden', preferTouch);
       $('ctrlRecTouch').classList.toggle('hidden', !preferTouch);
       $('bChoosePc').classList.toggle('recommended', !preferTouch);
       $('bChooseTouch').classList.toggle('recommended', preferTouch);
     } else if (which === 'main') {
-      $('bPlay').textContent = h.started() ? 'ПРОДОЛЖИТЬ БИТВУ' : 'ИГРАТЬ';
+      $('bPlay').textContent = h.started() ? t('btnContinueBattle') : t('btnPlay');
       $('bNew').style.display = h.started() ? 'block' : 'none';
       const activeMap = h.maps.find((m) => m.id === h.getMap());
+      const activeMapName = activeMap ? getMapText(activeMap.id).name : '';
       const activeTank = getTankSpec(getSelectedTankId());
-      const activeMode = getModeDef(h.getModeId());
-      $('mapName').textContent = `Режим: ${activeMode.name} · Карта: ${activeMap ? activeMap.name : ''} · Танк: ${activeTank.name}`;
+      const activeModeDef = getModeDef(h.getModeId());
+      const activeModeText = getModeText(activeModeDef.id);
+
+      $('mapName').textContent = t('mapline', {
+        mode: activeModeText.name,
+        map: activeMapName,
+        tank: activeTank.name,
+      });
+
       const infoEl = $('menuModeInfo');
       if (infoEl) {
         const extra =
-          activeMode.id === 'training'
-            ? 'Читы (sv_cheats on) и настройка точности ботов активны. Серебро не начисляется.'
-            : activeMode.id === 'juggernaut'
-              ? 'Охота на Мауса: 6 охотников против босса (4000 ХП). У Мауса 128-мм орудие и огнемёт на 20 м. +1500 серебра за победу. Читы отключены.'
-              : activeMode.id === 'dead'
-                ? 'Выживите 5:00 против 5 врагов на случайной технике (респаун врагов 4 с, у вас 1 жизнь). +1500 серебра за победу. Читы отключены.'
-                : activeMode.id === 'rounds5v5'
-                  ? '+50 серебра за килл · +500 за победу · После смерти — режим наблюдателя. Читы (sv_cheats) отключены.'
-                  : '+50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу. Читы (sv_cheats) отключены.';
-        const ctrlTip =
-          settings.controlMode === 'touch'
-            ? 'Управление: Телефон (джойстик слева, свайп-обзор, кнопки справа)'
-            : 'Консоль настроек: ~ · Таблица счёта: TAB · Таран: -20 ХП';
-        infoEl.innerHTML = `${activeMode.shortDesc}<br />${extra}<br />${ctrlTip}`;
+          activeModeDef.id === 'training'
+            ? t('extraTraining')
+            : activeModeDef.id === 'juggernaut'
+              ? t('extraJuggernaut')
+              : activeModeDef.id === 'dead'
+                ? t('extraDead')
+                : activeModeDef.id === 'rounds5v5'
+                  ? t('extraRounds')
+                  : t('extraTdm');
+        const ctrlTip = settings.controlMode === 'touch' ? t('tipTouch') : t('tipPc');
+        infoEl.innerHTML = `${activeModeText.shortDesc}<br />${extra}<br />${ctrlTip}`;
       }
     } else if (which === 'hangar') {
       renderHangar();
@@ -208,15 +467,41 @@ export function createUI(h: UIHandlers) {
     $('hangarSilverVal').textContent = String(getSilver());
   };
 
-  function openSettings(from: string, t?: string): void {
+  function openSettings(from: string, tTab?: string): void {
     ui.from = from;
-    if (t) tab = t;
+    if (tTab) tab = tTab;
     renderSettings();
     show('settings');
   }
   ui.openSettings = openSettings;
 
   const click = () => audio.ui('click');
+
+  // Language buttons
+  $('bLangRu').onclick = () => {
+    click();
+    selectLanguage('ru');
+  };
+  $('bLangSr').onclick = () => {
+    click();
+    selectLanguage('sr');
+  };
+  $('bLangEn').onclick = () => {
+    click();
+    selectLanguage('en');
+  };
+  $('bLangBack').onclick = () => {
+    click();
+    show(ui.from || 'main');
+  };
+
+  // Main menu language button
+  $('bLang').onclick = () => {
+    click();
+    ui.from = 'main';
+    renderLanguageCards();
+    show('languageSelect');
+  };
 
   $('bChoosePc').onclick = () => {
     click();
@@ -325,18 +610,19 @@ export function createUI(h: UIHandlers) {
   };
 
   ui.showMatchEnd = (s: MatchEndSummary) => {
-    $('meTitle').textContent = s.won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
+    $('meTitle').textContent = s.won ? t('meVictory') : t('meDefeat');
     $('meTitle').style.color = s.won ? '#8fe36a' : '#ff6a4a';
     $('meSub').textContent = s.subLabel ?? `${s.modeName.toUpperCase()} · ${s.teamAScore} : ${s.teamBScore}`;
     const scoreRowTitle = s.scoreText ? s.scoreLabel : `${s.scoreLabel} (до ${s.targetGoal})`;
-    const scoreRowValue = s.scoreText ?? `МЫ ${s.teamAScore} : ${s.teamBScore} ВРАГИ`;
+    const scoreRowValue = s.scoreText ?? `${t('hudWe')} ${s.teamAScore} : ${s.teamBScore} ${t('hudEnemiesText')}`;
+    const silverWord = t('meSilverUnit', { n: '' }).trim();
     $('meSummary').innerHTML = `
       <div class="me-row"><span>${scoreRowTitle}</span><b>${scoreRowValue}</b></div>
-      <div class="me-row"><span>Уничтожено вами</span><b>${s.playerKills}</b></div>
-      <div class="me-row"><span>Потерь вашей техники</span><b>${s.playerDeaths}</b></div>
-      <div class="me-row silver"><span>Награда за победу</span><b>${s.victorySilver > 0 ? '+' + s.victorySilver + ' серебра' : '0 серебра'}</b></div>
-      <div class="me-row silver"><span>Всего заработано за матч</span><b>+${s.matchSilverEarned} серебра</b></div>
-      <div class="me-row silver"><span>Текущий баланс</span><b>${s.totalSilver} серебра</b></div>
+      <div class="me-row"><span>${t('meRowKills')}</span><b>${s.playerKills}</b></div>
+      <div class="me-row"><span>${t('meRowDeaths')}</span><b>${s.playerDeaths}</b></div>
+      <div class="me-row silver"><span>${t('meRowVictorySilver')}</span><b>${s.victorySilver > 0 ? '+' + s.victorySilver + ' ' + silverWord : '0 ' + silverWord}</b></div>
+      <div class="me-row silver"><span>${t('meRowTotalSilver')}</span><b>+${s.matchSilverEarned} ${silverWord}</b></div>
+      <div class="me-row silver"><span>${t('meRowBalance')}</span><b>${s.totalSilver} ${silverWord}</b></div>
     `;
     show('matchEnd');
   };
@@ -350,9 +636,9 @@ export function createUI(h: UIHandlers) {
     const clearBtn = $('bHistoryClear') as HTMLButtonElement;
 
     summaryEl.innerHTML = `
-      <span>МАТЧЕЙ: <b>${summary.total} / ${MAX_MATCH_HISTORY}</b></span>
-      <span>ПОБЕД: <b>${summary.wins}</b> (${summary.winRatePct}%)</span>
-      <span>СЕРЕБРО: <b>+${summary.totalSilver}</b></span>
+      <span>${t('histMatches', { total: summary.total, max: MAX_MATCH_HISTORY })}</span>
+      <span>${t('histWins', { wins: summary.wins, pct: summary.winRatePct })}</span>
+      <span>${t('histTotalSilver', { silver: summary.totalSilver })}</span>
     `;
 
     clearBtn.disabled = entries.length === 0;
@@ -377,7 +663,7 @@ export function createUI(h: UIHandlers) {
 
       const res = document.createElement('span');
       res.className = 'hist-res';
-      res.textContent = entry.won ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ';
+      res.textContent = entry.won ? t('histWin') : t('histLoss');
 
       const dot = document.createElement('span');
       dot.className = 'hist-dot';
@@ -391,7 +677,7 @@ export function createUI(h: UIHandlers) {
 
       const silver = document.createElement('span');
       silver.className = 'hist-silver' + (entry.silverEarned === 0 ? ' zero' : '');
-      silver.textContent = entry.silverEarned > 0 ? `+${entry.silverEarned} сер.` : '0 сер.';
+      silver.textContent = entry.silverEarned > 0 ? t('histSilverEarned', { silver: entry.silverEarned }) : t('histSilverZero');
 
       top.append(main, silver);
 
@@ -401,12 +687,14 @@ export function createUI(h: UIHandlers) {
       const mode = document.createElement('span');
       mode.className = 'hist-mode';
       const timeLabel = formatMatchTimestamp(entry.timestamp);
-      const parts = [entry.modeName, entry.mapName, timeLabel].filter(Boolean);
+      const modeNameLocalized = entry.modeId ? getModeText(entry.modeId).name : entry.modeName;
+      const mapNameLocalized = entry.mapId ? getMapText(entry.mapId).name : (entry.mapName || '');
+      const parts = [modeNameLocalized, mapNameLocalized, timeLabel].filter(Boolean);
       mode.textContent = parts.join(' · ');
 
       const score = document.createElement('span');
       score.className = 'hist-score';
-      score.textContent = `Счёт: ${entry.scoreText}`;
+      score.textContent = t('histScoreRow', { score: entry.scoreText });
 
       meta.append(mode, score);
       row.append(top, meta);
@@ -423,28 +711,34 @@ export function createUI(h: UIHandlers) {
     $('hangarSilverVal').textContent = String(balance);
 
     listEl.innerHTML = '';
-    for (const t of getAllTanks()) {
-      const owned = isTankOwned(t.id);
-      const badge = t.id === selectedId ? 'ВЫБРАН' : owned ? 'В АНГАРЕ' : `${t.priceSilver} СЕР.`;
+    for (const spec of getAllTanks()) {
+      const owned = isTankOwned(spec.id);
+      const badge =
+        spec.id === selectedId
+          ? t('badgeEquipped')
+          : owned
+            ? t('badgeInHangar')
+            : t('badgePriceSilver', { n: spec.priceSilver });
+      const tText = getTankText(spec.id);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className =
         'hangar-item' +
-        (t.id === inspectedTankId ? ' inspected' : '') +
-        (t.id === selectedId ? ' equipped' : '');
-      btn.dataset.tankId = t.id;
-      btn.setAttribute('aria-label', t.name);
+        (spec.id === inspectedTankId ? ' inspected' : '') +
+        (spec.id === selectedId ? ' equipped' : '');
+      btn.dataset.tankId = spec.id;
+      btn.setAttribute('aria-label', spec.name);
       btn.innerHTML = `
         <div class="hi-top">
-          <span class="hi-name">${t.name}</span>
+          <span class="hi-name">${spec.name}</span>
           <span class="hi-badge">${badge}</span>
         </div>
-        <div class="hi-sub">${t.role} · ${t.country}</div>
+        <div class="hi-sub">${tText.role} · ${tText.country}</div>
       `;
       btn.onclick = () => {
         click();
-        inspectedTankId = t.id;
-        h.onPreviewTank?.(t.id);
+        inspectedTankId = spec.id;
+        h.onPreviewTank?.(spec.id);
         renderHangar();
       };
       listEl.appendChild(btn);
@@ -459,40 +753,50 @@ export function createUI(h: UIHandlers) {
     hintEl.classList.add('hidden');
     infoEl.classList.remove('hidden');
     const spec = getTankSpec(inspectedTankId);
+    const tText = getTankText(spec.id);
     const owned = isTankOwned(spec.id);
     const isEquipped = spec.id === selectedId;
 
     $('hangarTankTitle').textContent = spec.name;
-    $('hangarTankRole').textContent = `${spec.role} · ${spec.country}`;
-    $('hangarTankDesc').textContent = spec.description;
+    $('hangarTankRole').textContent = `${tText.role} · ${tText.country}`;
+    $('hangarTankDesc').textContent = tText.description;
 
     const allTanks = getAllTanks();
-    const minGun = Math.min(...allTanks.map((t) => t.gunDamage));
-    const maxGun = Math.max(...allTanks.map((t) => t.gunDamage));
-    const frontDmgVals = allTanks.map((t) => computeFrontDamage(t.gunDamage, t.penetrationMm, spec));
+    const minGun = Math.min(...allTanks.map((item) => item.gunDamage));
+    const maxGun = Math.max(...allTanks.map((item) => item.gunDamage));
+    const frontDmgVals = allTanks.map((item) => computeFrontDamage(item.gunDamage, item.penetrationMm, spec));
     const minFrontDmg = Math.min(...frontDmgVals);
     const maxFrontDmg = Math.max(...frontDmgVals);
-    const frontDmgLabel = minFrontDmg === maxFrontDmg ? `${minFrontDmg} ед.` : `${minFrontDmg}–${maxFrontDmg} ед.`;
-    const sideRearDmgLabel = minGun === maxGun ? `${minGun} ед.` : `${minGun}–${maxGun} ед. (полный)`;
+    const frontDmgLabel =
+      minFrontDmg === maxFrontDmg
+        ? t('unitDamage', { dmg: minFrontDmg })
+        : t('unitDamageRange', { min: minFrontDmg, max: maxFrontDmg });
+    const sideRearDmgLabel =
+      minGun === maxGun
+        ? t('unitDamage', { dmg: minGun })
+        : `${minGun}–${maxGun} ${t('unitDamageFull', { dmg: '' }).trim()}`;
 
     const frontArmorLabel =
       spec.armor.turretFront !== spec.armor.hullFront
-        ? `${spec.armor.hullFront} / ${spec.armor.turretFront} мм (лоб / маска)`
-        : `${spec.armor.hullFront} мм (наклонная)`;
+        ? t('armorMantlet', { hull: spec.armor.hullFront, turret: spec.armor.turretFront })
+        : t('armorSloped', { hull: spec.armor.hullFront });
+
+    const priceText =
+      spec.priceSilver === 0 ? t('hstatPriceBase') : t('hstatPriceSilver', { n: spec.priceSilver });
 
     $('hangarStats').innerHTML = `
-      <div class="hstat"><span>Урон</span><b>${spec.gunDamage} ед.</b></div>
-      <div class="hstat"><span>Макс. скорость</span><b>${spec.maxSpeedKmh} км/ч</b></div>
-      <div class="hstat"><span>Перезарядка орудия</span><b>${spec.reload.toFixed(1)} сек</b></div>
-      <div class="hstat"><span>Дальность полёта снаряда</span><b>${spec.maxRange} м</b></div>
-      <div class="hstat"><span>Прочность корпуса</span><b>${spec.maxHp} ед.</b></div>
-      <div class="hstat"><span>Орудие</span><b>${spec.gunName}</b></div>
-      <div class="hstat"><span>Пулемёт (${spec.mg.magSize}/${spec.mg.totalAmmo})</span><b>${spec.mg.name} · ${spec.mg.damage.toFixed(2)} ед.</b></div>
-      <div class="hstat"><span>Лобовая броня</span><b>${frontArmorLabel}</b></div>
-      <div class="hstat"><span>Входящий урон в лоб</span><b>${frontDmgLabel}</b></div>
-      <div class="hstat"><span>Входящий урон в борт/корму</span><b>${sideRearDmgLabel}</b></div>
-      <div class="hstat hstat-warn"><span>Уязвимая зона</span><b>Бензобак (ваншот)</b></div>
-      <div class="hstat"><span>Стоимость</span><b>${spec.priceSilver === 0 ? 'Базовый (куплен)' : spec.priceSilver + ' серебра'}</b></div>
+      <div class="hstat"><span>${t('hstatDamage')}</span><b>${t('unitDamage', { dmg: spec.gunDamage })}</b></div>
+      <div class="hstat"><span>${t('hstatMaxSpeed')}</span><b>${t('unitSpeedKmh', { spd: spec.maxSpeedKmh })}</b></div>
+      <div class="hstat"><span>${t('hstatReload')}</span><b>${t('unitSec', { sec: spec.reload.toFixed(1) })}</b></div>
+      <div class="hstat"><span>${t('hstatMaxRange')}</span><b>${t('unitMeters', { m: spec.maxRange })}</b></div>
+      <div class="hstat"><span>${t('hstatMaxHp')}</span><b>${t('unitDamage', { dmg: spec.maxHp })}</b></div>
+      <div class="hstat"><span>${t('hstatGun')}</span><b>${tText.gunName}</b></div>
+      <div class="hstat"><span>${t('hstatMg', { mag: spec.mg.magSize, total: spec.mg.totalAmmo })}</span><b>${tText.mgName} · ${t('unitDamage', { dmg: spec.mg.damage.toFixed(2) })}</b></div>
+      <div class="hstat"><span>${t('hstatFrontArmor')}</span><b>${frontArmorLabel}</b></div>
+      <div class="hstat"><span>${t('hstatFrontDmg')}</span><b>${frontDmgLabel}</b></div>
+      <div class="hstat"><span>${t('hstatSideRearDmg')}</span><b>${sideRearDmgLabel}</b></div>
+      <div class="hstat hstat-warn"><span>${t('hstatWeakspot')}</span><b>${t('hstatWeakspotVal')}</b></div>
+      <div class="hstat"><span>${t('hstatPrice')}</span><b>${priceText}</b></div>
     `;
 
     const statusEl = $('hangarEquipStatus');
@@ -500,10 +804,10 @@ export function createUI(h: UIHandlers) {
     if (!owned) {
       const canBuy = balance >= spec.priceSilver;
       statusEl.textContent = canBuy
-        ? `Доступно к покупке за ${spec.priceSilver} серебра`
-        : `Недостаточно серебра (нужно ещё ${spec.priceSilver - balance})`;
+        ? t('hangarCanBuyStatus', { price: spec.priceSilver })
+        : t('hangarNeedMoreStatus', { diff: spec.priceSilver - balance });
       statusEl.className = 'hangar-equip-status';
-      selectBtn.textContent = `Купить за ${spec.priceSilver} серебра`;
+      selectBtn.textContent = t('hangarBtnBuy', { price: spec.priceSilver });
       selectBtn.disabled = !canBuy;
       selectBtn.className = 'btn hangar-select-btn';
       selectBtn.onclick = () => {
@@ -512,16 +816,16 @@ export function createUI(h: UIHandlers) {
           audio.ui('silver');
           renderHangar();
         } else {
-          statusEl.textContent = 'Недостаточно серебра';
+          statusEl.textContent = t('hangarNotEnoughSilver');
         }
       };
       return;
     }
 
     selectBtn.disabled = false;
-    statusEl.textContent = isEquipped ? 'Танк закреплён за вами для боя' : 'Куплен · готов к выбору';
+    statusEl.textContent = isEquipped ? t('hangarEquippedStatus') : t('hangarOwnedStatus');
     statusEl.className = 'hangar-equip-status' + (isEquipped ? ' active' : '');
-    selectBtn.textContent = 'Выбрать';
+    selectBtn.textContent = isEquipped ? t('badgeEquipped') : t('hangarBtnSelect');
     selectBtn.className = 'btn hangar-select-btn' + (isEquipped ? ' selected' : '');
     selectBtn.onclick = () => {
       click();
@@ -536,14 +840,15 @@ export function createUI(h: UIHandlers) {
     box.innerHTML = '';
     for (const m of h.maps) {
       const sel = h.getMap() === m.id;
+      const mText = getMapText(m.id);
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'mapcard ' + m.id + (sel ? ' sel' : '');
-      card.innerHTML = `<div class="mname">${m.name}</div><div class="mdesc">${m.desc}</div>${sel ? '<span class="m-badge">ВЫБРАНО</span>' : ''}`;
+      card.innerHTML = `<div class="mname">${mText.name}</div><div class="mdesc">${mText.desc}</div>${sel ? `<span class="m-badge">${t('badgeSelected')}</span>` : ''}`;
       card.onclick = () => {
         if (h.getMap() === m.id) return;
         click();
-        card.querySelector('.mdesc')!.textContent = 'Загрузка...';
+        card.querySelector('.mdesc')!.textContent = t('mapLoading');
         setTimeout(() => {
           h.setMap(m.id);
           renderMaps();
@@ -559,11 +864,12 @@ export function createUI(h: UIHandlers) {
     const activeId = h.getModeId();
     for (const m of getAllModes()) {
       const sel = activeId === m.id;
+      const mText = getModeText(m.id);
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'modecard' + (sel ? ' sel' : '');
       card.dataset.modeId = m.id;
-      card.innerHTML = `<div class="mname">${m.name}</div><div class="mdesc">${m.shortDesc}</div>${sel ? '<span class="m-badge">ВЫБРАНО</span>' : ''}`;
+      card.innerHTML = `<div class="mname">${mText.name}</div><div class="mdesc">${mText.shortDesc}</div>${sel ? `<span class="m-badge">${t('badgeSelected')}</span>` : ''}`;
       card.onclick = () => {
         if (h.getModeId() === m.id) return;
         click();
@@ -578,11 +884,13 @@ export function createUI(h: UIHandlers) {
     const tabs = $('tabs');
     const body = $('tabBody');
     const activeMode = getModeDef(h.getModeId());
+    const tabsMap = getLocalizedTabs();
+
     tabs.innerHTML = '';
-    for (const id in TABS) {
+    for (const id in tabsMap) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.textContent = TABS[id].label;
+      b.textContent = tabsMap[id].label;
       b.className = 'tab' + (id === tab ? ' on' : '');
       b.onclick = () => {
         tab = id;
@@ -593,9 +901,7 @@ export function createUI(h: UIHandlers) {
     body.innerHTML = '';
     const st = document.createElement('div');
     st.className = 'sub';
-    st.textContent = storage.ok
-      ? 'Настройки сохраняются автоматически.'
-      : 'Внимание: браузер блокирует localStorage, настройки не сохранятся после перезагрузки.';
+    st.textContent = storage.ok ? t('settingsStorageOk') : t('settingsStorageBlocked');
     st.style.color = storage.ok ? '#9aa58a' : '#ff9a7a';
     body.appendChild(st);
 
@@ -605,7 +911,7 @@ export function createUI(h: UIHandlers) {
 
       const modeLabel = document.createElement('div');
       modeLabel.className = 'ctrl-switch-lbl';
-      modeLabel.textContent = 'Режим управления';
+      modeLabel.textContent = t('ctrlSwitchLabel');
 
       const seg = document.createElement('div');
       seg.className = 'ctrl-seg';
@@ -626,12 +932,13 @@ export function createUI(h: UIHandlers) {
         return b;
       };
 
-      seg.append(mkOpt('pc', 'ПК (мышь + клавиатура)', 'switch-pc'), mkOpt('touch', 'Телефон (сенсор)', 'switch-touch'));
+      seg.append(mkOpt('pc', t('ctrlSegPc'), 'switch-pc'), mkOpt('touch', t('ctrlSegTouch'), 'switch-touch'));
       modeRow.append(modeLabel, seg);
       body.appendChild(modeRow);
     }
 
-    for (const it of TABS[tab].items) {
+    const currentTabDef = tabsMap[tab] || tabsMap.sound;
+    for (const it of currentTabDef.items) {
       if (it.controlOnly && it.controlOnly !== settings.controlMode) continue;
       if (it.t === 'keys') {
         renderKeys(body);
@@ -657,7 +964,7 @@ export function createUI(h: UIHandlers) {
         const val = document.createElement('span');
         val.className = 'val';
         const fmt = (v: number) => (it.pct ? Math.round(v * 100) + '%' : (+v).toFixed(2).replace(/\.?0+$/, ''));
-        val.textContent = isLockedBotSkill ? '1 (фикс.)' : fmt(curVal);
+        val.textContent = isLockedBotSkill ? t('setBotSkillFixed') : fmt(curVal);
         inp.oninput = () => {
           if (isLockedBotSkill) return;
           const v = parseFloat(inp.value);
@@ -697,7 +1004,7 @@ export function createUI(h: UIHandlers) {
         const note = document.createElement('div');
         note.className = 'row-note';
         note.dataset.testid = 'bot-skill-locked-note';
-        note.textContent = 'Настройка точности ботов доступна только в режиме «Тренировка».';
+        note.textContent = t('setBotSkillLockedNote');
         body.appendChild(note);
       }
     }
@@ -706,11 +1013,7 @@ export function createUI(h: UIHandlers) {
       const guide = document.createElement('div');
       guide.className = 'ctrl-touch-guide';
       guide.dataset.testid = 'touch-guide';
-      guide.innerHTML =
-        '<div><b>Джойстик слева:</b> газ, задний ход и поворот корпуса.</div>' +
-        '<div><b>Джойстик пулемёта справа:</b> зажмите для стрельбы и ведите палец для наведения камеры.</div>' +
-        '<div><b>Свайп по свободному экрану:</b> поворот камеры и наведение башни.</div>' +
-        '<div><b>Кнопки справа и сверху:</b> Огонь, Лента R, Прицел, Бинокль, Зум, Счёт и Пауза.</div>';
+      guide.innerHTML = t('setTouchGuide');
       body.appendChild(guide);
     }
   }
@@ -718,21 +1021,22 @@ export function createUI(h: UIHandlers) {
   function renderKeys(body: HTMLElement): void {
     const head = document.createElement('div');
     head.className = 'sub';
-    head.textContent = 'Клавиши (нажмите кнопку и затем новую клавишу, Esc — отмена)';
+    head.textContent = t('keysHead');
     body.appendChild(head);
-    for (const action of Object.keys(KEY_LABELS) as KeyAction[]) {
+    const keyLabels = getKeyLabels(getLanguage());
+    for (const action of Object.keys(keyLabels) as KeyAction[]) {
       const row = document.createElement('div');
       row.className = 'row';
       const lab = document.createElement('label');
-      lab.textContent = KEY_LABELS[action];
+      lab.textContent = keyLabels[action];
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'key';
-      btn.textContent = keyName(settings.keys[action]);
+      btn.textContent = keyName(settings.keys[action], getLanguage());
       btn.onclick = () => {
         if (ui.rebinding) return;
         ui.rebinding = true;
-        btn.textContent = 'нажмите клавишу...';
+        btn.textContent = t('keysWait');
         btn.classList.add('wait');
         const cap = (e: KeyboardEvent) => {
           e.preventDefault();
@@ -741,7 +1045,7 @@ export function createUI(h: UIHandlers) {
           ui.rebinding = false;
           btn.classList.remove('wait');
           if (e.code !== 'Escape') setKeyBind(action, e.code);
-          btn.textContent = keyName(settings.keys[action]);
+          btn.textContent = keyName(settings.keys[action], getLanguage());
         };
         window.addEventListener('keydown', cap, true);
       };
@@ -750,9 +1054,12 @@ export function createUI(h: UIHandlers) {
     }
     const note = document.createElement('div');
     note.className = 'sub';
-    note.textContent = 'Стрельба — левая кнопка мыши. Колесо — зум. Эти действия не переназначаются.';
+    note.textContent = t('keysNote');
     body.appendChild(note);
   }
+
+  // Initial translation apply
+  updateAllStaticTexts();
 
   return ui;
 }

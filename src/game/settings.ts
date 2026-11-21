@@ -24,6 +24,8 @@ export const DEFAULT_KEYS = {
 
 export type KeyAction = keyof typeof DEFAULT_KEYS;
 
+export type SupportedLanguage = 'ru' | 'sr' | 'en';
+
 export const KEY_LABELS: Record<KeyAction, string> = {
   forward: 'Вперёд',
   back: 'Назад',
@@ -38,9 +40,45 @@ export const KEY_LABELS: Record<KeyAction, string> = {
   console: 'Консоль',
 };
 
+export function getKeyLabels(lang: SupportedLanguage = settings?.language || 'ru'): Record<KeyAction, string> {
+  if (lang === 'sr') {
+    return {
+      forward: 'Napred',
+      back: 'Nazad',
+      left: 'Levo (skretanje)',
+      right: 'Desno (skretanje)',
+      brake: 'Ručna kočnica',
+      mg: 'Mitraljez (paljba)',
+      sniper: 'Snajperski nišan',
+      binoc: 'Dvogled',
+      comp: 'Balistički računar',
+      post: 'Naknadna obrada uklj/isklj',
+      console: 'Konzola',
+    };
+  }
+  if (lang === 'en') {
+    return {
+      forward: 'Forward',
+      back: 'Backward',
+      left: 'Steer Left',
+      right: 'Steer Right',
+      brake: 'Handbrake',
+      mg: 'Machine Gun (fire)',
+      sniper: 'Sniper Scope',
+      binoc: 'Binoculars',
+      comp: 'Ballistic Computer',
+      post: 'Post-Processing toggle',
+      console: 'Console',
+    };
+  }
+  return KEY_LABELS;
+}
+
 export type ControlMode = 'pc' | 'touch';
 
 export interface GameSettings {
+  language: SupportedLanguage;
+  languageChosen: boolean;
   master: number;
   music: number;
   sfx: number;
@@ -66,6 +104,8 @@ export interface GameSettings {
 }
 
 export const DEFAULTS: GameSettings = {
+  language: 'ru',
+  languageChosen: false,
   master: 0.8,
   music: 0.5,
   sfx: 0.9,
@@ -148,6 +188,8 @@ export function setKeyBind(action: KeyAction, code: string): void {
 export function resetSettings(): void {
   const keepControlMode = settings.controlMode;
   const keepControlChosen = settings.controlChosen;
+  const keepLanguage = settings.language;
+  const keepLanguageChosen = settings.languageChosen;
   const d = JSON.parse(JSON.stringify(DEFAULTS)) as GameSettings;
   for (const k in d) {
     if (k === 'keys') Object.assign(settings.keys, d.keys);
@@ -155,15 +197,17 @@ export function resetSettings(): void {
   }
   settings.controlMode = keepControlMode;
   settings.controlChosen = keepControlChosen;
+  settings.language = keepLanguage;
+  settings.languageChosen = keepLanguageChosen;
   persist();
   emit('*', null);
 }
 
-export function keyName(code: string): string {
+export function keyName(code: string, lang: SupportedLanguage = settings?.language || 'ru'): string {
   if (!code) return '—';
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
-  const map: Record<string, string> = {
+  const mapRu: Record<string, string> = {
     Space: 'Пробел',
     ShiftLeft: 'Shift (лев)',
     ShiftRight: 'Shift (прав)',
@@ -178,5 +222,36 @@ export function keyName(code: string): string {
     ArrowRight: '→',
     Enter: 'Enter',
   };
-  return map[code] || code;
+  const mapSr: Record<string, string> = {
+    Space: 'Razmak',
+    ShiftLeft: 'Shift (levi)',
+    ShiftRight: 'Shift (desni)',
+    ControlLeft: 'Ctrl (levi)',
+    ControlRight: 'Ctrl (desni)',
+    AltLeft: 'Alt (levi)',
+    Backquote: '~',
+    Tab: 'Tab',
+    ArrowUp: '↑',
+    ArrowDown: '↓',
+    ArrowLeft: '←',
+    ArrowRight: '→',
+    Enter: 'Enter',
+  };
+  const mapEn: Record<string, string> = {
+    Space: 'Space',
+    ShiftLeft: 'Shift (L)',
+    ShiftRight: 'Shift (R)',
+    ControlLeft: 'Ctrl (L)',
+    ControlRight: 'Ctrl (R)',
+    AltLeft: 'Alt (L)',
+    Backquote: '~',
+    Tab: 'Tab',
+    ArrowUp: '↑',
+    ArrowDown: '↓',
+    ArrowLeft: '←',
+    ArrowRight: '→',
+    Enter: 'Enter',
+  };
+  const activeMap = lang === 'sr' ? mapSr : lang === 'en' ? mapEn : mapRu;
+  return activeMap[code] || code;
 }

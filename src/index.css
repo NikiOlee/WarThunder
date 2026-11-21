@@ -1681,6 +1681,67 @@ select {
   border: 1px dashed #4f5a40;
 }
 
+/* ---- language selector panel ---- */
+#languageSelectPanel {
+  width: min(600px, 94vw);
+}
+
+.lang-intro {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #c9c7b0;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.lang-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lang-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  min-height: 52px;
+  background: rgba(24, 30, 19, 0.92);
+  border: 1px solid #5f6b50;
+  color: #e8e6d8;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.lang-card:hover {
+  border-color: #ffd27a;
+  background: rgba(38, 46, 28, 0.94);
+}
+
+.lang-card.selected {
+  border-color: #ffd27a;
+  box-shadow: 0 0 18px rgba(255, 210, 122, 0.25), inset 0 0 0 1px rgba(255, 210, 122, 0.25);
+  color: #ffd27a;
+  background: rgba(42, 52, 32, 0.95);
+}
+
+.lang-card-title {
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.lang-card-badge {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: #8fe36a;
+  border: 1px solid rgba(143, 227, 106, 0.55);
+  padding: 3px 8px;
+  background: rgba(16, 24, 14, 0.9);
+}
+
 /* ---- control selector panel & settings switcher ---- */
 #controlSelectPanel {
   width: min(600px, 94vw);

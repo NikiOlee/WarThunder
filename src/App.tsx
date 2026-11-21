@@ -46,18 +46,18 @@ export default function App() {
         <span className="ms-sep">·</span>
         <span id="modeScoreTeams">
           <span className="ms-ally">
-            МЫ <b id="teamAKills">0</b>
+            <span id="msAllyLbl">МЫ</span> <b id="teamAKills">0</b>
           </span>{' '}
           <span className="ms-vs">:</span>{' '}
           <span className="ms-enemy">
-            <b id="teamBKills">0</b> ВРАГИ
+            <b id="teamBKills">0</b> <span id="msEnemyLbl">ВРАГИ</span>
           </span>{' '}
           <span className="ms-goal" id="modeGoalHud">
             / 100
           </span>
         </span>
         <span id="modeScoreSurvival" className="hidden">
-          <span className="ms-timer-lbl">ОСТАЛОСЬ</span>{' '}
+          <span className="ms-timer-lbl" id="msTimerLbl">ОСТАЛОСЬ</span>{' '}
           <b id="survivalTimerHud" className="ms-timer-val" data-testid="survival-timer">
             05:00
           </b>
@@ -69,18 +69,18 @@ export default function App() {
       </div>
       <div id="silverToasts" className="hud" data-testid="silver-toasts" />
       <div id="rangeBox" className="hud">
-        <div className="lbl">ДИСТАНЦИЯ</div>
+        <div className="lbl" id="rbRangeLbl">ДИСТАНЦИЯ</div>
         <div className="big" id="range">
           ---
         </div>
         <div>
-          ЗУМ <span id="zoom">x1.0</span>
+          <span id="rbZoomLbl">ЗУМ</span> <span id="zoom">x1.0</span>
         </div>
         <div>
-          БАЛЛИСТ. КОМП. <span id="comp">ВЫКЛ</span>
+          <span id="rbCompLbl">БАЛЛИСТ. КОМП.</span> <span id="comp">ВЫКЛ</span>
         </div>
         <div>
-          СКОРОСТЬ СНАРЯДА <span id="mv">500</span> м/с
+          <span id="rbMvLbl">СКОРОСТЬ СНАРЯДА</span> <span id="mv">500</span> <span id="rbMvUnit">м/с</span>
         </div>
       </div>
       <div id="fps" className="hud">
@@ -92,13 +92,13 @@ export default function App() {
           <div className="big" id="speed">
             0
           </div>
-          <div className="lbl">КМ/Ч</div>
+          <div className="lbl" id="statusSpeedLbl">КМ/Ч</div>
         </div>
         <div className="cell">
           <div className="big" id="gear">
             N
           </div>
-          <div className="lbl">ПЕРЕДАЧА</div>
+          <div className="lbl" id="statusGearLbl">ПЕРЕДАЧА</div>
         </div>
         <div id="reloadRing">
           <span id="reloadTxt">ГОТОВ</span>
@@ -107,18 +107,18 @@ export default function App() {
           <div className="big" id="hullBrg">
             000
           </div>
-          <div className="lbl">КОРПУС</div>
+          <div className="lbl" id="statusHullLbl">КОРПУС</div>
         </div>
         <div className="cell">
           <div className="big" id="turBrg">
             000
           </div>
-          <div className="lbl">БАШНЯ</div>
+          <div className="lbl" id="statusTurretLbl">БАШНЯ</div>
         </div>
       </div>
       <div id="hp" className="hud">
         <div className="hp-head">
-          <span>ПРОЧНОСТЬ</span>
+          <span id="hpLbl">ПРОЧНОСТЬ</span>
           <span id="tankTag" style={{ color: '#ffd27a' }}>
             Т-55 · 120/120
           </span>
@@ -126,11 +126,11 @@ export default function App() {
         <div className="bar">
           <div id="hpFill" />
         </div>
-        УБИТО{' '}
+        <span id="hpKillsLbl">УБИТО</span>{' '}
         <b id="kills" style={{ color: '#fff' }}>
           0
         </b>{' '}
-        &nbsp; В СТРОЮ{' '}
+        &nbsp; <span id="hpAliveLbl">В СТРОЮ</span>{' '}
         <b id="alive" style={{ color: '#fff' }}>
           4 v 4
         </b>
@@ -155,7 +155,7 @@ export default function App() {
       <div id="spectatorBar" className="hud hidden" data-testid="spectator-bar">
         <div className="spec-title">РЕЖИМ НАБЛЮДАТЕЛЯ</div>
         <div className="spec-target">
-          Наблюдение: <b id="specTargetName">—</b> <span id="specTargetHp" />
+          <span id="specTargetLbl">Наблюдение:</span> <b id="specTargetName">—</b> <span id="specTargetHp" />
         </div>
         <div className="spec-actions">
           <button type="button" className="spec-nav-btn" id="bSpecPrev" aria-label="Предыдущий союзник">
@@ -264,6 +264,39 @@ export default function App() {
       </div>
 
       <div id="menu">
+        <div id="languageSelectPanel" className="panel hidden" data-testid="language-select-panel">
+          <h1>IRON &amp; SKY</h1>
+          <div className="tag" id="langTag">ВЫБЕРИТЕ ЯЗЫК</div>
+          <div className="lang-intro" id="langIntro">
+            Выберите удобный язык интерфейса игры. Вы всегда сможете переключить его в главном меню кнопкой «Язык/Language/Jezik».
+          </div>
+          <div className="lang-cards" id="langCards">
+            <button type="button" className="lang-card" id="bLangRu" data-lang="ru" data-testid="lang-card-ru">
+              <span className="lang-card-title">Русский (Россия)</span>
+              <span className="lang-card-badge hidden" id="badgeLangRu">
+                ВЫБРАН
+              </span>
+            </button>
+            <button type="button" className="lang-card" id="bLangSr" data-lang="sr" data-testid="lang-card-sr">
+              <span className="lang-card-title">Srpski (latinica) (Srbija)</span>
+              <span className="lang-card-badge hidden" id="badgeLangSr">
+                IZABRANO
+              </span>
+            </button>
+            <button type="button" className="lang-card" id="bLangEn" data-lang="en" data-testid="lang-card-en">
+              <span className="lang-card-title">English (USA)</span>
+              <span className="lang-card-badge hidden" id="badgeLangEn">
+                SELECTED
+              </span>
+            </button>
+          </div>
+          <div className="foot" style={{ marginTop: '16px' }}>
+            <button type="button" className="btn dim" id="bLangBack" data-testid="btn-lang-back">
+              ГОТОВО
+            </button>
+          </div>
+        </div>
+
         <div id="controlSelectPanel" className="panel hidden" data-testid="control-select-panel">
           <h1>IRON &amp; SKY</h1>
           <div className="tag">ВЫБЕРИТЕ УПРАВЛЕНИЕ</div>
@@ -335,6 +368,11 @@ export default function App() {
             </button>
             <button type="button" className="btn dim" id="bCtl">
               УПРАВЛЕНИЕ
+            </button>
+          </div>
+          <div className="btnrow">
+            <button type="button" className="btn dim" id="bLang" data-testid="btn-lang">
+              Язык/Language/Jezik
             </button>
           </div>
           <div className="info" id="menuModeInfo">

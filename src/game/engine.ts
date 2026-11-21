@@ -30,6 +30,7 @@ import { resolveTankCollisionPair } from './collision';
 import { isShotIntoSky, SKY_EASTER_MSG } from './damage';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { recordMatchHistory } from './matchHistory';
+import { applyDocumentLanguage, getLanguage, getMapText, getModeText, t } from './i18n';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -102,7 +103,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     z: world.spawnPlayer.z,
     heading: 0,
     team: 'A',
-    name: 'ВЫ (Т-55)',
+    name: t('sbPlayerSelf', { name: 'Т-55' }),
     specId: getSelectedTankId(),
   });
   tank.isPlayer = true;
@@ -334,15 +335,35 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function updateHelp() {
     const K = settings.keys;
-    const n = (c: string) => (c || '').replace('Key', '').replace('Space', 'ПРОБЕЛ').replace('ShiftLeft', 'SHIFT').replace('Backquote', '~');
-    $('help').innerHTML =
-      `<b>${n(K.forward)}/${n(K.back)}</b> газ/реверс &nbsp; <b>${n(K.left)}/${n(K.right)}</b> поворот &nbsp; <b>${n(K.brake)}</b> тормоз<br>` +
-      `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> орудие &nbsp; <b>${n(K.mg)}</b> пулемёт &nbsp; <b>R</b> лента<br>` +
-      `<b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>${n(K.comp)}</b> вычисл. &nbsp; <b>TAB</b> счёт &nbsp; <b>ESC</b> пауза`;
+    const lang = getLanguage();
+    const n = (c: string) => keyName(c, lang).toUpperCase();
+    if (lang === 'sr') {
+      $('help').innerHTML =
+        `<b>${n(K.forward)}/${n(K.back)}</b> gas/rikverc &nbsp; <b>${n(K.left)}/${n(K.right)}</b> skretanje &nbsp; <b>${n(K.brake)}</b> kočnica<br>` +
+        `<b>MIŠ</b> nišan &nbsp; <b>LKM</b> top &nbsp; <b>${n(K.mg)}</b> mitraljez &nbsp; <b>R</b> pojas<br>` +
+        `<b>${n(K.sniper)}</b> nišan &nbsp; <b>${n(K.binoc)}</b> dvogled &nbsp; <b>${n(K.comp)}</b> računar &nbsp; <b>TAB</b> rezultat &nbsp; <b>ESC</b> pauza`;
+    } else if (lang === 'en') {
+      $('help').innerHTML =
+        `<b>${n(K.forward)}/${n(K.back)}</b> throttle/reverse &nbsp; <b>${n(K.left)}/${n(K.right)}</b> steer &nbsp; <b>${n(K.brake)}</b> brake<br>` +
+        `<b>MOUSE</b> aim &nbsp; <b>LMB</b> cannon &nbsp; <b>${n(K.mg)}</b> machine gun &nbsp; <b>R</b> reload MG<br>` +
+        `<b>${n(K.sniper)}</b> scope &nbsp; <b>${n(K.binoc)}</b> binoculars &nbsp; <b>${n(K.comp)}</b> ballistic comp &nbsp; <b>TAB</b> scoreboard &nbsp; <b>ESC</b> pause`;
+    } else {
+      $('help').innerHTML =
+        `<b>${n(K.forward)}/${n(K.back)}</b> газ/реверс &nbsp; <b>${n(K.left)}/${n(K.right)}</b> поворот &nbsp; <b>${n(K.brake)}</b> тормоз<br>` +
+        `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> орудие &nbsp; <b>${n(K.mg)}</b> пулемёт &nbsp; <b>R</b> лента<br>` +
+        `<b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>${n(K.comp)}</b> вычисл. &nbsp; <b>TAB</b> счёт &nbsp; <b>ESC</b> пауза`;
+    }
   }
 
-  const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', 'controlMode', 'touchSens', '*']);
+  const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', 'controlMode', 'touchSens', 'language', '*']);
   const unsubSettings = onSettings((k) => {
+    if (k === 'language') {
+      applyDocumentLanguage();
+      ui.updateAllStaticTexts();
+      updateHelp();
+      tank.name = t('sbPlayerSelf', { name: tank.spec.name });
+      ui.show(ui.currentScreen);
+    }
     if (k === 'controlMode' || k === '*') {
       document.body.dataset.control = settings.controlMode;
       touchCtl?.reset();
@@ -407,35 +428,39 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('modeScoreSurvival').classList.toggle('hidden', !isSurvival);
 
     if (isSurvival) {
-      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      $('modeTitleHud').textContent = getModeText(activeMode.id).name.toUpperCase();
       const timerTxt = formatCountdown(survivalRemaining);
       const urgent = survivalRemaining <= 30;
       $('survivalTimerHud').textContent = timerTxt;
       $('survivalTimerHud').classList.toggle('urgent', urgent);
-      $('survivalKillsHud').textContent = `ФРАГИ: ${kills}`;
+      const fragsLabel = t('hudFragsVal', { n: kills });
+      $('survivalKillsHud').textContent = fragsLabel;
       hudCache.survivalTimer = timerTxt;
       hudCache.survivalUrgent = urgent;
-      hudCache.survivalKills = `ФРАГИ: ${kills}`;
+      hudCache.survivalKills = fragsLabel;
     } else if (activeMode.roundsToWin > 0) {
-      $('modeTitleHud').textContent = `${activeMode.name.toUpperCase()} · РАУНД ${roundNum}`;
+      $('modeTitleHud').textContent = t('hudRoundTitle', {
+        mode: getModeText(activeMode.id).name.toUpperCase(),
+        round: roundNum,
+      });
       $('teamAKills').textContent = String(teamARounds);
       $('teamBKills').textContent = String(teamBRounds);
       $('modeGoalHud').textContent = `/ ${activeMode.roundsToWin}`;
     } else if (activeMode.boss) {
-      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      $('modeTitleHud').textContent = getModeText(activeMode.id).name.toUpperCase();
       $('teamAKills').textContent = String(teamAKills);
       $('teamBKills').textContent = String(teamBKills);
-      $('modeGoalHud').textContent = '· УНИЧТОЖЬТЕ МАУСА';
+      $('modeGoalHud').textContent = t('hudGoalDestroyMaus');
     } else if (activeMode.targetKills > 0) {
-      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      $('modeTitleHud').textContent = getModeText(activeMode.id).name.toUpperCase();
       $('teamAKills').textContent = String(teamAKills);
       $('teamBKills').textContent = String(teamBKills);
       $('modeGoalHud').textContent = `/ ${activeMode.targetKills}`;
     } else {
-      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      $('modeTitleHud').textContent = getModeText(activeMode.id).name.toUpperCase();
       $('teamAKills').textContent = String(teamAKills);
       $('teamBKills').textContent = String(teamBKills);
-      $('modeGoalHud').textContent = '· СВОБОДНЫЙ БОЙ';
+      $('modeGoalHud').textContent = t('hudGoalFreeBattle');
     }
   }
 
@@ -456,7 +481,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     ballistics.clear();
     ramCooldowns.clear();
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, chosenTankId);
-    tank.name = `ВЫ (${tank.spec.name})`;
+    tank.name = t('sbPlayerSelf', { name: tank.spec.name });
     if (isFirstRound) {
       tank.matchKills = 0;
       tank.matchDeaths = 0;
@@ -509,7 +534,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     updateModeScoreHud();
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
     if (activeMode.roundsToWin > 0) {
-      showMsg(`РАУНД ${roundNum}`, '#ffd27a');
+      showMsg(t('msgRoundToast', { round: roundNum }), '#ffd27a');
     }
   }
 
@@ -784,13 +809,13 @@ export function initGame(mountEl: HTMLElement): () => void {
     onSelectTank: (tankId: string) => {
       if (!battleStarted) {
         tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
-        tank.name = `ВЫ (${tank.spec.name})`;
+        tank.name = t('sbPlayerSelf', { name: tank.spec.name });
       }
     },
     onPreviewTank: (tankId: string) => {
       if (!battleStarted) {
         tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
-        tank.name = `ВЫ (${tank.spec.name})`;
+        tank.name = t('sbPlayerSelf', { name: tank.spec.name });
       }
     },
     onHangarToggle: (open: boolean) => {
@@ -799,14 +824,23 @@ export function initGame(mountEl: HTMLElement): () => void {
         menuAngle = 0.58;
       } else if (!battleStarted) {
         tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
-        tank.name = `ВЫ (${tank.spec.name})`;
+        tank.name = t('sbPlayerSelf', { name: tank.spec.name });
       }
     },
   });
 
+  applyDocumentLanguage();
+  ui.updateAllStaticTexts();
+
   document.body.dataset.state = 'title';
   document.body.dataset.control = settings.controlMode;
-  ui.show(settings.controlChosen ? 'main' : 'controlSelect');
+  if (!settings.languageChosen) {
+    ui.show('languageSelect');
+  } else if (!settings.controlChosen) {
+    ui.show('controlSelect');
+  } else {
+    ui.show('main');
+  }
 
   const unlockMenuMusic = () => {
     if (audio.init() && state === 'menu') audio.music('menu');
@@ -855,7 +889,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     spectateIdx = (((spectateIdx + step) % allies.length) + allies.length) % allies.length;
     spectateTarget = allies[spectateIdx];
     $('specTargetName').textContent = spectateTarget.name;
-    $('specTargetHp').textContent = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ХП)`;
+    $('specTargetHp').textContent = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ${t('hudHpUnit')})`;
   }
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -897,7 +931,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     else if (e.code === K.post) setSetting('post', !settings.post);
     else if (e.code === 'KeyR' && mode !== 'binoc') tank.reloadMg();
     else if (e.code === K.mg && mode !== 'binoc' && isMgExhausted(tank.mgState)) {
-      showMsg('ПАТРОНЫ ПУЛЕМЁТА КОНЧИЛИСЬ', '#ff6a4a');
+      showMsg(t('msgMgOutToast'), '#ff6a4a');
     }
   };
   const onKeyUp = (e: KeyboardEvent) => {
@@ -1139,7 +1173,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     const H = innerHeight;
     const scopeBroken = tank.gunDownT > 0;
     const scopeFracPct = Math.round(tank.reloadFraction * 100);
-    const rLabel = scopeBroken ? Math.ceil(tank.gunDownT) + 'с' : tank.ready ? 'ГОТОВ' : tank.reloadTimer.toFixed(1);
+    const rLabel = scopeBroken ? Math.ceil(tank.gunDownT) + t('hudSecShort') : tank.ready ? t('hudGunReady') : tank.reloadTimer.toFixed(1);
     const fovRound = Math.round(fovCur * 20);
     const key = `${W}x${H}|${mode}|${fovRound}|${scopeBroken ? 1 : 0}|${scopeFracPct}|${rLabel}`;
     if (key === scopeState.key) return;
@@ -1219,11 +1253,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     g.stroke();
     g.fillStyle = '#fff';
     g.textAlign = 'center';
-    g.fillText(broken ? Math.ceil(tank.gunDownT) + 'с' : tank.ready ? 'ГОТОВ' : tank.reloadTimer.toFixed(1), rx, ry);
+    g.fillText(broken ? Math.ceil(tank.gunDownT) + t('hudSecShort') : tank.ready ? t('hudGunReady') : tank.reloadTimer.toFixed(1), rx, ry);
     g.textAlign = 'left';
     g.fillStyle = '#ffd27a';
     g.font = '13px Consolas, monospace';
-    g.fillText(mode === 'sniper' ? 'ПРИЦЕЛ НАВОДЧИКА' : 'БИНОКЛЬ', cx - R + 14, cy - R * 0.9 + 40);
+    g.fillText(mode === 'sniper' ? t('hudSniper') : t('hudBinoc'), cx - R + 14, cy - R * 0.9 + 40);
   }
 
   const el = {
@@ -1386,7 +1420,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       el.tur.textContent = turTxt;
     }
 
-    const rangeTxt = aim.range ? Math.round(aim.range) + ' м' : '---';
+    const rangeTxt = aim.range ? Math.round(aim.range) + ' ' + t('hudMetersUnit') : '---';
     if (rangeTxt !== hudCache.range) {
       hudCache.range = rangeTxt;
       el.range.textContent = rangeTxt;
@@ -1398,7 +1432,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       el.zoom.textContent = zoomTxt;
     }
 
-    const compTxt = ballComp ? 'ВКЛ' : 'ВЫКЛ';
+    const compTxt = ballComp ? t('hudCompOn') : t('hudCompOff');
     if (compTxt !== hudCache.comp) {
       hudCache.comp = compTxt;
       el.comp.textContent = compTxt;
@@ -1406,12 +1440,12 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     const modeTxt =
       mode === 'third'
-        ? 'ОТ ТРЕТЬЕГО ЛИЦА'
+        ? t('hudThirdPerson')
         : mode === 'sniper'
-          ? 'ПРИЦЕЛ НАВОДЧИКА'
+          ? t('hudSniper')
           : binocFrozen
-            ? 'БИНОКЛЬ - КЛИК: НАВЕСТИ БАШНЮ'
-            : 'БИНОКЛЬ';
+            ? t('hudBinocAim')
+            : t('hudBinoc');
     if (modeTxt !== hudCache.mode) {
       hudCache.mode = modeTxt;
       el.mode.textContent = modeTxt;
@@ -1432,7 +1466,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       hudCache.ringBroken = broken;
       el.ring.classList.toggle('broken', broken);
     }
-    const rtxt = broken ? Math.ceil(tank.gunDownT) + 'с' : tank.ready ? 'ГОТОВ' : tank.reloadTimer.toFixed(1);
+    const rtxt = broken ? Math.ceil(tank.gunDownT) + t('hudSecShort') : tank.ready ? t('hudGunReady') : tank.reloadTimer.toFixed(1);
     if (rtxt !== hudCache.rtxt) {
       hudCache.rtxt = rtxt;
       el.rtxt.textContent = rtxt;
@@ -1458,7 +1492,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     const mgSpec = tank.stats.mg;
     const mgSt = tank.mgState;
-    const mgKeyTxt = `ПУЛЕМЁТ [${keyName(settings.keys.mg).toUpperCase()}]`;
+    const mgKeyTxt = t('hudMgLabel', { key: keyName(settings.keys.mg).toUpperCase() });
     if (mgKeyTxt !== hudCache.mgKey) {
       hudCache.mgKey = mgKeyTxt;
       el.mgKeyLabel.textContent = mgKeyTxt;
@@ -1485,12 +1519,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       el.mgBarFill.style.width = mgBarW;
     }
     const mgTxt = mgReloading
-      ? `ПЕРЕЗАРЯДКА ${mgSt.reloadT.toFixed(1)}с`
+      ? t('hudMgReloading', { t: mgSt.reloadT.toFixed(1) })
       : mgEmpty
-        ? 'ПАТРОНЫ КОНЧИЛИСЬ'
+        ? t('hudMgOutOfAmmo')
         : mgSt.magAmmo < mgSpec.magSize && mgSt.reserveAmmo > 0
-          ? 'ГОТОВ · R ЛЕНТА'
-          : 'ГОТОВ';
+          ? t('hudMgReloadPrompt')
+          : t('hudMgReady');
     if (mgTxt !== hudCache.mgStateTxt) {
       hudCache.mgStateTxt = mgTxt;
       el.mgStateTxt.textContent = mgTxt;
@@ -1524,7 +1558,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         hudCache.bossFlameOverheat = boss.heatState.overheated;
         el.bossFlameFill.classList.toggle('overheat', boss.heatState.overheated);
       }
-      const flameTxt = boss.heatState.overheated ? 'ПЕРЕГРЕВ · ОХЛАЖДЕНИЕ' : `ОГНЕМЁТ · ${heatPct}%`;
+      const flameTxt = boss.heatState.overheated ? t('hudBossOverheat') : t('hudBossFlamePct', { pct: heatPct });
       if (flameTxt !== hudCache.bossFlameText) {
         hudCache.bossFlameText = flameTxt;
         el.bossFlameText.textContent = flameTxt;
@@ -1543,12 +1577,12 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
 
     let d = '';
-    if (tank.immobT > 0) d += `ГУСЕНИЦА ПОВРЕЖДЕНА: ремонт ${Math.ceil(tank.immobT)} с`;
-    if (tank.gunDownT > 0) d += (d ? '<br>' : '') + `СТВОЛ ПОВРЕЖДЁН: ремонт ${Math.ceil(tank.gunDownT)} с`;
+    if (tank.immobT > 0) d += t('hudTrackDamagedRepair', { t: Math.ceil(tank.immobT) });
+    if (tank.gunDownT > 0) d += (d ? '<br>' : '') + t('hudBarrelDamagedRepair', { t: Math.ceil(tank.gunDownT) });
     if (boss && boss.playerFire.inFlame) {
-      d += (d ? '<br>' : '') + `В ОГНЕ: -${boss.playerFire.directDps} ХП/с`;
+      d += (d ? '<br>' : '') + t('hudOnFireDps', { dps: boss.playerFire.directDps });
     } else if (boss && boss.playerFire.burnRemaining > 0) {
-      d += (d ? '<br>' : '') + `ГОРЕНИЕ: -10 ХП/с (${Math.ceil(boss.playerFire.burnRemaining)} с)`;
+      d += (d ? '<br>' : '') + t('hudBurningDps', { t: Math.ceil(boss.playerFire.burnRemaining) });
     }
     if (d !== hudCache.dmg) {
       hudCache.dmg = d;
@@ -1593,7 +1627,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         el.tBtnFire.classList.toggle('broken', broken);
       }
 
-      const tMgTxt = mgReloading ? `${mgSt.reloadT.toFixed(1)}с` : `${mgSt.magAmmo}/${mgSt.reserveAmmo}`;
+      const tMgTxt = mgReloading ? `${mgSt.reloadT.toFixed(1)}${t('hudSecShort')}` : `${mgSt.magAmmo}/${mgSt.reserveAmmo}`;
       if (tMgTxt !== hudCache.tMgTxt) {
         hudCache.tMgTxt = tMgTxt;
         el.tMgAmmoTxt.textContent = tMgTxt;
@@ -1623,7 +1657,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         el.tBtnZoom.classList.toggle('hidden', !zoomVisible);
       }
       if (zoomVisible) {
-        const tZoomTxt = `ЗУМ ${zoomTxt}`;
+        const tZoomTxt = t('tBtnZoomVal', { val: zoomTxt });
         if (tZoomTxt !== hudCache.tZoomTxt) {
           hudCache.tZoomTxt = tZoomTxt;
           el.tBtnZoom.textContent = tZoomTxt;
@@ -1692,15 +1726,18 @@ export function initGame(mountEl: HTMLElement): () => void {
     msgT = 2.0;
   }
 
-  const RESULT_TXT: Record<string, string> = {
-    pen: 'ПОПАДАНИЕ',
-    crit: 'КРИТИЧЕСКОЕ ПОПАДАНИЕ',
-    nopen: 'НЕ ПРОБИЛ (БРОНЯ)',
-    ricochet: 'РИКОШЕТ',
-    track: 'ГУСЕНИЦА ПОВРЕЖДЕНА',
-    barrel: 'СТВОЛ ПОВРЕЖДЁН',
-    fuel: 'КРИТИЧЕСКОЕ ПОПАДАНИЕ: БЕНЗОБАК!',
-  };
+  function getCombatResultText(result: string): string {
+    const map: Record<string, string> = {
+      pen: t('msgPen'),
+      crit: t('msgCrit'),
+      nopen: t('msgNopen'),
+      ricochet: t('msgRicochet'),
+      track: t('msgTrack'),
+      barrel: t('msgBarrel'),
+      fuel: t('msgFuel'),
+    };
+    return map[result] || t('msgPen');
+  }
   const RESULT_COL: Record<string, string> = {
     pen: '#ffd27a',
     crit: '#ff6a4a',
@@ -1719,7 +1756,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     item.className = 'silver-toast' + (isBonus ? ' bonus' : '');
     const amt = document.createElement('span');
     amt.className = 'st-amt';
-    amt.textContent = `+${amount} СЕРЕБРА`;
+    amt.textContent = t('hudSilverToast', { amt: amount });
     const msg = document.createElement('span');
     msg.className = 'st-msg';
     msg.textContent = text;
@@ -1731,17 +1768,17 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function renderScoreboard() {
     const activeMode = getModeDef(currentModeId);
-    $('sbModeName').textContent = activeMode.name.toUpperCase();
+    $('sbModeName').textContent = getModeText(activeMode.id).name.toUpperCase();
     if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0) {
-      $('sbTeamScore').textContent = `ОСТАЛОСЬ ${formatCountdown(survivalRemaining)} · ФРАГИ: ${kills}`;
+      $('sbTeamScore').textContent = t('sbSurvivalScore', { time: formatCountdown(survivalRemaining), kills });
     } else if (activeMode.roundsToWin > 0) {
-      $('sbTeamScore').textContent = `РАУНД ${roundNum} · МЫ ${teamARounds} : ${teamBRounds} ВРАГИ (до ${activeMode.roundsToWin})`;
+      $('sbTeamScore').textContent = t('sbRoundsScore', { round: roundNum, a: teamARounds, b: teamBRounds, win: activeMode.roundsToWin });
     } else if (activeMode.targetKills > 0) {
-      $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (цель: ${activeMode.targetKills})`;
+      $('sbTeamScore').textContent = t('sbWeVsEnemiesGoal', { a: teamAKills, b: teamBKills, goal: activeMode.targetKills });
     } else if (activeMode.boss) {
-      $('sbTeamScore').textContent = boss ? `МАУС: ${Math.max(0, Math.round(boss.tank.hp))} / ${boss.tank.maxHp} ХП` : '';
+      $('sbTeamScore').textContent = boss ? t('sbBossScore', { hp: Math.max(0, Math.round(boss.tank.hp)), max: boss.tank.maxHp }) : '';
     } else {
-      $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (тренировка)`;
+      $('sbTeamScore').textContent = t('sbWeVsEnemiesTraining', { a: teamAKills, b: teamBKills });
     }
 
     const rows: ScoreboardRow[] = allTanks().map((t) => ({
@@ -1832,16 +1869,18 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     let scoreText: string | undefined;
     let subLabel: string | undefined;
-    let scoreLabel = isRounds ? 'Счёт раундов' : 'Счёт команд';
+    let scoreLabel = isRounds ? t('meScoreRounds') : t('meScoreTeams');
     let historyScore = `${teamAScore} : ${teamBScore}`;
 
     if (isSurvival && activeMode.survivalSeconds) {
       const totalStr = formatCountdown(activeMode.survivalSeconds);
       const survivedStr = winner === 'A' ? totalStr : formatCountdown(Math.min(activeMode.survivalSeconds, survivalElapsed));
-      scoreLabel = 'Время выживания';
+      scoreLabel = t('meScoreSurvival');
       scoreText = winner === 'A' ? `${totalStr} / ${totalStr}` : `${survivedStr} / ${totalStr}`;
-      subLabel = `${activeMode.name.toUpperCase()} · ${winner === 'A' ? 'ВЫЖИЛ ' + totalStr : 'ПРОЖИТО ' + survivedStr}`;
-      historyScore = `${winner === 'A' ? totalStr : survivedStr} · ${kills} фрагов`;
+      subLabel = winner === 'A'
+        ? t('meSubSurvivalSurvived', { mode: getModeText(activeMode.id).name.toUpperCase(), time: totalStr })
+        : t('meSubSurvivalLived', { mode: getModeText(activeMode.id).name.toUpperCase(), time: survivedStr });
+      historyScore = t('meScoreSurvivalHistory', { time: winner === 'A' ? totalStr : survivedStr, kills });
     }
 
     recordCurrentMatch(winner === 'A', historyScore);
@@ -1853,7 +1892,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     document.body.dataset.state = 'matchEnd';
     ui.showMatchEnd({
       won: winner === 'A',
-      modeName: activeMode.name,
+      modeName: getModeText(activeMode.id).name,
       scoreLabel,
       scoreText,
       subLabel,
@@ -1877,8 +1916,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     matchSilverEarned += reward;
     ui.refreshSilver();
     audio.ui('victory');
-    showSilverToast(reward, 'Маус уничтожен', true);
-    recordCurrentMatch(true, `Маус уничтожен · ${kills} фрагов`);
+    showSilverToast(reward, t('meMausToast'), true);
+    recordCurrentMatch(true, t('meMausHistory', { kills }));
     mouseDown = false;
     touchCtl?.reset();
     setScoreboardOpen(false);
@@ -1890,7 +1929,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('bossBar').classList.add('hidden');
     hudCache.bossVisible = false;
     const vb = $('victoryBanner');
-    vb.textContent = 'ПОБЕДА! ХОРОШАЯ РАБОТА!';
+    vb.textContent = t('meBannerVictoryWork');
     vb.classList.remove('hidden');
     jugVictoryT = 1.8;
   }
@@ -1930,7 +1969,7 @@ export function initGame(mountEl: HTMLElement): () => void {
           addSilver(reward.totalSilver);
           matchSilverEarned += reward.totalSilver;
           ui.refreshSilver();
-          showSilverToast(reward.baseSilver, `Уничтожен ${target.name}`);
+          showSilverToast(reward.baseSilver, t('meTargetDestroyedToast', { target: target.name }));
           if (reward.streakBonus > 0 && reward.bonusLabel) {
             showSilverToast(reward.streakBonus, reward.bonusLabel, true);
           }
@@ -1951,8 +1990,8 @@ export function initGame(mountEl: HTMLElement): () => void {
           $('spectatorBar').classList.add('hidden');
           hudCache.specVisible = false;
           $('dead').style.display = 'none';
-          const winTxt = rEval.roundWinner === 'A' ? 'ПОБЕДА В РАУНДЕ!' : 'РАУНД ПРОИГРАН';
-          showRoundBanner(`РАУНД ${roundNum}: ${winTxt} (${teamARounds} : ${teamBRounds})`, rEval.roundWinner === 'A' ? '#8fe36a' : '#ff6a4a');
+          const winTxt = rEval.roundWinner === 'A' ? t('msgRoundWinBanner') : t('msgRoundLossBanner');
+          showRoundBanner(t('msgRoundFullBanner', { round: roundNum, res: winTxt, a: teamARounds, b: teamBRounds }), rEval.roundWinner === 'A' ? '#8fe36a' : '#ff6a4a');
           if (rEval.matchFinished && rEval.matchWinner) {
             pendingRoundMatchWinner = { winner: rEval.matchWinner, victorySilver: rEval.victorySilver };
           }
@@ -2068,17 +2107,17 @@ export function initGame(mountEl: HTMLElement): () => void {
         });
       }
       if (r.attacker === tank) {
-        showMsg(`ТАРАН! -${r.damage} ХП`, '#ffd27a');
+        showMsg(t('msgRamDealt', { dmg: r.damage }), '#ffd27a');
         audio.ui('tick');
       }
       if (r.victim === tank) {
         shake = Math.max(shake, 0.7);
-        showMsg(`ТАРАН ПО ВАМ: -${r.damage} ХП`, '#ff6a4a');
+        showMsg(t('msgRamTaken', { dmg: r.damage }), '#ff6a4a');
       }
       if (r.victim.hp <= 0 && r.victim.alive) {
         r.victim.destroy(false);
         audio.play('bigexplosion', pt);
-        handleTankDestroyed(r.victim, r.attacker, ' [ТАРАН]');
+        handleTankDestroyed(r.victim, r.attacker, t('suffixRam'));
       }
     }
   }
@@ -2099,9 +2138,9 @@ export function initGame(mountEl: HTMLElement): () => void {
       audio.play('bigexplosion', p);
       if (v === tank) {
         shake = Math.max(shake, 1.1);
-        showMsg('МАУС РАЗДАВИЛ ВАС!', '#ff4c2a');
+        showMsg(t('msgMausCrushed'), '#ff4c2a');
       }
-      handleTankDestroyed(v, boss.tank, ' [ТАРАН]');
+      handleTankDestroyed(v, boss.tank, t('suffixRam'));
     }
   }
 
@@ -2111,24 +2150,24 @@ export function initGame(mountEl: HTMLElement): () => void {
         recordPlayerHit(e.result === 'pen' || e.result === 'crit' || e.result === 'fuel', e.damage);
       }
       if (e.result === 'fuel') {
-        showMsg('ВЗРЫВ БЕНЗОБАКА — УНИЧТОЖЕН!', '#ff4c2a');
+        showMsg(t('msgFuelDestroyed'), '#ff4c2a');
       } else if (e.destroyed) {
-        showMsg('ЦЕЛЬ УНИЧТОЖЕНА', '#ff6a4a');
+        showMsg(t('msgTargetDestroyed'), '#ff6a4a');
       } else if (!e.isMg) {
-        showMsg(RESULT_TXT[e.result] || 'ПОПАДАНИЕ', RESULT_COL[e.result] || '#ffd27a');
+        showMsg(getCombatResultText(e.result), RESULT_COL[e.result] || '#ffd27a');
       }
       if (settings.hitcam && !e.isMg) hitcam.show(e);
     }
     if (e.target === tank) {
       if (!e.isMg) {
         shake = Math.max(shake, e.result === 'fuel' ? 1.1 : 0.5);
-        showMsg('ПО ВАМ ПОПАЛИ: ' + (RESULT_TXT[e.result] || ''), '#ff9a7a');
+        showMsg(t('msgYouWereHit', { res: getCombatResultText(e.result) }), '#ff9a7a');
       } else {
         shake = Math.max(shake, 0.06);
       }
     }
     if (e.destroyed) {
-      const suffix = e.result === 'fuel' ? ' [БЕНЗОБАК]' : e.isMg ? ' [ПУЛЕМЁТ]' : '';
+      const suffix = e.result === 'fuel' ? t('suffixFuel') : e.isMg ? t('suffixMg') : '';
       handleTankDestroyed(e.target, e.owner, suffix);
     }
   });
@@ -2252,9 +2291,9 @@ export function initGame(mountEl: HTMLElement): () => void {
       boss.update(dt, teamATanks, ballistics.fx, (victim) => {
         if (victim === tank) {
           shake = Math.max(shake, 1.1);
-          showMsg('МАУС СЖЁГ ВАС ОГНЕМЁТОМ!', '#ff6a4a');
+          showMsg(t('msgMausBurned'), '#ff6a4a');
         }
-        handleTankDestroyed(victim, boss!.tank, ' [ОГНЕМЁТ]');
+        handleTankDestroyed(victim, boss!.tank, t('suffixFlame'));
       });
     } else if (boss) {
       boss.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
@@ -2316,7 +2355,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (activeMode.respawns) {
         playerDeadT += dt;
         deadEl.style.display = 'flex';
-        deadEl.textContent = 'ВАШ ТАНК УНИЧТОЖЕН - ВОЗРОЖДЕНИЕ ЧЕРЕЗ ' + Math.max(0, Math.ceil(6 - playerDeadT));
+        deadEl.textContent = t('hudDeadRespawn', { t: Math.max(0, Math.ceil(6 - playerDeadT)) });
         if (playerDeadT > 6) {
           tank.reset(world.spawnPlayer.x + 70, world.spawnPlayer.z, 0, getSelectedTankId());
           aim.yaw = 0;
@@ -2343,7 +2382,7 @@ export function initGame(mountEl: HTMLElement): () => void {
             hudCache.specName = spectateTarget.name;
             el.specName.textContent = spectateTarget.name;
           }
-          const specHpTxt = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ХП)`;
+          const specHpTxt = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ${t('hudHpUnit')})`;
           if (specHpTxt !== hudCache.specHp) {
             hudCache.specHp = specHpTxt;
             el.specHp.textContent = specHpTxt;
@@ -2385,7 +2424,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         kick += mode === 'third' ? 0.018 : 0.0035;
         shake = mode === 'third' ? 0.18 : 0;
         if (shot.dir.y > 0.08 && isShotIntoSky(shot.dir.y, aim.range, !!world.raycast(shot.pos, shot.dir, 650))) {
-          showMsg(SKY_EASTER_MSG, '#ffd27a');
+          showMsg(t('skyEaster'), '#ffd27a');
           lastSkyMsgTime = simTime;
         }
       }
@@ -2400,7 +2439,7 @@ export function initGame(mountEl: HTMLElement): () => void {
           simTime - lastSkyMsgTime >= 2.5 &&
           isShotIntoSky(mgShot.dir.y, aim.range, !!world.raycast(mgShot.pos, mgShot.dir, 650))
         ) {
-          showMsg(SKY_EASTER_MSG, '#ffd27a');
+          showMsg(t('skyEaster'), '#ffd27a');
           lastSkyMsgTime = simTime;
         }
       }

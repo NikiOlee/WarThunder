@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getTankSpec, type TankSpec } from './tanks';
 import { createMgState, startMgReload, stepMgState, tryFireMg, type MachineGunState } from './machineGun';
+import { buildTankTracks, type TrackScrollRef, type TrackWheelRef } from './trackAssembly';
 import type { GameWorld } from './world';
 import type { Particles } from './ballistics';
 
@@ -97,24 +98,6 @@ function dunkelgrauTexture(): THREE.CanvasTexture {
   return t;
 }
 
-function treadTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 32;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#26261f';
-  g.fillRect(0, 0, 64, 32);
-  g.fillStyle = '#44443a';
-  g.fillRect(0, 0, 40, 32);
-  g.fillStyle = '#15150f';
-  g.fillRect(40, 0, 3, 32);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(16, 1);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 export interface TankInput {
   throttle: number;
   steer: number;
@@ -186,8 +169,8 @@ export class Tank {
   flameMuzzle: THREE.Object3D | null = null;
   sightObj!: THREE.Object3D;
   binocObj!: THREE.Object3D;
-  tracks: Array<{ tex: THREE.CanvasTexture; sign: number }> = [];
-  wheels: Array<{ mesh: THREE.Mesh; side: number }> = [];
+  tracks: TrackScrollRef[] = [];
+  wheels: TrackWheelRef[] = [];
   _gd?: THREE.Vector3;
 
   constructor(scene: THREE.Scene, world: GameWorld, opts: TankOptions = {}) {
@@ -328,44 +311,84 @@ export class Tank {
             [-4.35, 2.22],
             [-4.68, 1.72],
           ],
-          2.46,
+          2.42,
         ),
         hullMat,
       );
       this.hullGroup.add(hull);
 
-      // Full-length thick armored side skirts covering upper road wheels (distinctive Maus profile)
-      const skirtGeo = prism(
+      // Continuous wide Maus tracks, toothed rear sprockets, idlers, return rollers & 11 bogie road wheels per side
+      const mausTracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.56,
+          trackWidth: 0.58,
+          beltThickness: 0.065,
+          wheelY: 0.43,
+          wheelR: 0.34,
+          wheelPositionsZ: [-3.35, -2.69, -2.03, -1.37, -0.71, -0.05, 0.61, 1.27, 1.93, 2.59, 3.25],
+          idlerZ: 4.02,
+          idlerY: 0.78,
+          idlerR: 0.32,
+          sprocketZ: -4.08,
+          sprocketY: 0.76,
+          sprocketR: 0.33,
+          returnRollersZ: [-2.6, -1.3, 0.0, 1.3, 2.6],
+          returnRollerR: 0.11,
+          sprocketTeeth: 14,
+          fenderY: 1.32,
+          mudguardFrontZ: 4.44,
+          mudguardRearZ: -4.48,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...mausTracks.tracks);
+      this.wheels.push(...mausTracks.wheels);
+
+      // Full-length thick outer armored side skirts + upper sponson deck (strictly outside tracks & stepped 0.02m below main deck)
+      const outerSkirtGeo = prism(
         [
           [-4.45, 0.64],
           [4.12, 0.64],
           [4.56, 1.24],
-          [3.05, 2.22],
-          [-4.35, 2.22],
+          [3.05, 2.2],
+          [-4.35, 2.2],
           [-4.65, 1.56],
         ],
-        0.64,
+        0.13,
+      );
+      const sponsonDeckGeo = prism(
+        [
+          [-4.35, 2.08],
+          [3.05, 2.08],
+          [3.12, 2.2],
+          [-4.35, 2.2],
+        ],
+        0.78,
       );
       for (const sx of [-1, 1]) {
-        const skirt = new THREE.Mesh(skirtGeo, hullMat);
-        skirt.position.set(sx * 1.52, 0, 0);
+        const skirt = new THREE.Mesh(outerSkirtGeo, hullMat);
+        skirt.position.set(sx * 1.94, 0, 0);
         this.hullGroup.add(skirt);
-        // Subtle hull access plates & mudguard side flange
-        add(new THREE.BoxGeometry(0.06, 0.32, 0.32), darkMat, sx * 1.85, 1.78, -3.55);
+        const sponson = new THREE.Mesh(sponsonDeckGeo, hullMat);
+        sponson.position.set(sx * 1.61, 0, 0);
+        this.hullGroup.add(sponson);
+        // Side hull access hatch plate strictly outside outer skirt surface
+        add(new THREE.BoxGeometry(0.05, 0.32, 0.32), darkMat, sx * 2.02, 1.78, -3.55);
       }
 
-      // Raised wedge driver visor hood ahead of turret + Notek blackout lamp on front glacis edge
+      // Raised wedge driver visor hood ahead of turret (sunk 0.04m into deck to prevent coplanar floor overlap) + Notek blackout lamp
       const visorGeo = prism(
         [
-          [1.68, 2.22],
-          [2.78, 2.22],
+          [1.68, 2.18],
+          [2.78, 2.18],
           [2.16, 2.52],
           [1.76, 2.48],
         ],
         1.1,
       );
       this.hullGroup.add(new THREE.Mesh(visorGeo, hullMat));
-      add(new THREE.BoxGeometry(0.14, 0.22, 0.16), darkMat, 0.92, 2.31, 3.32); // Notek front blackout lamp
+      add(new THREE.BoxGeometry(0.14, 0.22, 0.16), darkMat, 0.92, 2.33, 3.32);
 
       // Engine deck cooling grilles & rear armored exhaust/towing lugs
       add(new THREE.BoxGeometry(1.9, 0.08, 1.45), darkMat, 0, 2.24, 1.15);
@@ -374,51 +397,14 @@ export class Tank {
       add(new THREE.BoxGeometry(0.28, 0.26, 0.35), metalMat, -0.78, 1.12, -4.68);
       add(new THREE.BoxGeometry(0.28, 0.26, 0.35), metalMat, 0.78, 1.12, -4.68);
 
-      // Wide Maus tracks + 12 small road wheels per side tucked cleanly under the side skirts
-      const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.66, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const hubGeo = new THREE.CylinderGeometry(0.13, 0.13, 0.7, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const sideMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [sideMat, sideMat, darkMat, darkMat, darkMat, darkMat];
-        // Main lower track run + sloped front & rear track runs
-        const trackLower = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.68, 7.85), mats);
-        trackLower.position.set(sx * 1.5, 0.38, -0.15);
-        this.hullGroup.add(trackLower);
-        this.tracks.push({ tex, sign: sx });
-
-        const frontClimb = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.3, 1.25), darkMat);
-        frontClimb.position.set(sx * 1.5, 0.66, 3.92);
-        frontClimb.rotation.x = -0.58;
-        this.hullGroup.add(frontClimb);
-
-        const rearClimb = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.3, 1.15), darkMat);
-        rearClimb.position.set(sx * 1.5, 0.62, -4.22);
-        rearClimb.rotation.x = 0.56;
-        this.hullGroup.add(rearClimb);
-
-        // 12 small overlapping-style road wheels along the lower track run
-        for (let wi = 0; wi < 12; wi++) {
-          const wz = -3.65 + wi * 0.65;
-          const w = new THREE.Mesh(wheelGeo, hullMat);
-          w.position.set(sx * 1.5, 0.4, wz);
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
-
       // Massive rear-mounted Maus turret: curved cylindrical front + long tall boxy side/rear armor
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 2.18, -0.52);
+      this.turretGroup.position.set(0, 2.23, -0.52);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
 
       // Turret ring collar
-      add(new THREE.CylinderGeometry(1.48, 1.54, 0.14, 20), darkMat, 0, 0.04, -0.2, tg);
+      add(new THREE.CylinderGeometry(1.48, 1.54, 0.08, 20), darkMat, 0, 0.04, -0.2, tg);
 
       // Main boxy turret body (slightly sloped sides & angled rear plate matching photo)
       const mausTurretBody = new THREE.Mesh(
@@ -436,8 +422,8 @@ export class Tank {
       );
       tg.add(mausTurretBody);
 
-      // Characteristic curved rounded frontal Maus turret plate
-      const curvedFrontGeo = new THREE.CylinderGeometry(0.66, 0.66, 3.04, 18);
+      // Characteristic curved rounded frontal Maus turret plate (slightly inset in width so sides never z-fight body)
+      const curvedFrontGeo = new THREE.CylinderGeometry(0.66, 0.66, 3.0, 18);
       curvedFrontGeo.rotateZ(Math.PI / 2);
       const curvedFront = new THREE.Mesh(curvedFrontGeo, hullMat);
       curvedFront.scale.set(1, 0.98, 1.38);
@@ -447,21 +433,21 @@ export class Tank {
       // Rear turret circular hatch & armor plug + roof periscope cupolas
       const rearHatch = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.34, 0.18, 14), hullMat);
       rearHatch.rotation.x = Math.PI / 2;
-      rearHatch.position.set(0, 0.76, -2.62);
+      rearHatch.position.set(0, 0.76, -2.64);
       tg.add(rearHatch);
 
       add(new THREE.CylinderGeometry(0.24, 0.32, 0.28, 10), hullMat, 0.42, 1.48, 0.12, tg); // forward periscope housing
       add(new THREE.CylinderGeometry(0.38, 0.42, 0.18, 12), hullMat, -0.48, 1.44, -0.62, tg); // commander cupola
-      add(new THREE.CylinderGeometry(0.24, 0.28, 0.12, 10), darkMat, 0.45, 1.41, -1.25, tg); // ventilator cap
+      add(new THREE.CylinderGeometry(0.24, 0.28, 0.12, 10), darkMat, 0.45, 1.42, -1.25, tg); // ventilator cap
 
       // Heavy tapered armored gun mantlet collar
       const mantletGeo = new THREE.CylinderGeometry(0.4, 0.56, 0.85, 16);
       mantletGeo.rotateX(Math.PI / 2);
       const mantlet = new THREE.Mesh(mantletGeo, metalMat);
       mantlet.scale.set(1.38, 0.95, 1);
-      mantlet.position.set(0, 0.68, 1.88);
+      mantlet.position.set(0, 0.68, 1.94);
       tg.add(mantlet);
-      add(new THREE.BoxGeometry(1.18, 0.62, 0.52), hullMat, 0, 0.68, 1.68, tg);
+      add(new THREE.BoxGeometry(1.22, 0.64, 0.52), hullMat, 0, 0.68, 1.64, tg);
 
       // 128mm KwK 44 main barrel + adjacent secondary flamethrower barrel/nozzle
       this.gunPivot = new THREE.Group();
@@ -526,72 +512,70 @@ export class Tank {
             [-2.55, 1.9],
             [-3.42, 1.72],
           ],
-          3.18,
+          3.0,
         ),
         hullMat,
       );
       this.hullGroup.add(hull);
 
       // Raised rear engine deck & louver doors (American Patton boxy tail silhouette)
-      add(new THREE.BoxGeometry(2.55, 0.14, 1.9), darkMat, 0, 1.92, -2.15);
-      add(new THREE.BoxGeometry(2.8, 0.55, 0.22), darkMat, 0, 1.38, -3.44);
+      add(new THREE.BoxGeometry(2.55, 0.14, 1.9), darkMat, 0, 1.94, -2.15);
+      add(new THREE.BoxGeometry(2.76, 0.55, 0.2), darkMat, 0, 1.38, -3.44);
       // Driver central periscope housing & raised glacis headlights
-      add(new THREE.BoxGeometry(0.75, 0.16, 0.65), hullMat, 0, 1.9, 2.02);
+      add(new THREE.BoxGeometry(0.75, 0.16, 0.65), hullMat, 0, 1.92, 2.02);
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.28, 0.22, 0.24), metalMat, sx * 1.3, 1.54, 3.05);
-        // Broad M60 fenders + stowage boxes
-        add(new THREE.BoxGeometry(0.6, 0.1, 6.95), hullMat, sx * 1.84, 1.24, 0.02);
-        add(new THREE.BoxGeometry(0.32, 0.34, 2.2), hullMat, sx * 1.84, 1.46, 0.45);
+        add(new THREE.BoxGeometry(0.28, 0.22, 0.24), metalMat, sx * 1.26, 1.54, 3.05);
+        // Broad M60 fenders + stowage boxes (non-coplanar, clear above track maxY)
+        add(new THREE.BoxGeometry(0.6, 0.07, 6.65), hullMat, sx * 1.86, 1.25, 0.02);
+        add(new THREE.BoxGeometry(0.32, 0.34, 2.15), hullMat, sx * 1.86, 1.46, 0.45);
         // Rear internal/sponson fuel tank bays (M60A3 vulnerable fuel weakspot)
-        add(new THREE.BoxGeometry(0.42, 0.46, 1.95), fuelMat, sx * 1.56, 1.5, -2.28);
+        add(new THREE.BoxGeometry(0.36, 0.44, 1.92), fuelMat, sx * 1.7, 1.52, -2.28);
       }
       // Rear fuel cell manifold / external auxiliary tanks
-      add(new THREE.BoxGeometry(2.15, 0.48, 0.34), fuelMat, 0, 1.5, -3.38);
+      add(new THREE.BoxGeometry(2.15, 0.46, 0.3), fuelMat, 0, 1.5, -3.38);
 
-      // Tracks + 6 medium road wheels & 3 return rollers per side
-      const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.72, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const rollerGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.62, 8);
-      rollerGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.76, 0.08, 0.4);
-      const hubGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.78, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.64, 1.06, 7.1), mats);
-        track.position.set(sx * 1.88, 0.55, 0.02);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        const wz = [-2.75, -1.72, -0.7, 0.32, 1.35, 2.38];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.88, 0.46, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-        for (const rz of [-1.45, 0.05, 1.55]) {
-          add(rollerGeo, darkMat, sx * 1.88, 0.98, rz);
-        }
-      }
+      // Continuous M60 tracks + 6 road wheels + 3 return rollers + toothed rear sprocket + mudguards
+      const m60Tracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.86,
+          trackWidth: 0.58,
+          beltThickness: 0.06,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.7, -1.68, -0.66, 0.36, 1.38, 2.4],
+          idlerZ: 3.24,
+          idlerY: 0.77,
+          idlerR: 0.3,
+          sprocketZ: -3.28,
+          sprocketY: 0.73,
+          sprocketR: 0.31,
+          returnRollersZ: [-1.5, 0.0, 1.5],
+          returnRollerR: 0.11,
+          sprocketTeeth: 12,
+          fenderY: 1.25,
+          mudguardFrontZ: 3.55,
+          mudguardRearZ: -3.5,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...m60Tracks.tracks);
+      this.wheels.push(...m60Tracks.wheels);
 
       // Characteristic M60A3 Patton "clam-shell / needle-nose" American turret + long bustle + M19 cupola
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.86, 0.12);
+      this.turretGroup.position.set(0, 1.91, 0.12);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
+
+      add(new THREE.CylinderGeometry(1.22, 1.32, 0.08, 16), darkMat, 0, 0.04, 0.0, tg);
 
       const pattonTurret = new THREE.Mesh(
         prism(
           [
             [-2.15, 0.25],
-            [-1.55, 0.02],
-            [1.45, 0.02],
+            [-1.55, 0.08],
+            [1.45, 0.08],
             [1.72, 0.56],
             [1.15, 1.04],
             [-1.85, 1.02],
@@ -603,24 +587,23 @@ export class Tank {
       );
       tg.add(pattonTurret);
 
-      // Sloped turret cheeks & boxy rear bustle storage basket
-      add(new THREE.CylinderGeometry(1.22, 1.32, 0.14, 16), hullMat, 0, 0.05, 0.0, tg);
-      add(new THREE.BoxGeometry(2.1, 0.58, 0.72), darkMat, 0, 0.66, -2.28, tg); // rear bustle rack
+      // Bustle storage basket
+      add(new THREE.BoxGeometry(2.1, 0.58, 0.72), darkMat, 0, 0.66, -2.3, tg);
       // Large American M19 commander cupola with M85 MG
-      add(new THREE.CylinderGeometry(0.42, 0.45, 0.42, 14), hullMat, -0.45, 1.22, -0.42, tg);
-      add(new THREE.BoxGeometry(0.08, 0.08, 0.78), metalMat, -0.45, 1.48, -0.1, tg);
+      add(new THREE.CylinderGeometry(0.42, 0.45, 0.42, 14), hullMat, -0.45, 1.24, -0.42, tg);
+      add(new THREE.BoxGeometry(0.08, 0.08, 0.78), metalMat, -0.45, 1.5, -0.1, tg);
       add(new THREE.CylinderGeometry(0.3, 0.34, 0.14, 12), hullMat, 0.52, 1.1, -0.25, tg); // loader hatch
       // Dual smoke grenade discharger clusters on turret sides
       for (const sx of [-1, 1]) {
-        const sg = add(new THREE.BoxGeometry(0.24, 0.22, 0.34), darkMat, sx * 1.34, 0.62, 0.78, tg);
+        const sg = add(new THREE.BoxGeometry(0.24, 0.22, 0.34), darkMat, sx * 1.36, 0.62, 0.78, tg);
         sg.rotation.y = sx * 0.35;
       }
       // Tall whip antenna & rangefinder blisters on turret sides
       add(new THREE.CylinderGeometry(0.025, 0.025, 3.1, 4), metalMat, -1.05, 2.1, -1.75, tg);
-      add(new THREE.BoxGeometry(2.68, 0.28, 0.34), hullMat, 0, 0.76, 0.58, tg); // coincidence rangefinder blisters
+      add(new THREE.BoxGeometry(2.7, 0.28, 0.34), hullMat, 0, 0.76, 0.58, tg); // coincidence rangefinder blisters
       // Heavy rectangular armored gun mantlet with dust cover boot
-      add(new THREE.BoxGeometry(1.06, 0.74, 0.58), hullMat, 0, 0.56, 1.62, tg);
-      add(new THREE.BoxGeometry(0.86, 0.54, 0.24), darkMat, 0, 0.56, 1.88, tg);
+      add(new THREE.BoxGeometry(1.06, 0.74, 0.5), hullMat, 0, 0.56, 1.64, tg);
+      add(new THREE.BoxGeometry(0.84, 0.52, 0.18), darkMat, 0, 0.56, 1.92, tg);
       // Rectangular IR/white searchlight above mantlet (iconic M60 box light)
       add(new THREE.BoxGeometry(0.46, 0.34, 0.32), darkMat, 0, 1.12, 1.48, tg);
 
@@ -710,10 +693,10 @@ export class Tank {
 
       // Side fenders + full-length rubberized/armored side skirts (бортовые экраны)
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.58, 0.08, 7.35), hullMat, sx * 1.75, 1.12, 0.04);
-        add(new THREE.BoxGeometry(0.09, 0.52, 6.95), darkMat, sx * 2.06, 0.86, -0.05);
+        add(new THREE.BoxGeometry(0.58, 0.07, 6.82), hullMat, sx * 1.82, 1.15, 0.03);
+        add(new THREE.BoxGeometry(0.06, 0.6, 6.7), darkMat, sx * 2.15, 0.8, -0.02);
         // External rear-side fender fuel cells (vulnerable weakspot)
-        add(new THREE.BoxGeometry(0.36, 0.44, 2.05), fuelMat, sx * 1.48, 1.34, -2.42);
+        add(new THREE.BoxGeometry(0.34, 0.4, 2.0), fuelMat, sx * 1.66, 1.39, -2.38);
       }
       // Dual rear cylindrical external fuel drums (vulnerable weakspot)
       const drumGeo = new THREE.CylinderGeometry(0.27, 0.27, 1.22, 12);
@@ -726,38 +709,39 @@ export class Tank {
       logGeo.rotateZ(Math.PI / 2);
       add(logGeo, new THREE.MeshStandardMaterial({ color: 0x5c4730, roughness: 0.95 }), 0, 1.0, -3.66);
 
-      // Tracks + 5 large road wheels per side with signature T-62 rear-biased wheel spacing
-      const wheelGeo = new THREE.CylinderGeometry(0.47, 0.47, 0.76, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.8, 0.08, 0.45);
-      const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.82, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 7.45), mats);
-        track.position.set(sx * 1.76, 0.52, 0.05);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        const wz = [-2.88, -1.55, -0.22, 1.05, 2.38];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.76, 0.48, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
+      // Continuous T-62M tracks + 5 rear-biased large road wheels + idlers + toothed sprockets + mudguards
+      const t62Tracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.82,
+          trackWidth: 0.56,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.78, -1.52, -0.26, 0.96, 2.34],
+          idlerZ: 3.24,
+          idlerY: 0.72,
+          idlerR: 0.28,
+          sprocketZ: -3.32,
+          sprocketY: 0.69,
+          sprocketR: 0.3,
+          sprocketTeeth: 12,
+          fenderY: 1.15,
+          mudguardFrontZ: 3.6,
+          mudguardRearZ: -3.56,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...t62Tracks.tracks);
+      this.wheels.push(...t62Tracks.wheels);
 
       // Low, wide flattened cast T-62M turret + signature BDD "eyebrow" («брови») cheek appliqué blocks
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.62, 0.08);
+      this.turretGroup.position.set(0, 1.67, 0.08);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
+
+      add(new THREE.CylinderGeometry(1.42, 1.46, 0.07, 20), darkMat, 0, 0.035, -0.04, tg);
 
       const domePts = [
         new THREE.Vector2(0.0, 0.0),
@@ -771,10 +755,8 @@ export class Tank {
       const domeGeo = new THREE.LatheGeometry(domePts, 20);
       domeGeo.scale(1.04, 1.0, 1.24);
       const dome = new THREE.Mesh(domeGeo, hullMat);
-      dome.position.set(0, 0.0, -0.06);
+      dome.position.set(0, 0.07, -0.06);
       tg.add(dome);
-
-      add(new THREE.CylinderGeometry(1.42, 1.46, 0.1, 20), darkMat, 0, 0.02, -0.04, tg);
 
       // Iconic BDD horseshoe "eyebrow" («брови») appliqué armor blocks left & right of mantlet
       const browGeo = prism(
@@ -784,18 +766,18 @@ export class Tank {
           [0.48, 0.66],
           [-0.38, 0.72],
         ],
-        0.92,
+        0.88,
       );
       for (const sx of [-1, 1]) {
         const brow = new THREE.Mesh(browGeo, hullMat);
-        brow.position.set(sx * 0.96, 0.08, 1.18);
+        brow.position.set(sx * 0.98, 0.08, 1.22);
         brow.rotation.y = -sx * 0.34;
         tg.add(brow);
-        // Dark seam collar behind each brow
-        const browBacking = add(new THREE.BoxGeometry(0.86, 0.56, 0.14), darkMat, sx * 0.94, 0.42, 1.05, tg);
+        // Recessed backing collar tucked strictly behind brow so edges never fight
+        const browBacking = add(new THREE.BoxGeometry(0.76, 0.44, 0.12), darkMat, sx * 0.96, 0.42, 1.06, tg);
         browBacking.rotation.y = -sx * 0.34;
         // "Tucha" 4-tube smoke grenade discharger cluster behind the eyebrow blocks
-        const smokeRack = add(new THREE.BoxGeometry(0.18, 0.24, 0.38), darkMat, sx * 1.46, 0.46, 0.28, tg);
+        const smokeRack = add(new THREE.BoxGeometry(0.18, 0.24, 0.38), darkMat, sx * 1.48, 0.46, 0.28, tg);
         smokeRack.rotation.y = sx * 0.25;
       }
 
@@ -868,43 +850,46 @@ export class Tank {
             [-2.82, 1.66],
             [-3.48, 1.36],
           ],
-          3.06,
+          3.02,
         ),
         hullMat,
       );
       this.hullGroup.add(hull);
 
-      // Relikt ERA rectangular tiles arrayed across the sloped upper glacis
-      const eraBlockGeo = new THREE.BoxGeometry(0.46, 0.16, 0.42);
+      // Relikt ERA rectangular tiles arrayed cleanly in local tilted groups across upper glacis
+      const eraBlockGeo = new THREE.BoxGeometry(0.42, 0.14, 0.38);
+      const eraSeamGeo = new THREE.BoxGeometry(0.4, 0.04, 0.36);
       for (const row of [
-        { y: 1.48, z: 2.52 },
-        { y: 1.24, z: 3.06 },
+        { y: 1.49, z: 2.52 },
+        { y: 1.25, z: 3.06 },
       ]) {
-        for (const ex of [-1.05, -0.53, 0, 0.53, 1.05]) {
-          const tile = add(eraBlockGeo, hullMat, ex, row.y, row.z);
-          tile.rotation.x = 0.42;
-          const seam = add(new THREE.BoxGeometry(0.48, 0.04, 0.44), darkMat, ex, row.y - 0.07, row.z);
-          seam.rotation.x = 0.42;
+        for (const ex of [-1.06, -0.53, 0, 0.53, 1.06]) {
+          const eg = new THREE.Group();
+          eg.position.set(ex, row.y, row.z);
+          eg.rotation.x = 0.42;
+          add(eraBlockGeo, hullMat, 0, 0.02, 0, eg);
+          add(eraSeamGeo, darkMat, 0, -0.07, 0, eg);
+          this.hullGroup.add(eg);
         }
       }
       // Driver center periscope hood & recessed glacis headlights
-      add(new THREE.BoxGeometry(0.56, 0.12, 0.48), darkMat, 0, 1.68, 2.02);
-      add(new THREE.BoxGeometry(0.22, 0.16, 0.18), metalMat, 1.16, 1.38, 3.32);
-      add(new THREE.BoxGeometry(0.22, 0.16, 0.18), metalMat, -1.16, 1.38, 3.32);
+      add(new THREE.BoxGeometry(0.56, 0.12, 0.48), darkMat, 0, 1.69, 2.02);
+      add(new THREE.BoxGeometry(0.22, 0.16, 0.18), metalMat, 1.14, 1.38, 3.32);
+      add(new THREE.BoxGeometry(0.22, 0.16, 0.18), metalMat, -1.14, 1.38, 3.32);
 
       // Engine deck radiator grilles & rear armored louvers
       add(new THREE.BoxGeometry(2.3, 0.08, 1.8), darkMat, 0, 1.68, -2.12);
 
       // Heavy Relikt side skirts with 6 modular ERA boxes per side + rear fender fuel tanks
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.62, 0.08, 7.18), hullMat, sx * 1.82, 1.12, 0.04);
-        add(new THREE.BoxGeometry(0.08, 0.54, 6.85), darkMat, sx * 2.12, 0.85, -0.04);
+        add(new THREE.BoxGeometry(0.58, 0.07, 6.7), hullMat, sx * 1.84, 1.15, 0.03);
+        add(new THREE.BoxGeometry(0.06, 0.58, 6.6), darkMat, sx * 2.17, 0.8, -0.02);
         for (let bi = 0; bi < 6; bi++) {
-          const bz = 2.55 - bi * 0.86;
-          add(new THREE.BoxGeometry(0.16, 0.46, 0.78), hullMat, sx * 2.18, 0.94, bz);
+          const bz = 2.45 - bi * 0.84;
+          add(new THREE.BoxGeometry(0.12, 0.44, 0.76), hullMat, sx * 2.27, 0.86, bz);
         }
         // Rear-side fender fuel cells (vulnerable weakspot)
-        add(new THREE.BoxGeometry(0.36, 0.44, 1.98), fuelMat, sx * 1.52, 1.34, -2.35);
+        add(new THREE.BoxGeometry(0.34, 0.42, 1.94), fuelMat, sx * 1.66, 1.4, -2.35);
       }
       // Dual rear cylindrical external fuel drums (vulnerable weakspot)
       const drumGeo = new THREE.CylinderGeometry(0.27, 0.27, 1.2, 12);
@@ -917,38 +902,39 @@ export class Tank {
       logGeo.rotateZ(Math.PI / 2);
       add(logGeo, new THREE.MeshStandardMaterial({ color: 0x5c4730, roughness: 0.95 }), 0, 1.0, -3.54);
 
-      // Tracks + 6 road wheels per side (classic T-72 suspension)
-      const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.76, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.8, 0.08, 0.44);
-      const hubGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.82, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.0, 7.25), mats);
-        track.position.set(sx * 1.8, 0.52, 0.04);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        const wz = [-2.75, -1.68, -0.62, 0.44, 1.5, 2.55];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.8, 0.47, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
+      // Continuous T-72B3 tracks + 6 road wheels + idlers + toothed rear sprockets + mudguards
+      const t72Tracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.84,
+          trackWidth: 0.56,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.68, -1.64, -0.6, 0.44, 1.48, 2.52],
+          idlerZ: 3.24,
+          idlerY: 0.72,
+          idlerR: 0.28,
+          sprocketZ: -3.28,
+          sprocketY: 0.69,
+          sprocketR: 0.3,
+          sprocketTeeth: 12,
+          fenderY: 1.15,
+          mudguardFrontZ: 3.55,
+          mudguardRearZ: -3.5,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...t72Tracks.tracks);
+      this.wheels.push(...t72Tracks.wheels);
 
       // Low modern T-72B3 turret with wedge-shaped Relikt ERA cheek pods & roof ERA bricks
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.63, 0.06);
+      this.turretGroup.position.set(0, 1.67, 0.06);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
+
+      add(new THREE.CylinderGeometry(1.42, 1.46, 0.07, 20), darkMat, 0, 0.035, -0.06, tg);
 
       const domePts = [
         new THREE.Vector2(0.0, 0.0),
@@ -962,9 +948,8 @@ export class Tank {
       const domeGeo = new THREE.LatheGeometry(domePts, 20);
       domeGeo.scale(1.06, 1.0, 1.18);
       const dome = new THREE.Mesh(domeGeo, hullMat);
-      dome.position.set(0, 0.0, -0.08);
+      dome.position.set(0, 0.07, -0.08);
       tg.add(dome);
-      add(new THREE.CylinderGeometry(1.42, 1.46, 0.1, 20), darkMat, 0, 0.02, -0.06, tg);
 
       // Wedge-shaped Relikt ERA pods («клиновидные блоки») across frontal turret cheeks
       const wedgeGeo = prism(
@@ -977,22 +962,22 @@ export class Tank {
       );
       for (const sx of [-1, 1]) {
         const outerWedge = new THREE.Mesh(wedgeGeo, hullMat);
-        outerWedge.position.set(sx * 0.95, 0.08, 1.18);
+        outerWedge.position.set(sx * 0.95, 0.1, 1.2);
         outerWedge.rotation.y = -sx * 0.36;
         tg.add(outerWedge);
         // Inner cheek ERA wedge adjacent to gun mantlet
-        const innerEra = add(new THREE.BoxGeometry(0.46, 0.44, 0.44), hullMat, sx * 0.58, 0.42, 1.54, tg);
+        const innerEra = add(new THREE.BoxGeometry(0.46, 0.44, 0.44), hullMat, sx * 0.58, 0.44, 1.54, tg);
         innerEra.rotation.y = -sx * 0.22;
         innerEra.rotation.x = 0.18;
         // Side turret Relikt ERA skirts + 4-tube Tucha smoke grenade launchers
-        add(new THREE.BoxGeometry(0.18, 0.42, 1.25), hullMat, sx * 1.54, 0.38, 0.05, tg);
-        const smokeRack = add(new THREE.BoxGeometry(0.2, 0.24, 0.42), darkMat, sx * 1.58, 0.48, -0.72, tg);
+        add(new THREE.BoxGeometry(0.14, 0.42, 1.25), hullMat, sx * 1.58, 0.42, 0.05, tg);
+        const smokeRack = add(new THREE.BoxGeometry(0.2, 0.24, 0.42), darkMat, sx * 1.62, 0.5, -0.72, tg);
         smokeRack.rotation.y = sx * 0.25;
       }
 
-      // Roof Relikt ERA tile array on turret top
+      // Roof Relikt ERA tile array cleanly perched on turret top
       for (const rx of [-0.52, 0, 0.52]) {
-        add(new THREE.BoxGeometry(0.44, 0.1, 0.42), hullMat, rx, 0.88, 0.55, tg);
+        add(new THREE.BoxGeometry(0.42, 0.09, 0.4), hullMat, rx, 0.95, 0.55, tg);
       }
 
       // Sosna-U multi-channel thermal sight box + commander cupola with 12.7mm Kord AA MG + rear stowage rack
@@ -1069,7 +1054,7 @@ export class Tank {
             [-3.68, 1.66],
             [-3.74, 1.24],
           ],
-          3.12,
+          3.04,
         ),
         hullMat,
       );
@@ -1077,8 +1062,8 @@ export class Tank {
 
       // Driver periscope hatch (offset right), twin front headlights, tow shackles & front mudguard steps
       add(new THREE.BoxGeometry(0.58, 0.1, 0.52), darkMat, -0.54, 1.68, 2.02);
-      add(new THREE.BoxGeometry(0.24, 0.18, 0.2), metalMat, 1.22, 1.4, 3.38);
-      add(new THREE.BoxGeometry(0.24, 0.18, 0.2), metalMat, -1.22, 1.4, 3.38);
+      add(new THREE.BoxGeometry(0.24, 0.18, 0.2), metalMat, 1.2, 1.4, 3.38);
+      add(new THREE.BoxGeometry(0.24, 0.18, 0.2), metalMat, -1.2, 1.4, 3.38);
       add(new THREE.BoxGeometry(0.22, 0.16, 0.24), metalMat, 0.88, 0.88, 3.68);
       add(new THREE.BoxGeometry(0.22, 0.16, 0.24), metalMat, -0.88, 0.88, 3.68);
 
@@ -1086,98 +1071,100 @@ export class Tank {
       add(new THREE.BoxGeometry(2.5, 0.08, 2.05), darkMat, 0, 1.68, -2.35);
       add(new THREE.BoxGeometry(2.72, 0.48, 0.18), darkMat, 0, 1.32, -3.72);
 
-      // Heavy NATO full-length armored side skirts + rear hull fuel bays (vulnerable weakspot)
+      // Heavy NATO segmented side skirts (zero rear/front overlap) + rear hull fuel bays
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.62, 0.08, 7.45), hullMat, sx * 1.86, 1.14, 0.02);
-        add(new THREE.BoxGeometry(0.1, 0.62, 7.3), hullMat, sx * 2.18, 0.9, 0.0);
-        // Segmented heavy ballistic front skirt panels
+        add(new THREE.BoxGeometry(0.6, 0.07, 7.05), hullMat, sx * 1.88, 1.19, 0.01);
+        // Rear light ballistic skirt (-3.61 .. -0.31)
+        add(new THREE.BoxGeometry(0.09, 0.6, 3.3), hullMat, sx * 2.22, 0.82, -1.96);
+        // Segmented heavy ballistic front skirt panels (4 spaced blocks forward of -0.28)
         for (let bi = 0; bi < 4; bi++) {
-          const bz = 2.85 - bi * 0.92;
-          add(new THREE.BoxGeometry(0.14, 0.68, 0.84), darkMat, sx * 2.2, 0.9, bz);
+          const bz = 2.9 - bi * 0.92;
+          add(new THREE.BoxGeometry(0.12, 0.66, 0.84), darkMat, sx * 2.24, 0.81, bz);
         }
         // Rear hull fuel cells (Leopard 2A4 vulnerable fuel tank weakspot)
-        add(new THREE.BoxGeometry(0.4, 0.44, 2.1), fuelMat, sx * 1.54, 1.34, -2.55);
+        add(new THREE.BoxGeometry(0.36, 0.42, 2.05), fuelMat, sx * 1.68, 1.44, -2.55);
       }
       add(new THREE.BoxGeometry(2.3, 0.44, 0.34), fuelMat, 0, 1.36, -3.6);
 
-      // Tracks + 7 German road wheels per side
-      const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.72, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.76, 0.08, 0.4);
-      const hubGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.78, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.0, 7.52), mats);
-        track.position.set(sx * 1.85, 0.52, 0.02);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        const wz = [-2.95, -2.02, -1.08, -0.14, 0.8, 1.74, 2.68];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.85, 0.46, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
+      // Continuous Leopard 2A4 tracks + 7 road wheels + 3 return rollers + toothed sprocket + mudguards
+      const leoTracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.88,
+          trackWidth: 0.58,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.86, -1.94, -1.02, -0.1, 0.82, 1.74, 2.66],
+          idlerZ: 3.38,
+          idlerY: 0.74,
+          idlerR: 0.28,
+          sprocketZ: -3.44,
+          sprocketY: 0.71,
+          sprocketR: 0.3,
+          returnRollersZ: [-2.35, -0.55, 1.25],
+          returnRollerR: 0.11,
+          sprocketTeeth: 12,
+          fenderY: 1.19,
+          mudguardFrontZ: 3.72,
+          mudguardRearZ: -3.72,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...leoTracks.tracks);
+      this.wheels.push(...leoTracks.wheels);
 
       // Characteristic angular "square" Leopard 2A4 turret with vertical composite front face & long bustle
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.64, 0.14);
+      this.turretGroup.position.set(0, 1.67, 0.14);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
 
       // Turret ring collar
-      add(new THREE.CylinderGeometry(1.36, 1.42, 0.1, 20), darkMat, 0, 0.02, 0.0, tg);
+      add(new THREE.CylinderGeometry(1.36, 1.42, 0.07, 20), darkMat, 0, 0.035, 0.0, tg);
 
-      // Square vertical-faced main turret block + long rear bustle
+      // Square main turret hull (front stops at z=1.16 so front composite cheeks sit cleanly proud without z-fighting)
       const leoTurretBody = new THREE.Mesh(
         prism(
           [
             [-2.58, 0.14],
-            [-1.12, 0.05],
-            [1.38, 0.06],
-            [1.38, 0.98],
+            [-1.12, 0.07],
+            [1.16, 0.07],
+            [1.16, 0.98],
             [-2.52, 0.95],
           ],
-          2.92,
+          2.9,
         ),
         hullMat,
       );
       tg.add(leoTurretBody);
 
-      // Left vertical frontal composite cheek (full height flat face)
-      add(new THREE.BoxGeometry(1.04, 0.9, 0.34), hullMat, 0.94, 0.52, 1.32, tg);
+      // Left vertical frontal composite cheek (proud z = 1.17..1.53)
+      add(new THREE.BoxGeometry(1.04, 0.9, 0.36), hullMat, 0.94, 0.53, 1.35, tg);
       // Right vertical frontal composite cheek split around the recessed EMES-15 gunner sight housing
-      add(new THREE.BoxGeometry(0.46, 0.9, 0.34), hullMat, -1.23, 0.52, 1.32, tg);
-      add(new THREE.BoxGeometry(0.56, 0.36, 0.34), hullMat, -0.72, 0.25, 1.32, tg);
+      add(new THREE.BoxGeometry(0.46, 0.9, 0.36), hullMat, -1.23, 0.53, 1.35, tg);
+      add(new THREE.BoxGeometry(0.56, 0.36, 0.36), hullMat, -0.72, 0.26, 1.35, tg);
       // Recessed EMES-15 primary thermal sight aperture & armored doors on turret front-right
-      add(new THREE.BoxGeometry(0.54, 0.5, 0.28), darkMat, -0.72, 0.7, 1.28, tg);
-      add(new THREE.BoxGeometry(0.32, 0.28, 0.08), metalMat, -0.72, 0.72, 1.41, tg);
+      add(new THREE.BoxGeometry(0.52, 0.48, 0.22), darkMat, -0.72, 0.71, 1.28, tg);
+      add(new THREE.BoxGeometry(0.32, 0.28, 0.06), metalMat, -0.72, 0.72, 1.43, tg);
 
       // Central boxy vertical gun mantlet between frontal cheeks
-      add(new THREE.BoxGeometry(0.64, 0.68, 0.44), hullMat, 0, 0.48, 1.38, tg);
-      add(new THREE.BoxGeometry(0.5, 0.52, 0.16), darkMat, 0, 0.48, 1.56, tg);
+      add(new THREE.BoxGeometry(0.64, 0.68, 0.42), hullMat, 0, 0.48, 1.42, tg);
+      add(new THREE.BoxGeometry(0.48, 0.5, 0.12), darkMat, 0, 0.48, 1.66, tg);
 
-      // Blow-off ammunition panels on rear bustle roof & rear stowage basket
-      add(new THREE.BoxGeometry(2.15, 0.08, 1.15), darkMat, 0, 0.98, -1.68, tg);
-      add(new THREE.BoxGeometry(2.38, 0.48, 0.36), darkMat, 0, 0.62, -2.68, tg);
+      // Blow-off ammunition panels cleanly proud of rear bustle roof & rear stowage basket
+      add(new THREE.BoxGeometry(2.15, 0.06, 1.15), darkMat, 0, 1.01, -1.68, tg);
+      add(new THREE.BoxGeometry(2.38, 0.48, 0.36), darkMat, 0, 0.62, -2.72, tg);
 
       // Commander PERI R17 panoramic periscope, loader hatch, roof MG3 & twin smoke discharger racks
       add(new THREE.CylinderGeometry(0.24, 0.28, 0.28, 12), darkMat, -0.75, 1.12, 0.25, tg); // PERI R17
-      add(new THREE.CylinderGeometry(0.34, 0.36, 0.12, 12), hullMat, -0.68, 1.02, -0.38, tg); // commander hatch
-      add(new THREE.CylinderGeometry(0.32, 0.34, 0.12, 12), hullMat, 0.56, 1.02, -0.25, tg); // loader hatch
-      add(new THREE.BoxGeometry(0.08, 0.08, 0.88), metalMat, 0.56, 1.16, 0.08, tg); // roof MG3
+      add(new THREE.CylinderGeometry(0.34, 0.36, 0.12, 12), hullMat, -0.68, 1.03, -0.38, tg); // commander hatch
+      add(new THREE.CylinderGeometry(0.32, 0.34, 0.12, 12), hullMat, 0.56, 1.03, -0.25, tg); // loader hatch
+      add(new THREE.BoxGeometry(0.08, 0.08, 0.88), metalMat, 0.56, 1.17, 0.08, tg); // roof MG3
       for (const sx of [-1, 1]) {
-        // Sloped side turret applique ribs & 4-tube smoke grenade launcher clusters
-        add(new THREE.BoxGeometry(0.14, 0.72, 2.55), hullMat, sx * 1.48, 0.54, -0.35, tg);
-        const smokeRack = add(new THREE.BoxGeometry(0.2, 0.26, 0.48), darkMat, sx * 1.58, 0.52, 0.52, tg);
+        // Side turret applique armor ribs & 4-tube smoke grenade launcher clusters
+        add(new THREE.BoxGeometry(0.1, 0.72, 2.55), hullMat, sx * 1.5, 0.54, -0.35, tg);
+        const smokeRack = add(new THREE.BoxGeometry(0.2, 0.26, 0.48), darkMat, sx * 1.62, 0.52, 0.52, tg);
         smokeRack.rotation.y = -sx * 0.22;
         add(new THREE.CylinderGeometry(0.022, 0.022, 2.9, 4), metalMat, sx * 1.28, 1.92, -2.28, tg);
       }
@@ -1238,75 +1225,78 @@ export class Tank {
             [-2.95, 1.7],
             [-3.62, 1.4],
           ],
-          3.2,
+          3.04,
         ),
         hullMat,
       );
       this.hullGroup.add(hull);
 
       // Driver's hatch, periscopes and recessed headlights
-      add(new THREE.BoxGeometry(0.72, 0.12, 0.66), darkMat, 0, 1.66, 2.18);
+      add(new THREE.BoxGeometry(0.72, 0.1, 0.66), darkMat, 0, 1.66, 2.18);
       add(new THREE.BoxGeometry(0.34, 0.1, 0.24), darkMat, 0, 1.69, 2.5);
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.26, 0.2, 0.22), metalMat, sx * 1.28, 1.3, 3.44);
+        add(new THREE.BoxGeometry(0.26, 0.2, 0.22), metalMat, sx * 1.24, 1.3, 3.44);
         add(new THREE.BoxGeometry(0.2, 0.14, 0.2), darkMat, sx * 0.82, 1.5, 3.26);
         // External rear sponson fuel cells (vulnerable weakspot)
-        add(new THREE.BoxGeometry(0.42, 0.46, 2.05), fuelMat, sx * 1.55, 1.42, -2.6);
+        add(new THREE.BoxGeometry(0.36, 0.44, 2.02), fuelMat, sx * 1.68, 1.46, -2.6);
       }
       // Rear engine deck grilles, exhaust louver panel & tow pintle
       add(new THREE.BoxGeometry(2.62, 0.1, 2.0), darkMat, 0, 1.72, -2.25);
       add(new THREE.BoxGeometry(2.86, 0.5, 0.2), darkMat, 0, 1.36, -3.7);
       add(new THREE.BoxGeometry(0.9, 0.32, 0.18), darkMat, 0, 1.78, -3.0);
 
-      // Wide Abrams fenders and full-length side skirts over the tracks
+      // Wide Abrams fenders and segmented side skirts (no rear/front coplanar overlap)
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.66, 0.1, 7.5), hullMat, sx * 1.88, 1.16, 0.0);
-        add(new THREE.BoxGeometry(0.12, 0.68, 7.32), hullMat, sx * 2.2, 0.86, 0.0);
+        add(new THREE.BoxGeometry(0.6, 0.07, 7.12), hullMat, sx * 1.88, 1.2, 0.02);
+        // Rear side skirt (-3.58 .. +0.02)
+        add(new THREE.BoxGeometry(0.09, 0.62, 3.6), hullMat, sx * 2.22, 0.83, -1.78);
+        // 3 front heavy ballistic skirt panels (0.34 .. 3.10)
         for (let bi = 0; bi < 3; bi++) {
-          add(new THREE.BoxGeometry(0.14, 0.74, 0.9), darkMat, sx * 2.22, 0.86, 2.6 - bi * 0.92);
+          add(new THREE.BoxGeometry(0.12, 0.66, 0.88), darkMat, sx * 2.24, 0.81, 2.66 - bi * 0.94);
         }
       }
 
-      // Tracks + 7 road wheels per side
-      const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.72, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.76, 0.08, 0.4);
-      const hubGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.78, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.64, 1.02, 7.6), mats);
-        track.position.set(sx * 1.86, 0.53, 0.02);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        const wz = [-2.98, -2.04, -1.1, -0.16, 0.78, 1.72, 2.66];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.86, 0.47, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
+      // Continuous Abrams tracks + 7 road wheels + 3 return rollers + toothed sprocket + mudguards
+      const abramsTracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.88,
+          trackWidth: 0.6,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.92, -1.98, -1.04, -0.1, 0.84, 1.78, 2.72],
+          idlerZ: 3.44,
+          idlerY: 0.74,
+          idlerR: 0.28,
+          sprocketZ: -3.48,
+          sprocketY: 0.71,
+          sprocketR: 0.3,
+          returnRollersZ: [-2.4, -0.5, 1.4],
+          returnRollerR: 0.11,
+          sprocketTeeth: 12,
+          fenderY: 1.2,
+          mudguardFrontZ: 3.78,
+          mudguardRearZ: -3.74,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...abramsTracks.tracks);
+      this.wheels.push(...abramsTracks.wheels);
 
       // Massive angular Abrams turret with long rear bustle
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.66, 0.1);
+      this.turretGroup.position.set(0, 1.71, 0.1);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
-      add(new THREE.CylinderGeometry(1.4, 1.46, 0.1, 20), darkMat, 0, 0.02, 0, tg);
+      add(new THREE.CylinderGeometry(1.4, 1.46, 0.07, 20), darkMat, 0, 0.035, 0, tg);
 
       const abramsTurret = new THREE.Mesh(
         prism(
           [
             [-2.62, 0.12],
-            [-1.1, 0.03],
-            [1.12, 0.04],
+            [-1.1, 0.07],
+            [1.12, 0.07],
             [1.58, 0.52],
             [1.18, 0.98],
             [-2.35, 1.02],
@@ -1327,26 +1317,26 @@ export class Tank {
         const cheekWed = add(new THREE.BoxGeometry(0.92, 0.28, 0.34), darkMat, sx * 0.92, 0.18, 1.34, tg);
         cheekWed.rotation.y = -sx * 0.3;
         // Side turret armor ribs & smoke discharger clusters
-        add(new THREE.BoxGeometry(0.16, 0.6, 2.2), hullMat, sx * 1.5, 0.5, -0.3, tg);
-        const smoke = add(new THREE.BoxGeometry(0.22, 0.24, 0.44), darkMat, sx * 1.52, 0.62, 0.7, tg);
+        add(new THREE.BoxGeometry(0.1, 0.6, 2.2), hullMat, sx * 1.55, 0.5, -0.3, tg);
+        const smoke = add(new THREE.BoxGeometry(0.22, 0.24, 0.44), darkMat, sx * 1.58, 0.62, 0.7, tg);
         smoke.rotation.y = -sx * 0.2;
       }
 
       // Central gun mantlet & armored trunnion block
       add(new THREE.BoxGeometry(0.86, 0.72, 0.54), hullMat, 0, 0.5, 1.52, tg);
-      add(new THREE.BoxGeometry(0.66, 0.52, 0.18), darkMat, 0, 0.5, 1.8, tg);
+      add(new THREE.BoxGeometry(0.64, 0.5, 0.14), darkMat, 0, 0.5, 1.82, tg);
 
-      // Rear bustle with blow-off panels and stowage rack
-      add(new THREE.BoxGeometry(2.56, 0.12, 1.32), darkMat, 0, 0.96, -2.05, tg);
+      // Rear bustle with blow-off panels cleanly proud of roof & stowage rack
+      add(new THREE.BoxGeometry(2.56, 0.08, 1.32), darkMat, 0, 1.06, -2.05, tg);
       add(new THREE.BoxGeometry(2.7, 0.44, 0.34), darkMat, 0, 0.66, -2.78, tg);
 
       // Commander cupola with M2HB, loader hatch, CITV sight & antenna
-      add(new THREE.CylinderGeometry(0.38, 0.42, 0.26, 12), hullMat, 0.5, 1.12, -0.62, tg);
-      add(new THREE.BoxGeometry(0.08, 0.08, 0.92), metalMat, 0.5, 1.28, -0.2, tg);
-      add(new THREE.CylinderGeometry(0.3, 0.34, 0.14, 12), hullMat, -0.52, 1.06, -0.5, tg);
+      add(new THREE.CylinderGeometry(0.38, 0.42, 0.26, 12), hullMat, 0.5, 1.14, -0.62, tg);
+      add(new THREE.BoxGeometry(0.08, 0.08, 0.92), metalMat, 0.5, 1.3, -0.2, tg);
+      add(new THREE.CylinderGeometry(0.3, 0.34, 0.14, 12), hullMat, -0.52, 1.08, -0.5, tg);
       add(new THREE.BoxGeometry(0.42, 0.34, 0.46), darkMat, 1.06, 1.08, 0.22, tg);
       add(new THREE.CylinderGeometry(0.022, 0.022, 2.7, 4), metalMat, -1.2, 2.0, -2.1, tg);
-      add(new THREE.CylinderGeometry(0.2, 0.24, 0.16, 10), darkMat, -0.15, 1.04, 0.25, tg);
+      add(new THREE.CylinderGeometry(0.2, 0.24, 0.16, 10), darkMat, -0.15, 1.06, 0.25, tg);
 
       // 120mm M256 smoothbore with thermal shroud, bore evacuator & MRS tip
       this.gunPivot = new THREE.Group();
@@ -1409,17 +1399,20 @@ export class Tank {
       );
       this.hullGroup.add(hull);
 
-      // Glacis ERA tile array
-      const glacisEra = new THREE.BoxGeometry(0.44, 0.16, 0.4);
+      // Glacis ERA tile array in local tilted groups
+      const glacisEra = new THREE.BoxGeometry(0.4, 0.14, 0.36);
+      const glacisSeam = new THREE.BoxGeometry(0.38, 0.04, 0.34);
       for (const row of [
-        { y: 1.38, z: 2.48 },
-        { y: 1.16, z: 2.98 },
+        { y: 1.4, z: 2.48 },
+        { y: 1.18, z: 2.98 },
       ]) {
-        for (const ex of [-0.96, -0.48, 0, 0.48, 0.96]) {
-          const tile = add(glacisEra, hullMat, ex, row.y, row.z);
-          tile.rotation.x = 0.4;
-          const seam = add(new THREE.BoxGeometry(0.46, 0.04, 0.42), darkMat, ex, row.y - 0.07, row.z);
-          seam.rotation.x = 0.4;
+        for (const ex of [-0.98, -0.49, 0, 0.49, 0.98]) {
+          const eg = new THREE.Group();
+          eg.position.set(ex, row.y, row.z);
+          eg.rotation.x = 0.4;
+          add(glacisEra, hullMat, 0, 0.02, 0, eg);
+          add(glacisSeam, darkMat, 0, -0.07, 0, eg);
+          this.hullGroup.add(eg);
         }
       }
       // Driver hatch, periscopes & headlights
@@ -1431,58 +1424,57 @@ export class Tank {
       add(new THREE.BoxGeometry(2.24, 0.08, 1.78), darkMat, 0, 1.62, -2.05);
       add(new THREE.BoxGeometry(2.5, 0.44, 0.18), darkMat, 0, 1.3, -3.48);
 
-      // Side skirts with 5 ERA modules per side + rear fender fuel cells
+      // Side skirts with 5 ERA modules per side (non-overlapping) + rear fender fuel cells
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.6, 0.08, 7.08), hullMat, sx * 1.78, 1.1, 0.02);
-        add(new THREE.BoxGeometry(0.08, 0.52, 6.8), darkMat, sx * 2.06, 0.84, -0.02);
+        add(new THREE.BoxGeometry(0.58, 0.07, 6.74), hullMat, sx * 1.82, 1.15, 0.02);
+        add(new THREE.BoxGeometry(0.06, 0.58, 6.6), darkMat, sx * 2.15, 0.8, -0.02);
         for (let bi = 0; bi < 5; bi++) {
-          add(new THREE.BoxGeometry(0.16, 0.44, 0.8), hullMat, sx * 2.12, 0.92, 2.4 - bi * 0.88);
+          add(new THREE.BoxGeometry(0.12, 0.44, 0.78), hullMat, sx * 2.25, 0.86, 2.4 - bi * 0.88);
         }
         // Rear-side fuel cells (vulnerable weakspot)
-        add(new THREE.BoxGeometry(0.36, 0.44, 1.9), fuelMat, sx * 1.5, 1.32, -2.32);
+        add(new THREE.BoxGeometry(0.34, 0.4, 1.9), fuelMat, sx * 1.64, 1.39, -2.32);
       }
       add(new THREE.BoxGeometry(2.0, 0.42, 0.3), fuelMat, 0, 1.3, -3.5);
 
-      // Tracks + 6 road wheels per side
-      const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.74, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.78, 0.08, 0.44);
-      const hubGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.8, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.0, 7.35), mats);
-        track.position.set(sx * 1.8, 0.52, 0.04);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        const wz = [-2.8, -1.7, -0.6, 0.5, 1.6, 2.6];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.8, 0.47, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
+      // Continuous ZTZ-96A tracks + 6 road wheels + idlers + toothed sprocket + mudguards
+      const ztzTracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.82,
+          trackWidth: 0.56,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.74, -1.66, -0.58, 0.5, 1.58, 2.58],
+          idlerZ: 3.28,
+          idlerY: 0.72,
+          idlerR: 0.28,
+          sprocketZ: -3.32,
+          sprocketY: 0.69,
+          sprocketR: 0.3,
+          sprocketTeeth: 12,
+          fenderY: 1.15,
+          mudguardFrontZ: 3.58,
+          mudguardRearZ: -3.52,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...ztzTracks.tracks);
+      this.wheels.push(...ztzTracks.wheels);
 
       // Low wedge-shaped turret covered in ERA blocks
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.62, 0.06);
+      this.turretGroup.position.set(0, 1.6, 0.06);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
-      add(new THREE.CylinderGeometry(1.38, 1.44, 0.1, 20), darkMat, 0, 0.02, -0.02, tg);
+      add(new THREE.CylinderGeometry(1.38, 1.44, 0.07, 20), darkMat, 0, 0.035, -0.02, tg);
 
       const ztzTurret = new THREE.Mesh(
         prism(
           [
             [-2.28, 0.12],
-            [-1.02, 0.03],
-            [1.04, 0.04],
+            [-1.02, 0.07],
+            [1.04, 0.07],
             [1.46, 0.5],
             [1.06, 0.96],
             [-1.96, 1.0],
@@ -1505,24 +1497,24 @@ export class Tank {
       );
       for (const sx of [-1, 1]) {
         const cheek = new THREE.Mesh(wedgeGeo, hullMat);
-        cheek.position.set(sx * 0.92, 0.08, 1.18);
+        cheek.position.set(sx * 0.92, 0.1, 1.2);
         cheek.rotation.y = -sx * 0.34;
         tg.add(cheek);
         // Inner ERA brick beside the mantlet
-        const inner = add(new THREE.BoxGeometry(0.44, 0.42, 0.42), hullMat, sx * 0.56, 0.4, 1.5, tg);
+        const inner = add(new THREE.BoxGeometry(0.44, 0.42, 0.42), hullMat, sx * 0.56, 0.42, 1.5, tg);
         inner.rotation.y = -sx * 0.2;
-        // Side turret ERA row
+        // Side turret ERA row strictly outside ±1.45 turret sides
         for (let i = 0; i < 3; i++) {
-          add(new THREE.BoxGeometry(0.16, 0.4, 0.52), hullMat, sx * 1.46, 0.4, 0.38 - i * 0.56, tg);
+          add(new THREE.BoxGeometry(0.12, 0.4, 0.52), hullMat, sx * 1.52, 0.42, 0.38 - i * 0.56, tg);
         }
         // Smoke discharger cluster
-        const smoke = add(new THREE.BoxGeometry(0.2, 0.24, 0.4), darkMat, sx * 1.5, 0.56, 0.82, tg);
+        const smoke = add(new THREE.BoxGeometry(0.2, 0.24, 0.4), darkMat, sx * 1.56, 0.56, 0.82, tg);
         smoke.rotation.y = -sx * 0.2;
       }
 
-      // Roof ERA bricks
+      // Roof ERA bricks cleanly perched atop turret roof
       for (const rx of [-0.52, 0, 0.52]) {
-        add(new THREE.BoxGeometry(0.42, 0.1, 0.4), hullMat, rx, 0.94, 0.5, tg);
+        add(new THREE.BoxGeometry(0.42, 0.08, 0.4), hullMat, rx, 1.01, 0.5, tg);
       }
 
       // Gun mantlet, commander cupola with QJC-88, laser sight & rear stowage basket
@@ -1588,23 +1580,26 @@ export class Tank {
             [-2.88, 1.64],
             [-3.45, 1.34],
           ],
-          3.05,
+          3.02,
         ),
         hullMat,
       );
       this.hullGroup.add(hull);
 
-      // Relikt ERA tiles across the upper glacis
-      const eraBlockGeo = new THREE.BoxGeometry(0.46, 0.16, 0.42);
+      // Relikt ERA tiles across upper glacis (0.37m wide at 0.42m pitch -> crisp 5cm gaps, zero neighbor z-fighting)
+      const eraBlockGeo = new THREE.BoxGeometry(0.37, 0.14, 0.36);
+      const eraSeamGeo = new THREE.BoxGeometry(0.35, 0.04, 0.34);
       for (const row of [
-        { y: 1.46, z: 2.5 },
-        { y: 1.22, z: 3.02 },
+        { y: 1.47, z: 2.5 },
+        { y: 1.23, z: 3.02 },
       ]) {
         for (const ex of [-1.05, -0.63, -0.21, 0.21, 0.63, 1.05]) {
-          const tile = add(eraBlockGeo, hullMat, ex, row.y, row.z);
-          tile.rotation.x = 0.42;
-          const seam = add(new THREE.BoxGeometry(0.48, 0.04, 0.44), darkMat, ex, row.y - 0.07, row.z);
-          seam.rotation.x = 0.42;
+          const eg = new THREE.Group();
+          eg.position.set(ex, row.y, row.z);
+          eg.rotation.x = 0.42;
+          add(eraBlockGeo, hullMat, 0, 0.02, 0, eg);
+          add(eraSeamGeo, darkMat, 0, -0.07, 0, eg);
+          this.hullGroup.add(eg);
         }
       }
       // Driver periscope hood & recessed headlights
@@ -1618,13 +1613,13 @@ export class Tank {
 
       // Relikt side skirts with modular ERA boxes + rear fender fuel cells
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.62, 0.08, 7.12), hullMat, sx * 1.8, 1.1, 0.04);
-        add(new THREE.BoxGeometry(0.08, 0.54, 6.78), darkMat, sx * 2.1, 0.85, -0.04);
+        add(new THREE.BoxGeometry(0.58, 0.07, 6.7), hullMat, sx * 1.84, 1.15, 0.03);
+        add(new THREE.BoxGeometry(0.06, 0.58, 6.6), darkMat, sx * 2.17, 0.8, -0.02);
         for (let bi = 0; bi < 6; bi++) {
-          add(new THREE.BoxGeometry(0.16, 0.46, 0.76), hullMat, sx * 2.16, 0.94, 2.5 - bi * 0.84);
+          add(new THREE.BoxGeometry(0.12, 0.44, 0.76), hullMat, sx * 2.27, 0.86, 2.45 - bi * 0.84);
         }
         // Rear-side fuel cells (vulnerable weakspot)
-        add(new THREE.BoxGeometry(0.36, 0.44, 1.96), fuelMat, sx * 1.5, 1.32, -2.34);
+        add(new THREE.BoxGeometry(0.34, 0.4, 1.92), fuelMat, sx * 1.66, 1.39, -2.34);
       }
       // Dual rear external fuel drums & unditching log (vulnerable weakspot)
       const drumGeo = new THREE.CylinderGeometry(0.27, 0.27, 1.2, 12);
@@ -1636,46 +1631,45 @@ export class Tank {
       logGeo.rotateZ(Math.PI / 2);
       add(logGeo, new THREE.MeshStandardMaterial({ color: 0x5c4730, roughness: 0.95 }), 0, 0.98, -3.52);
 
-      // Tracks + 6 road wheels per side
-      const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.76, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.8, 0.08, 0.44);
-      const hubGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.82, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.0, 7.3), mats);
-        track.position.set(sx * 1.79, 0.52, 0.04);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        const wz = [-2.78, -1.7, -0.63, 0.44, 1.51, 2.58];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.79, 0.47, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
+      // Continuous T-90M tracks + 6 road wheels + idlers + toothed sprockets + mudguards
+      const t90Tracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.84,
+          trackWidth: 0.56,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.7, -1.64, -0.58, 0.48, 1.54, 2.58],
+          idlerZ: 3.26,
+          idlerY: 0.72,
+          idlerR: 0.28,
+          sprocketZ: -3.3,
+          sprocketY: 0.69,
+          sprocketR: 0.3,
+          sprocketTeeth: 12,
+          fenderY: 1.15,
+          mudguardFrontZ: 3.56,
+          mudguardRearZ: -3.5,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...t90Tracks.tracks);
+      this.wheels.push(...t90Tracks.wheels);
 
       // Welded angular T-90M turret
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.63, 0.08);
+      this.turretGroup.position.set(0, 1.66, 0.08);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
-      add(new THREE.CylinderGeometry(1.4, 1.45, 0.1, 20), darkMat, 0, 0.02, -0.04, tg);
+      add(new THREE.CylinderGeometry(1.4, 1.45, 0.07, 20), darkMat, 0, 0.035, -0.04, tg);
 
       const t90Turret = new THREE.Mesh(
         prism(
           [
             [-2.5, 0.12],
-            [-1.15, 0.03],
-            [1.06, 0.05],
+            [-1.15, 0.07],
+            [1.06, 0.07],
             [1.44, 0.52],
             [1.02, 0.98],
             [-2.05, 1.02],
@@ -1687,7 +1681,7 @@ export class Tank {
       );
       tg.add(t90Turret);
 
-      // Relikt wedge pods on the turret cheeks + side ERA panels
+      // Relikt wedge pods on turret cheeks + side ERA panels strictly clear of ±1.475 body
       const wedgeGeo = prism(
         [
           [-0.52, 0.06],
@@ -1698,32 +1692,32 @@ export class Tank {
       );
       for (const sx of [-1, 1]) {
         const outer = new THREE.Mesh(wedgeGeo, hullMat);
-        outer.position.set(sx * 0.95, 0.08, 1.16);
+        outer.position.set(sx * 0.95, 0.1, 1.18);
         outer.rotation.y = -sx * 0.36;
         tg.add(outer);
-        const inner = add(new THREE.BoxGeometry(0.46, 0.44, 0.44), hullMat, sx * 0.58, 0.42, 1.5, tg);
+        const inner = add(new THREE.BoxGeometry(0.46, 0.44, 0.44), hullMat, sx * 0.58, 0.44, 1.5, tg);
         inner.rotation.y = -sx * 0.22;
         // Side turret Relikt row & smoke launchers
-        add(new THREE.BoxGeometry(0.18, 0.42, 1.2), hullMat, sx * 1.52, 0.38, 0.02, tg);
-        const smoke = add(new THREE.BoxGeometry(0.2, 0.24, 0.42), darkMat, sx * 1.56, 0.48, -0.74, tg);
+        add(new THREE.BoxGeometry(0.14, 0.42, 1.2), hullMat, sx * 1.55, 0.4, 0.02, tg);
+        const smoke = add(new THREE.BoxGeometry(0.2, 0.24, 0.42), darkMat, sx * 1.6, 0.48, -0.74, tg);
         smoke.rotation.y = sx * 0.25;
       }
 
-      // Roof Relikt tiles
+      // Roof Relikt tiles cleanly atop sloped roof
       for (const rx of [-0.52, 0, 0.52]) {
-        add(new THREE.BoxGeometry(0.44, 0.1, 0.42), hullMat, rx, 0.92, 0.5, tg);
+        add(new THREE.BoxGeometry(0.42, 0.08, 0.4), hullMat, rx, 1.03, 0.5, tg);
       }
 
       // Sosna-U sight, commander cupola with Kord, hatches & antenna
       add(new THREE.BoxGeometry(0.38, 0.32, 0.46), darkMat, 0.56, 0.98, 0.86, tg);
-      add(new THREE.CylinderGeometry(0.36, 0.4, 0.22, 12), hullMat, -0.52, 0.96, -0.36, tg);
-      add(new THREE.CylinderGeometry(0.28, 0.32, 0.14, 12), hullMat, 0.5, 0.92, -0.32, tg);
-      add(new THREE.BoxGeometry(0.08, 0.08, 0.98), metalMat, -0.52, 1.14, 0.02, tg);
+      add(new THREE.CylinderGeometry(0.36, 0.4, 0.22, 12), hullMat, -0.52, 0.98, -0.36, tg);
+      add(new THREE.CylinderGeometry(0.28, 0.32, 0.14, 12), hullMat, 0.5, 0.94, -0.32, tg);
+      add(new THREE.BoxGeometry(0.08, 0.08, 0.98), metalMat, -0.52, 1.16, 0.02, tg);
       add(new THREE.CylinderGeometry(0.025, 0.025, 3.0, 4), metalMat, 0.95, 1.9, -1.5, tg);
-      // Gun mantlet & characteristic rear turret stowage box
+      // Gun mantlet & characteristic rear turret stowage box with separated hinged lid
       add(new THREE.BoxGeometry(0.84, 0.56, 0.5), hullMat, 0, 0.44, 1.58, tg);
-      add(new THREE.BoxGeometry(2.0, 0.56, 0.62), darkMat, 0, 0.46, -2.28, tg);
-      add(new THREE.BoxGeometry(2.08, 0.06, 0.66), hullMat, 0, 0.76, -2.28, tg);
+      add(new THREE.BoxGeometry(2.0, 0.52, 0.6), darkMat, 0, 0.44, -2.3, tg);
+      add(new THREE.BoxGeometry(2.08, 0.06, 0.64), hullMat, 0, 0.74, -2.3, tg);
 
       // Long 125mm 2A46M-5 smoothbore with segmented thermal shroud & evacuator
       this.gunPivot = new THREE.Group();
@@ -1802,15 +1796,15 @@ export class Tank {
       add(new THREE.BoxGeometry(0.24, 0.18, 0.18), metalMat, 1.05, 1.44, 2.95);
       add(new THREE.BoxGeometry(0.24, 0.18, 0.18), metalMat, -1.05, 1.44, 2.95);
 
-      // Side fenders
+      // Side fenders + side trim rails strictly clear of track edge & below fender
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.56, 0.08, 6.75), hullMat, sx * 1.72, 1.12, 0.0);
-        add(new THREE.BoxGeometry(0.08, 0.42, 5.6), hullMat, sx * 2.02, 0.96, -0.15);
+        add(new THREE.BoxGeometry(0.56, 0.07, 6.5), hullMat, sx * 1.78, 1.15, 0.02);
+        add(new THREE.BoxGeometry(0.06, 0.32, 5.5), hullMat, sx * 2.09, 0.94, -0.15);
       }
 
       // External side-rear fender fuel tanks (iconic T-55 feature, vulnerable weakspot)
       for (const sx of [-1, 1]) {
-        add(new THREE.BoxGeometry(0.34, 0.44, 1.95), fuelMat, sx * 1.46, 1.34, -2.18);
+        add(new THREE.BoxGeometry(0.32, 0.4, 1.9), fuelMat, sx * 1.62, 1.39, -2.18);
       }
       // Dual rear cylindrical external fuel drums (vulnerable weakspot)
       const drumGeo = new THREE.CylinderGeometry(0.27, 0.27, 1.18, 12);
@@ -1823,39 +1817,39 @@ export class Tank {
       logGeo.rotateZ(Math.PI / 2);
       add(logGeo, new THREE.MeshStandardMaterial({ color: 0x5c4730, roughness: 0.95 }), 0, 1.0, -3.32);
 
-      // Tracks + 5 large road wheels per side (classic T-54/T-55 layout with front gap)
-      const wheelGeo = new THREE.CylinderGeometry(0.47, 0.47, 0.76, 12);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const barGeo = new THREE.BoxGeometry(0.8, 0.08, 0.45);
-      const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.82, 8);
-      hubGeo.rotateZ(Math.PI / 2);
-
-      for (const sx of [1, -1]) {
-        const tex = treadTexture();
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-        const mats = [side, side, darkMat, darkMat, darkMat, darkMat];
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 6.9), mats);
-        track.position.set(sx * 1.75, 0.52, 0);
-        this.hullGroup.add(track);
-        this.tracks.push({ tex, sign: sx });
-
-        // T-55 5 road wheels with distinct gap after the 1st wheel
-        const wz = [-2.55, -1.45, -0.35, 0.75, 2.35];
-        for (const z of wz) {
-          const w = new THREE.Mesh(wheelGeo, metalMat);
-          w.position.set(sx * 1.75, 0.48, z);
-          w.add(new THREE.Mesh(barGeo, darkMat));
-          w.add(new THREE.Mesh(hubGeo, darkMat));
-          this.hullGroup.add(w);
-          this.wheels.push({ mesh: w, side: sx });
-        }
-      }
+      // Continuous T-55 tracks + 5 road wheels (front gap) + idlers + toothed sprocket + mudguards
+      const t55Tracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.78,
+          trackWidth: 0.56,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.52, -1.42, -0.32, 0.78, 2.32],
+          idlerZ: 3.16,
+          idlerY: 0.72,
+          idlerR: 0.28,
+          sprocketZ: -3.2,
+          sprocketY: 0.69,
+          sprocketR: 0.3,
+          sprocketTeeth: 12,
+          fenderY: 1.15,
+          mudguardFrontZ: 3.48,
+          mudguardRearZ: -3.4,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...t55Tracks.tracks);
+      this.wheels.push(...t55Tracks.wheels);
 
       // Cast hemispherical T-55 turret ("frying pan" dome silhouette)
       this.turretGroup = new THREE.Group();
-      this.turretGroup.position.set(0, 1.64, 0.05);
+      this.turretGroup.position.set(0, 1.69, 0.05);
       this.hullGroup.add(this.turretGroup);
       const tg = this.turretGroup;
+
+      add(new THREE.CylinderGeometry(1.3, 1.34, 0.07, 18), darkMat, 0, 0.035, -0.05, tg);
 
       const domePts = [
         new THREE.Vector2(0.0, 0.0),
@@ -1869,10 +1863,8 @@ export class Tank {
       const domeGeo = new THREE.LatheGeometry(domePts, 18);
       domeGeo.scale(0.95, 1.0, 1.18);
       const dome = new THREE.Mesh(domeGeo, hullMat);
-      dome.position.set(0, 0.0, -0.08);
+      dome.position.set(0, 0.07, -0.08);
       tg.add(dome);
-
-      add(new THREE.CylinderGeometry(1.3, 1.34, 0.12, 18), hullMat, 0, 0.02, -0.05, tg);
       add(new THREE.CylinderGeometry(0.36, 0.4, 0.26, 12), hullMat, 0.48, 1.02, -0.35, tg); // commander cupola
       add(new THREE.CylinderGeometry(0.28, 0.32, 0.18, 12), hullMat, -0.48, 0.98, -0.32, tg); // loader hatch
       add(new THREE.BoxGeometry(0.06, 0.06, 0.72), metalMat, -0.48, 1.18, -0.08, tg); // DShK MG
@@ -1982,22 +1974,22 @@ export class Tank {
   private _applyPose(): void {
     const baseTurretY =
       this.spec.id === 'maus'
-        ? 2.18
+        ? 2.23
         : this.spec.id === 'm60a3'
-          ? 1.86
+          ? 1.91
           : this.spec.id === 'leopard2a4'
-            ? 1.64
+            ? 1.67
             : this.spec.id === 't72b3'
-              ? 1.63
+              ? 1.67
               : this.spec.id === 't62m'
-                ? 1.62
+                ? 1.67
                 : this.spec.id === 'm1a1'
-                  ? 1.66
+                  ? 1.71
                   : this.spec.id === 'ztz96a'
-                    ? 1.62
+                    ? 1.6
                     : this.spec.id === 't90m'
-                      ? 1.63
-                      : 1.64;
+                      ? 1.66
+                      : 1.69;
     this.root.rotation.set(-this._pitchUp, this.heading, this._rollLeftUp);
     this.hullGroup.rotation.x = this._springX;
     this.turretGroup.rotation.y = this.turretYaw;
@@ -2128,27 +2120,13 @@ export class Tank {
     const hw = isMaus ? 1.9 : 1.75;
     const vl = this.speed - this.yawRate * hw;
     const vr = this.speed + this.yawRate * hw;
-    const trackLen = isMaus
-      ? 7.85
-      : this.spec.id === 'leopard2a4'
-        ? 7.52
-        : this.spec.id === 't62m'
-          ? 7.45
-          : this.spec.id === 't72b3'
-            ? 7.25
-            : this.spec.id === 'm1a1'
-              ? 7.6
-              : this.spec.id === 'ztz96a'
-                ? 7.35
-                : this.spec.id === 't90m'
-                  ? 7.3
-                  : 6.9;
-    const wheelR = isMaus ? 0.34 : 0.47;
     for (const t of this.tracks) {
       const vt = t.sign > 0 ? vl : vr;
-      t.tex.offset.x += (t.sign * vt * dt * t.tex.repeat.x) / trackLen;
+      t.tex.offset.x += (vt * dt * t.tex.repeat.x) / t.perimeter;
     }
-    for (const w of this.wheels) w.mesh.rotation.x += ((w.side > 0 ? vl : vr) * dt) / wheelR;
+    for (const w of this.wheels) {
+      w.mesh.rotation.x += ((w.side > 0 ? vl : vr) * dt) / w.radius;
+    }
 
     if (fx) {
       this._dust += Math.min(1, (sAbs + Math.abs(this.yawRate) * 8) / 10) * 16 * dt;

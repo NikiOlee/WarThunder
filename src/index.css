@@ -1113,6 +1113,30 @@ select {
   font-size: 11px;
 }
 
+#modeScoreTeams,
+#modeScoreSurvival {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#modeScore .ms-timer-lbl {
+  color: #9aa58a;
+  font-size: 11px;
+}
+
+#modeScore .ms-timer-val {
+  color: #ffd27a;
+  font-size: 15px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+}
+
+#modeScore .ms-timer-val.urgent {
+  color: #ff6a4a;
+}
+
 #silverToasts {
   left: 14px;
   top: 96px;
@@ -1486,3 +1510,145 @@ select {
   color: #9aa58a;
   letter-spacing: 1px;
 }
+
+/* ---- match history panel ---- */
+#historyPanel {
+  width: min(640px, 94vw);
+}
+
+.hist-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 9px 14px;
+  margin-bottom: 12px;
+  background: rgba(24, 29, 19, 0.9);
+  border: 1px solid #4f5a40;
+  font-size: 12px;
+  letter-spacing: 1.2px;
+  color: #b9b59a;
+  font-variant-numeric: tabular-nums;
+}
+
+.hist-summary b {
+  color: #ffd27a;
+}
+
+.hist-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid #4f5a40;
+  background: rgba(18, 22, 14, 0.88);
+}
+
+.hist-list:empty {
+  display: none;
+}
+
+.hist-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(120, 130, 100, 0.22);
+  border-left: 3px solid #5f6b50;
+}
+
+.hist-item:last-child {
+  border-bottom: 0;
+}
+
+.hist-item.won {
+  border-left-color: #8fe36a;
+}
+
+.hist-item.lost {
+  border-left-color: #ff6a4a;
+}
+
+.hist-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.hist-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.hist-res {
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+.hist-item.won .hist-res {
+  color: #8fe36a;
+}
+
+.hist-item.lost .hist-res {
+  color: #ff6a4a;
+}
+
+.hist-dot {
+  color: #6a7456;
+}
+
+.hist-tank {
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffd27a;
+}
+
+.hist-silver {
+  font-size: 13px;
+  font-weight: bold;
+  color: #ffd27a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hist-item.lost .hist-silver.zero {
+  color: #9aa58a;
+}
+
+.hist-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  color: #9aa58a;
+}
+
+.hist-mode {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist-score {
+  color: #e8e6d8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hist-empty {
+  padding: 28px 18px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #9aa58a;
+  background: rgba(20, 25, 16, 0.88);
+  border: 1px dashed #4f5a40;
+}
+

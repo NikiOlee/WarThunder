@@ -44,15 +44,27 @@ export default function App() {
       <div id="modeScore" className="hud" data-testid="mode-score">
         <span id="modeTitleHud">БОЙ ДО 100 КИЛЛОВ</span>
         <span className="ms-sep">·</span>
-        <span className="ms-ally">
-          МЫ <b id="teamAKills">0</b>
+        <span id="modeScoreTeams">
+          <span className="ms-ally">
+            МЫ <b id="teamAKills">0</b>
+          </span>{' '}
+          <span className="ms-vs">:</span>{' '}
+          <span className="ms-enemy">
+            <b id="teamBKills">0</b> ВРАГИ
+          </span>{' '}
+          <span className="ms-goal" id="modeGoalHud">
+            / 100
+          </span>
         </span>
-        <span className="ms-vs">:</span>
-        <span className="ms-enemy">
-          <b id="teamBKills">0</b> ВРАГИ
-        </span>
-        <span className="ms-goal" id="modeGoalHud">
-          / 100
+        <span id="modeScoreSurvival" className="hidden">
+          <span className="ms-timer-lbl">ОСТАЛОСЬ</span>{' '}
+          <b id="survivalTimerHud" className="ms-timer-val" data-testid="survival-timer">
+            05:00
+          </b>
+          <span className="ms-sep">·</span>
+          <span className="ms-goal" id="survivalKillsHud">
+            ФРАГИ: 0
+          </span>
         </span>
       </div>
       <div id="silverToasts" className="hud" data-testid="silver-toasts" />
@@ -209,9 +221,14 @@ export default function App() {
               НАСТРОЙКИ
             </button>
           </div>
-          <button type="button" className="btn dim" id="bCtl">
-            УПРАВЛЕНИЕ
-          </button>
+          <div className="btnrow">
+            <button type="button" className="btn dim" id="bHistory" data-testid="btn-history">
+              ИСТОРИЯ БОЁВ
+            </button>
+            <button type="button" className="btn dim" id="bCtl">
+              УПРАВЛЕНИЕ
+            </button>
+          </div>
           <div className="info" id="menuModeInfo">
             Режим «Бой до 100 киллов»: вы и 3 союзника против 4 ботов на танках Т-55.
             <br />
@@ -284,6 +301,23 @@ export default function App() {
           <div className="foot">
             <button type="button" className="btn dim" id="bModesBack">
               ГОТОВО
+            </button>
+          </div>
+        </div>
+
+        <div id="historyPanel" className="panel hidden" data-testid="history-panel">
+          <h2>ИСТОРИЯ БОЁВ</h2>
+          <div id="historySummary" className="hist-summary" data-testid="history-summary" />
+          <div id="historyEmpty" className="hist-empty hidden" data-testid="history-empty">
+            История боёв пуста. Завершите матч в любом боевом режиме, чтобы увидеть статистику.
+          </div>
+          <div id="historyList" className="hist-list" data-testid="history-list" />
+          <div className="foot">
+            <button type="button" className="btn dim" id="bHistoryClear" data-testid="history-clear">
+              ОЧИСТИТЬ ИСТОРИЮ
+            </button>
+            <button type="button" className="btn dim" id="bHistoryBack" data-testid="history-back">
+              НАЗАД
             </button>
           </div>
         </div>

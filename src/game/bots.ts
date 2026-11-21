@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Tank } from './tank';
 import { BallisticsSystem, G } from './ballistics';
 import { settings } from './settings';
-import { DEFAULT_TANK_ID } from './tanks';
+import { DEFAULT_TANK_ID, getAllTanks, getTankSpec } from './tanks';
 import { getPlayerSkillRating, resolveBotSkillMultiplier } from './playerSkill';
 import {
   computeEngagementDrive,
@@ -73,11 +73,41 @@ export function getEffectiveBotSkill(
   });
 }
 
+export function pickRandomBotTankId(): string {
+  const all = getAllTanks();
+  if (all.length === 0) return DEFAULT_TANK_ID;
+  const pick = all[Math.floor(Math.random() * all.length)];
+  return pick ? pick.id : DEFAULT_TANK_ID;
+}
+
+export function pickSafeSpawnPoint(
+  team: 'A' | 'B',
+  index: number,
+  avoidPos?: { x: number; z: number },
+): { x: number; z: number; heading: number } {
+  if (!avoidPos || !MAP) return spawnPoint(team, index);
+  const candidates: Array<{ x: number; z: number; heading: number; distSq: number }> = [];
+  for (let i = 0; i < 6; i++) {
+    const pt = spawnPoint(team, i);
+    const dx = pt.x - avoidPos.x;
+    const dz = pt.z - avoidPos.z;
+    candidates.push({ x: pt.x, z: pt.z, heading: pt.heading, distSq: dx * dx + dz * dz });
+  }
+  candidates.sort((a, b) => b.distSq - a.distSq);
+  const pool = candidates.slice(0, Math.min(3, candidates.length));
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 export interface BotUpdateOptions {
   respawns?: boolean;
+  botRespawns?: boolean;
+  respawnDelay?: number;
+  randomTankRespawn?: boolean;
+  avoidPos?: { x: number; z: number };
   allowBotAccuracy?: boolean;
   allies?: Tank[];
   rushBoss?: boolean;
+  huntPlayer?: boolean;
 }
 
 export class Bot {
@@ -112,21 +142,21 @@ export class Bot {
   private _aliveEnemies: SectorEnemy[] = [];
   private _sectorAllies: SectorAlly[] = [];
 
-  constructor(scene: THREE.Scene, world: GameWorld, ballistics: BallisticsSystem, team: 'A' | 'B', index: number) {
+  constructor(scene: THREE.Scene, world: GameWorld, ballistics: BallisticsSystem, team: 'A' | 'B', index: number, specId = DEFAULT_TANK_ID) {
     this.world = world;
     this.ballistics = ballistics;
     this.team = team;
     this.index = index;
     const sp = spawnPoint(team, index);
-    // All enemy and allied bots spawn in the base T-55 tank
+    const spec = getTankSpec(specId);
     this.tank = new Tank(scene, world, {
       x: sp.x,
       z: sp.z,
       heading: sp.heading,
       team,
-      name: `Т-55 ${team}${index + 1}`,
+      name: `${spec.name} ${team}${index + 1}`,
       tint: TEAM_TINT[team],
-      specId: DEFAULT_TANK_ID,
+      specId: spec.id,
     });
     this.tank.isBot = true;
     ballistics.addTarget(this.tank);
@@ -157,9 +187,12 @@ export class Bot {
     return { x: o.x + rnd(-j, j), z: o.z + rnd(-j, j) };
   }
 
-  respawn(): void {
-    const sp = spawnPoint(this.team, this.index);
-    this.tank.reset(sp.x + rnd(-8, 8), sp.z + rnd(-6, 6), sp.heading, DEFAULT_TANK_ID);
+  respawn(options: { randomTank?: boolean; specId?: string; avoidPos?: { x: number; z: number } } = {}): void {
+    const nextSpecId = options.specId ?? (options.randomTank ? pickRandomBotTankId() : DEFAULT_TANK_ID);
+    const spec = getTankSpec(nextSpecId);
+    const sp = options.avoidPos ? pickSafeSpawnPoint(this.team, this.index, options.avoidPos) : spawnPoint(this.team, this.index);
+    this.tank.reset(sp.x + rnd(-8, 8), sp.z + rnd(-6, 6), sp.heading, spec.id);
+    this.tank.name = `${spec.name} ${this.team}${this.index + 1}`;
     this.target = null;
     this.targetVisible = false;
     this.memoryT = 0;
@@ -190,12 +223,12 @@ export class Bot {
     return !this.world.raycast(this._a, this._d, Math.max(0.5, dist - 3.5));
   }
 
-  private _pickTarget(enemies: Tank[], allies: Tank[], rushBoss: boolean): void {
+  private _pickTarget(enemies: Tank[], allies: Tank[], rushBoss: boolean, huntPlayer: boolean): void {
     const t = this.tank;
     const pos = t.root.position;
     const candidates = this._candidates;
     candidates.length = 0;
-    const maxSight = rushBoss ? 1200 : 720;
+    const maxSight = rushBoss || huntPlayer ? 1600 : 720;
 
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i];
@@ -223,6 +256,7 @@ export class Bot {
       { x: pos.x, z: pos.z },
       candidates,
       this.target && this.target.alive ? this.target.name : null,
+      maxSight,
     );
 
     if (chosen) {
@@ -231,7 +265,7 @@ export class Bot {
       }
       this.target = chosen.tank;
       this.targetVisible = true;
-      this.memoryT = rushBoss ? 6.0 : 3.2;
+      this.memoryT = rushBoss || huntPlayer ? 8.0 : 3.2;
       this.lastSeenPos.copy(chosen.tank.root.position);
       return;
     }
@@ -241,6 +275,17 @@ export class Bot {
       this.targetVisible = false;
       this.lastSeenPos.copy(this.target.root.position);
       return;
+    }
+
+    // In survival hunt mode, bots always know the player's current sector and close in relentlessly
+    if (huntPlayer) {
+      const playerTarget = enemies.find((e) => e.alive && e.isPlayer) ?? enemies.find((e) => e.alive) ?? null;
+      if (playerTarget) {
+        this.target = playerTarget;
+        this.targetVisible = false;
+        this.lastSeenPos.copy(playerTarget.root.position);
+        return;
+      }
     }
 
     this.target = null;
@@ -290,12 +335,19 @@ export class Bot {
       this.baseSkill *
       getEffectiveBotSkill(settings.botSkill, !!options.allowBotAccuracy, playerRating, targetIsPlayer);
 
+    const canBotRespawn = options.botRespawns ?? options.respawns !== false;
+    const respawnDelay = options.respawnDelay ?? 14;
     this.marker.visible = t.alive;
     if (!t.alive) {
       t.update(dt, null, fx);
       t.updateTurret(dt, t.turretWorldYaw, t.gunElev);
       this.deadT += dt;
-      if (options.respawns !== false && this.deadT > 14) this.respawn();
+      if (canBotRespawn && this.deadT >= respawnDelay) {
+        this.respawn({
+          randomTank: !!options.randomTankRespawn,
+          avoidPos: options.avoidPos,
+        });
+      }
       return;
     }
 
@@ -308,10 +360,11 @@ export class Bot {
 
     const allies = options.allies || [];
     const rushBoss = !!options.rushBoss;
+    const huntPlayer = !!options.huntPlayer;
     this.thinkT -= dt;
     if (this.thinkT <= 0) {
-      this.thinkT = rushBoss ? 0.25 : rnd(0.28, 0.48);
-      this._pickTarget(enemies, allies, rushBoss);
+      this.thinkT = rushBoss || huntPlayer ? 0.25 : rnd(0.28, 0.48);
+      this._pickTarget(enemies, allies, rushBoss, huntPlayer);
     }
 
     this.noiseT -= dt;
@@ -346,6 +399,7 @@ export class Bot {
         yawErr: curYawErr,
         canSeeTarget: this.targetVisible,
         rushBoss,
+        huntPlayer,
         botIndex: this.index,
       });
       desired = drive.desiredHeading;

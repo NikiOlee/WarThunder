@@ -4,6 +4,13 @@ import { getAllTanks, getSelectedTankId, getTankSpec, setSelectedTankId } from '
 import { getSilver, isTankOwned, purchaseTank } from './economy';
 import { getAllModes, getModeDef } from './modes';
 import { computeFrontDamage } from './damage';
+import {
+  clearMatchHistory,
+  formatMatchTimestamp,
+  getMatchHistory,
+  MAX_MATCH_HISTORY,
+  summarizeMatchHistory,
+} from './matchHistory';
 
 interface SettingItem {
   k?: keyof GameSettings;
@@ -69,6 +76,8 @@ export interface MatchEndSummary {
   won: boolean;
   modeName: string;
   scoreLabel: string;
+  scoreText?: string;
+  subLabel?: string;
   teamAScore: number;
   teamBScore: number;
   targetGoal: number;
@@ -103,6 +112,7 @@ export function createUI(h: UIHandlers) {
     settings: $('settingsPanel'),
     maps: $('mapPanel'),
     modes: $('modePanel'),
+    history: $('historyPanel'),
     hangar: $('hangarScreen'),
     matchEnd: $('matchEndPanel'),
   };
@@ -147,13 +157,17 @@ export function createUI(h: UIHandlers) {
             ? 'Читы (sv_cheats on) и настройка точности ботов активны. Серебро не начисляется.'
             : activeMode.id === 'juggernaut'
               ? 'Охота на Мауса: 6 охотников против босса (4000 ХП). У Мауса 128-мм орудие и огнемёт на 20 м. +1500 серебра за победу. Читы отключены.'
-            : activeMode.id === 'rounds5v5'
-              ? '+50 серебра за килл · +500 за победу · После смерти — режим наблюдателя. Читы (sv_cheats) отключены.'
-              : '+50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу. Читы (sv_cheats) отключены.';
+              : activeMode.id === 'dead'
+                ? 'Выживите 5:00 против 5 врагов на случайной технике (респаун врагов 4 с, у вас 1 жизнь). +1500 серебра за победу. Читы отключены.'
+                : activeMode.id === 'rounds5v5'
+                  ? '+50 серебра за килл · +500 за победу · После смерти — режим наблюдателя. Читы (sv_cheats) отключены.'
+                  : '+50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу. Читы (sv_cheats) отключены.';
         infoEl.innerHTML = `${activeMode.shortDesc}<br />${extra}<br />Консоль настроек: ~ · Таблица счёта: TAB · Таран: -20 ХП`;
       }
     } else if (which === 'hangar') {
       renderHangar();
+    } else if (which === 'history') {
+      renderHistory();
     }
   }
   ui.show = show;
@@ -213,6 +227,19 @@ export function createUI(h: UIHandlers) {
     click();
     openSettings('main');
   };
+  $('bHistory').onclick = () => {
+    click();
+    show('history');
+  };
+  $('bHistoryBack').onclick = () => {
+    click();
+    show('main');
+  };
+  $('bHistoryClear').onclick = () => {
+    click();
+    clearMatchHistory();
+    renderHistory();
+  };
   $('bCtl').onclick = () => {
     click();
     openSettings('main', 'controls');
@@ -256,9 +283,11 @@ export function createUI(h: UIHandlers) {
   ui.showMatchEnd = (s: MatchEndSummary) => {
     $('meTitle').textContent = s.won ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
     $('meTitle').style.color = s.won ? '#8fe36a' : '#ff6a4a';
-    $('meSub').textContent = `${s.modeName.toUpperCase()} · ${s.teamAScore} : ${s.teamBScore}`;
+    $('meSub').textContent = s.subLabel ?? `${s.modeName.toUpperCase()} · ${s.teamAScore} : ${s.teamBScore}`;
+    const scoreRowTitle = s.scoreText ? s.scoreLabel : `${s.scoreLabel} (до ${s.targetGoal})`;
+    const scoreRowValue = s.scoreText ?? `МЫ ${s.teamAScore} : ${s.teamBScore} ВРАГИ`;
     $('meSummary').innerHTML = `
-      <div class="me-row"><span>${s.scoreLabel} (до ${s.targetGoal})</span><b>МЫ ${s.teamAScore} : ${s.teamBScore} ВРАГИ</b></div>
+      <div class="me-row"><span>${scoreRowTitle}</span><b>${scoreRowValue}</b></div>
       <div class="me-row"><span>Уничтожено вами</span><b>${s.playerKills}</b></div>
       <div class="me-row"><span>Потерь вашей техники</span><b>${s.playerDeaths}</b></div>
       <div class="me-row silver"><span>Награда за победу</span><b>${s.victorySilver > 0 ? '+' + s.victorySilver + ' серебра' : '0 серебра'}</b></div>
@@ -267,6 +296,79 @@ export function createUI(h: UIHandlers) {
     `;
     show('matchEnd');
   };
+
+  function renderHistory(): void {
+    const entries = getMatchHistory();
+    const summary = summarizeMatchHistory(entries);
+    const summaryEl = $('historySummary');
+    const listEl = $('historyList');
+    const emptyEl = $('historyEmpty');
+    const clearBtn = $('bHistoryClear') as HTMLButtonElement;
+
+    summaryEl.innerHTML = `
+      <span>МАТЧЕЙ: <b>${summary.total} / ${MAX_MATCH_HISTORY}</b></span>
+      <span>ПОБЕД: <b>${summary.wins}</b> (${summary.winRatePct}%)</span>
+      <span>СЕРЕБРО: <b>+${summary.totalSilver}</b></span>
+    `;
+
+    clearBtn.disabled = entries.length === 0;
+    listEl.innerHTML = '';
+
+    if (entries.length === 0) {
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+
+    emptyEl.classList.add('hidden');
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      row.className = 'hist-item ' + (entry.won ? 'won' : 'lost');
+      row.dataset.testid = 'history-item';
+
+      const top = document.createElement('div');
+      top.className = 'hist-top';
+
+      const main = document.createElement('div');
+      main.className = 'hist-main';
+
+      const res = document.createElement('span');
+      res.className = 'hist-res';
+      res.textContent = entry.won ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ';
+
+      const dot = document.createElement('span');
+      dot.className = 'hist-dot';
+      dot.textContent = '·';
+
+      const tank = document.createElement('span');
+      tank.className = 'hist-tank';
+      tank.textContent = entry.tankName;
+
+      main.append(res, dot, tank);
+
+      const silver = document.createElement('span');
+      silver.className = 'hist-silver' + (entry.silverEarned === 0 ? ' zero' : '');
+      silver.textContent = entry.silverEarned > 0 ? `+${entry.silverEarned} сер.` : '0 сер.';
+
+      top.append(main, silver);
+
+      const meta = document.createElement('div');
+      meta.className = 'hist-meta';
+
+      const mode = document.createElement('span');
+      mode.className = 'hist-mode';
+      const timeLabel = formatMatchTimestamp(entry.timestamp);
+      const parts = [entry.modeName, entry.mapName, timeLabel].filter(Boolean);
+      mode.textContent = parts.join(' · ');
+
+      const score = document.createElement('span');
+      score.className = 'hist-score';
+      score.textContent = `Счёт: ${entry.scoreText}`;
+
+      meta.append(mode, score);
+      row.append(top, meta);
+      listEl.appendChild(row);
+    }
+  }
 
   function renderHangar(): void {
     const listEl = $('hangarList');

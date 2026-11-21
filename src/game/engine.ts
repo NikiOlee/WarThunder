@@ -3,7 +3,7 @@ import { createWorld, type GameWorld } from './world';
 import { createCityWorld } from './city';
 import { Tank } from './tank';
 import { BallisticsSystem, G, DRAG_K, SUBSTEP } from './ballistics';
-import { Bot, setMap } from './bots';
+import { Bot, pickRandomBotTankId, setMap } from './bots';
 import { JuggernautBoss, BOSS_RAM_DISTANCE } from './boss';
 import { settings, onSettings, setSetting, keyName, type GameSettings } from './settings';
 import { isMgExhausted } from './machineGun';
@@ -14,9 +14,20 @@ import { GameConsole, type ConsoleGameAPI } from './console';
 import { createUI } from './ui';
 import { getSelectedTankId, DEFAULT_TANK_ID } from './tanks';
 import { addSilver, computeKillReward, getSilver } from './economy';
-import { DEFAULT_MODE_ID, evaluateMatchState, evaluateRoundState, getModeDef, sortScoreboardRows, type ScoreboardRow } from './modes';
+import {
+  DEFAULT_MODE_ID,
+  evaluateMatchState,
+  evaluateRoundState,
+  evaluateSurvivalState,
+  formatCountdown,
+  getModeDef,
+  sortScoreboardRows,
+  type GameModeDef,
+  type ScoreboardRow,
+} from './modes';
 import { resolveTankCollisionPair } from './collision';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
+import { recordMatchHistory } from './matchHistory';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -159,10 +170,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     return n;
   }
 
-  function syncTeamRoster(teamSize: number, hasBoss = false) {
-    syncBoss(hasBoss);
-    const wantAllies = Math.max(0, teamSize - 1);
-    const wantEnemies = hasBoss ? 0 : Math.max(1, teamSize);
+  function syncTeamRoster(modeDef: GameModeDef) {
+    syncBoss(!!modeDef.boss);
+    const wantAllies = Math.max(0, modeDef.teamSize - 1);
+    const wantEnemies = modeDef.boss ? 0 : Math.max(1, modeDef.enemyCount ?? modeDef.teamSize);
 
     const removeExtra = (team: 'A' | 'B', keep: number) => {
       let seen = 0;
@@ -193,14 +204,15 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     while (bots.filter((b) => b.team === 'B').length < wantEnemies) {
       const idx = bots.filter((b) => b.team === 'B').length;
-      const b = new Bot(scene, world, ballistics, 'B', idx);
+      const specId = modeDef.randomEnemyTanks ? pickRandomBotTankId() : DEFAULT_TANK_ID;
+      const b = new Bot(scene, world, ballistics, 'B', idx, specId);
       getTankId(b.tank);
       bots.push(b);
     }
     rebuildTankLists();
   }
 
-  syncTeamRoster(getModeDef(DEFAULT_MODE_ID).teamSize, !!getModeDef(DEFAULT_MODE_ID).boss);
+  syncTeamRoster(getModeDef(DEFAULT_MODE_ID));
   const allTanks = () => allTanksList.slice();
   const tanksOf = (team: 'A' | 'B') => (team === 'A' ? teamATanks.slice() : teamBTanks.slice());
 
@@ -242,6 +254,9 @@ export function initGame(mountEl: HTMLElement): () => void {
   let battleStarted = false;
   let currentModeId = DEFAULT_MODE_ID;
   let matchEnded = false;
+  let matchRecorded = false;
+  let survivalRemaining = 0;
+  let survivalElapsed = 0;
   let teamAKills = 0;
   let teamBKills = 0;
   let teamARounds = 0;
@@ -373,7 +388,21 @@ export function initGame(mountEl: HTMLElement): () => void {
     const aliveStr = countAlive(teamATanks) + ' v ' + countAlive(teamBTanks);
     $('alive').textContent = aliveStr;
     hudCache.alive = aliveStr;
-    if (activeMode.roundsToWin > 0) {
+    const isSurvival = !!(activeMode.survivalSeconds && activeMode.survivalSeconds > 0);
+    $('modeScoreTeams').classList.toggle('hidden', isSurvival);
+    $('modeScoreSurvival').classList.toggle('hidden', !isSurvival);
+
+    if (isSurvival) {
+      $('modeTitleHud').textContent = activeMode.name.toUpperCase();
+      const timerTxt = formatCountdown(survivalRemaining);
+      const urgent = survivalRemaining <= 30;
+      $('survivalTimerHud').textContent = timerTxt;
+      $('survivalTimerHud').classList.toggle('urgent', urgent);
+      $('survivalKillsHud').textContent = `ФРАГИ: ${kills}`;
+      hudCache.survivalTimer = timerTxt;
+      hudCache.survivalUrgent = urgent;
+      hudCache.survivalKills = `ФРАГИ: ${kills}`;
+    } else if (activeMode.roundsToWin > 0) {
       $('modeTitleHud').textContent = `${activeMode.name.toUpperCase()} · РАУНД ${roundNum}`;
       $('teamAKills').textContent = String(teamARounds);
       $('teamBKills').textContent = String(teamBRounds);
@@ -408,6 +437,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function startRound(isFirstRound: boolean) {
+    const activeMode = getModeDef(currentModeId);
     const chosenTankId = getSelectedTankId();
     ballistics.clear();
     ramCooldowns.clear();
@@ -416,6 +446,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (isFirstRound) {
       tank.matchKills = 0;
       tank.matchDeaths = 0;
+      survivalRemaining = activeMode.survivalSeconds ?? 0;
+      survivalElapsed = 0;
     }
     $('mv').textContent = String(tank.stats.muzzleVelocity);
     if (boss) {
@@ -426,7 +458,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     jugVictoryT = 0;
     $('victoryBanner').classList.add('hidden');
     for (const b of bots) {
-      b.respawn();
+      b.respawn({
+        randomTank: !!(activeMode.randomEnemyTanks && b.team === 'B'),
+        avoidPos: activeMode.survivalSeconds && b.team === 'B' ? tank.root.position : undefined,
+      });
       if (isFirstRound) {
         b.tank.matchKills = 0;
         b.tank.matchDeaths = 0;
@@ -458,7 +493,6 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('msg').textContent = '';
     updateModeScoreHud();
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
-    const activeMode = getModeDef(currentModeId);
     if (activeMode.roundsToWin > 0) {
       showMsg(`РАУНД ${roundNum}`, '#ffd27a');
     }
@@ -475,7 +509,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function newBattle() {
     const activeMode = getModeDef(currentModeId);
-    syncTeamRoster(activeMode.teamSize, !!activeMode.boss);
+    syncTeamRoster(activeMode);
     if (!activeMode.allowCheats || !flags.svCheats) {
       enforceCheatsOff();
     }
@@ -487,6 +521,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     roundNum = 1;
     matchSilverEarned = 0;
     matchEnded = false;
+    matchRecorded = false;
     setScoreboardOpen(false);
     $('silverToasts').innerHTML = '';
     $('feed').innerHTML = '';
@@ -678,7 +713,10 @@ export function initGame(mountEl: HTMLElement): () => void {
       ballistics.clear();
       tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
       tank.name = `ВЫ (${tank.spec.name})`;
-      for (const b of bots) b.respawn();
+      const activeMode = getModeDef(currentModeId);
+      for (const b of bots) {
+        b.respawn({ randomTank: !!(activeMode.randomEnemyTanks && b.team === 'B') });
+      }
       if (boss) boss.respawn();
       mode = 'third';
       fovCur = settings.fov;
@@ -717,7 +755,13 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (gcon.open) gcon.close();
       battleStarted = false;
       matchEnded = false;
-      syncTeamRoster(def.teamSize, !!def.boss);
+      matchRecorded = false;
+      survivalRemaining = def.survivalSeconds ?? 0;
+      survivalElapsed = 0;
+      syncTeamRoster(def);
+      for (const b of bots) {
+        b.respawn({ randomTank: !!(def.randomEnemyTanks && b.team === 'B') });
+      }
       updateHelp();
     },
     onSelectTank: (tankId: string) => {
@@ -1194,6 +1238,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     mgStateTxt: '',
     mgReloading: false,
     mgEmpty: false,
+    survivalTimer: '',
+    survivalUrgent: false,
+    survivalKills: '',
   };
 
   const _ip = new THREE.Vector3();
@@ -1543,7 +1590,9 @@ export function initGame(mountEl: HTMLElement): () => void {
   function renderScoreboard() {
     const activeMode = getModeDef(currentModeId);
     $('sbModeName').textContent = activeMode.name.toUpperCase();
-    if (activeMode.roundsToWin > 0) {
+    if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0) {
+      $('sbTeamScore').textContent = `ОСТАЛОСЬ ${formatCountdown(survivalRemaining)} · ФРАГИ: ${kills}`;
+    } else if (activeMode.roundsToWin > 0) {
       $('sbTeamScore').textContent = `РАУНД ${roundNum} · МЫ ${teamARounds} : ${teamBRounds} ВРАГИ (до ${activeMode.roundsToWin})`;
     } else if (activeMode.targetKills > 0) {
       $('sbTeamScore').textContent = `МЫ ${teamAKills} : ${teamBKills} ВРАГИ (цель: ${activeMode.targetKills})`;
@@ -1588,6 +1637,27 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (open) renderScoreboard();
   }
 
+  function recordCurrentMatch(won: boolean, scoreText: string) {
+    if (matchRecorded) return;
+    const activeMode = getModeDef(currentModeId);
+    if (activeMode.recordHistory === false) return;
+    matchRecorded = true;
+    const activeMap = MAPS.find((m) => m.id === currentMap);
+    recordMatchHistory({
+      modeId: activeMode.id,
+      modeName: activeMode.name,
+      mapId: currentMap,
+      mapName: activeMap?.name,
+      won,
+      tankId: tank.spec.id,
+      tankName: tank.spec.name,
+      scoreText,
+      playerKills: kills,
+      playerDeaths: tank.matchDeaths,
+      silverEarned: matchSilverEarned,
+    });
+  }
+
   function finishMatch(winner: 'A' | 'B', victorySilver: number) {
     if (matchEnded) return;
     matchEnded = true;
@@ -1613,6 +1683,26 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     const activeMode = getModeDef(currentModeId);
     const isRounds = activeMode.roundsToWin > 0;
+    const isSurvival = !!(activeMode.survivalSeconds && activeMode.survivalSeconds > 0);
+    const teamAScore = isRounds ? teamARounds : teamAKills;
+    const teamBScore = isRounds ? teamBRounds : teamBKills;
+
+    let scoreText: string | undefined;
+    let subLabel: string | undefined;
+    let scoreLabel = isRounds ? 'Счёт раундов' : 'Счёт команд';
+    let historyScore = `${teamAScore} : ${teamBScore}`;
+
+    if (isSurvival && activeMode.survivalSeconds) {
+      const totalStr = formatCountdown(activeMode.survivalSeconds);
+      const survivedStr = winner === 'A' ? totalStr : formatCountdown(Math.min(activeMode.survivalSeconds, survivalElapsed));
+      scoreLabel = 'Время выживания';
+      scoreText = winner === 'A' ? `${totalStr} / ${totalStr}` : `${survivedStr} / ${totalStr}`;
+      subLabel = `${activeMode.name.toUpperCase()} · ${winner === 'A' ? 'ВЫЖИЛ ' + totalStr : 'ПРОЖИТО ' + survivedStr}`;
+      historyScore = `${winner === 'A' ? totalStr : survivedStr} · ${kills} фрагов`;
+    }
+
+    recordCurrentMatch(winner === 'A', historyScore);
+
     msgEl.style.opacity = '0';
     msgEl.textContent = '';
     el.kills.textContent = String(kills);
@@ -1621,9 +1711,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     ui.showMatchEnd({
       won: winner === 'A',
       modeName: activeMode.name,
-      scoreLabel: isRounds ? 'Счёт раундов' : 'Счёт команд',
-      teamAScore: isRounds ? teamARounds : teamAKills,
-      teamBScore: isRounds ? teamBRounds : teamBKills,
+      scoreLabel,
+      scoreText,
+      subLabel,
+      teamAScore,
+      teamBScore,
       targetGoal: isRounds ? activeMode.roundsToWin : activeMode.targetKills,
       playerKills: kills,
       playerDeaths: tank.matchDeaths,
@@ -1643,6 +1735,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     ui.refreshSilver();
     audio.ui('victory');
     showSilverToast(reward, 'Маус уничтожен', true);
+    recordCurrentMatch(true, `Маус уничтожен · ${kills} фрагов`);
     mouseDown = false;
     setScoreboardOpen(false);
     spectating = false;
@@ -1724,6 +1817,12 @@ export function initGame(mountEl: HTMLElement): () => void {
 
       updateModeScoreHud();
       if (scoreboardOpen) renderScoreboard();
+
+      if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0 && target === tank) {
+        feed(`${owner ? owner.name : '?'}  >  ${target.name}${suffix}`, 'ally');
+        finishMatch('B', 0);
+        return;
+      }
 
       if (activeMode.targetKills > 0) {
         const evalRes = evaluateMatchState(activeMode, teamAKills, teamBKills);
@@ -1988,9 +2087,14 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (flags.ai) {
         b.update(dt, b.team === 'A' ? teamBTanks : teamATanks, ballistics.fx, {
           respawns: activeMode.respawns,
+          botRespawns: activeMode.respawns || !!activeMode.botRespawnSeconds,
+          respawnDelay: activeMode.botRespawnSeconds ?? 14,
+          randomTankRespawn: !!activeMode.randomEnemyTanks && b.team === 'B',
+          avoidPos: activeMode.survivalSeconds && b.team === 'B' ? tank.root.position : undefined,
           allowBotAccuracy: activeMode.allowBotAccuracy,
           allies: b.team === 'A' ? teamATanks : teamBTanks,
           rushBoss: !!activeMode.boss,
+          huntPlayer: !!activeMode.huntPlayer && b.team === 'B',
         });
       } else {
         b.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
@@ -2011,6 +2115,29 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     resolveTankCollisions();
     resolveBossRam();
+
+    if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0 && !matchEnded) {
+      survivalRemaining = Math.max(0, survivalRemaining - dt);
+      survivalElapsed += dt;
+      const timerTxt = formatCountdown(survivalRemaining);
+      const urgent = survivalRemaining <= 30;
+      if (timerTxt !== hudCache.survivalTimer) {
+        hudCache.survivalTimer = timerTxt;
+        $('survivalTimerHud').textContent = timerTxt;
+        if (scoreboardOpen) renderScoreboard();
+      }
+      if (urgent !== hudCache.survivalUrgent) {
+        hudCache.survivalUrgent = urgent;
+        $('survivalTimerHud').classList.toggle('urgent', urgent);
+      }
+      const survEval = evaluateSurvivalState(activeMode, survivalRemaining, tank.alive);
+      if (survEval.finished && survEval.winner) {
+        finishMatch(survEval.winner, survEval.victorySilver);
+        render();
+        scheduleNext();
+        return;
+      }
+    }
 
     if (jugVictoryT > 0) {
       jugVictoryT -= Math.min(rawDt, 0.5);

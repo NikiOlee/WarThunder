@@ -31,12 +31,13 @@ export function pickBestTarget<T extends TargetCandidate>(
   bot: BotPose,
   candidates: T[],
   currentTargetId: string | null,
+  maxRange = 720,
 ): T | null {
   let best: T | null = null;
   let bestScore = -Infinity;
 
   for (const c of candidates) {
-    if (!c.hasLineOfSight || c.range > 720) continue;
+    if (!c.hasLineOfSight || c.range > maxRange) continue;
 
     const toBotX = bot.x - c.x;
     const toBotZ = bot.z - c.z;
@@ -137,6 +138,7 @@ export interface EngagementDriveInput {
   yawErr: number;
   canSeeTarget: boolean;
   rushBoss?: boolean;
+  huntPlayer?: boolean;
   botIndex?: number;
 }
 
@@ -148,7 +150,7 @@ export interface EngagementDriveOutput {
 
 /**
  * Keeps bots aggressively pushing and firing on the move (never stopping to shoot).
- * When rushBoss=true (Juggernaut), bots swarm the Maus from varied flanking angles.
+ * When rushBoss=true (Juggernaut) or huntPlayer=true (Dead survival), bots swarm from varied flanking angles.
  */
 export function computeEngagementDrive(inp: EngagementDriveInput): EngagementDriveOutput {
   const range = Math.hypot(inp.dx, inp.dz);
@@ -160,19 +162,19 @@ export function computeEngagementDrive(inp: EngagementDriveInput): EngagementDri
   const frontDot = toBotX * Math.sin(inp.targetHeading) + toBotZ * Math.cos(inp.targetHeading);
   const headOn = frontDot > 0.65;
 
-  if (inp.rushBoss) {
-    // Meat-grinder rush against Maus: swarm from different angles at full speed and fire continuously
+  if (inp.rushBoss || inp.huntPlayer) {
+    // Relentless multi-angle pack pursuit: push at full speed and encircle at close range
     const spreadSlot = (inp.botIndex ?? 0) % 3;
-    if (!inp.canSeeTarget || range > 65) {
-      const spread = inp.flankSign * (0.18 + spreadSlot * 0.2);
+    if (!inp.canSeeTarget || range > 70) {
+      const spread = inp.flankSign * (0.14 + spreadSlot * 0.16);
       return {
         desiredHeading: wrapPi(directYaw + spread),
         throttle: 1.0,
         brake: false,
       };
     }
-    if (range > 26) {
-      const orbitOffset = inp.flankSign * (0.65 + spreadSlot * 0.16);
+    if (range > 28) {
+      const orbitOffset = inp.flankSign * (0.62 + spreadSlot * 0.16);
       return {
         desiredHeading: wrapPi(directYaw + orbitOffset),
         throttle: 1.0,
@@ -180,7 +182,7 @@ export function computeEngagementDrive(inp: EngagementDriveInput): EngagementDri
       };
     }
     return {
-      desiredHeading: wrapPi(directYaw + inp.flankSign * 1.15),
+      desiredHeading: wrapPi(directYaw + inp.flankSign * 1.12),
       throttle: 0.92,
       brake: false,
     };

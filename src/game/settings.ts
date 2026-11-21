@@ -38,6 +38,8 @@ export const KEY_LABELS: Record<KeyAction, string> = {
   console: 'Консоль',
 };
 
+export type ControlMode = 'pc' | 'touch';
+
 export interface GameSettings {
   master: number;
   music: number;
@@ -45,6 +47,9 @@ export interface GameSettings {
   engine: number;
   sens: number;
   sensSniper: number;
+  touchSens: number;
+  controlMode: ControlMode;
+  controlChosen: boolean;
   invertY: boolean;
   fov: number;
   shadows: 'off' | 'medium' | 'high';
@@ -67,6 +72,9 @@ export const DEFAULTS: GameSettings = {
   engine: 0.6,
   sens: 1,
   sensSniper: 1,
+  touchSens: 1,
+  controlMode: 'pc',
+  controlChosen: false,
   invertY: false,
   fov: 60,
   shadows: 'high',
@@ -95,6 +103,13 @@ try {
   }
 } catch {
   // no storage available
+}
+
+export function detectTouchDeviceHint(): boolean {
+  if (typeof window === 'undefined') return false;
+  const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  const touchPts = typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0;
+  return coarse || touchPts || window.innerWidth <= 820;
 }
 
 type Listener = (key: string, value: unknown) => void;
@@ -131,11 +146,15 @@ export function setKeyBind(action: KeyAction, code: string): void {
 }
 
 export function resetSettings(): void {
+  const keepControlMode = settings.controlMode;
+  const keepControlChosen = settings.controlChosen;
   const d = JSON.parse(JSON.stringify(DEFAULTS)) as GameSettings;
   for (const k in d) {
     if (k === 'keys') Object.assign(settings.keys, d.keys);
     else (settings as unknown as Record<string, unknown>)[k] = (d as unknown as Record<string, unknown>)[k];
   }
+  settings.controlMode = keepControlMode;
+  settings.controlChosen = keepControlChosen;
   persist();
   emit('*', null);
 }

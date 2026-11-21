@@ -157,9 +157,64 @@ export default function App() {
         <div className="spec-target">
           Наблюдение: <b id="specTargetName">—</b> <span id="specTargetHp" />
         </div>
-        <div className="spec-hint">ЛКМ / ← / A — назад · ПКМ / → / D — вперёд · МЫШЬ — обзор</div>
+        <div className="spec-actions">
+          <button type="button" className="spec-nav-btn" id="bSpecPrev" aria-label="Предыдущий союзник">
+            ◀ ПРЕД
+          </button>
+          <span className="spec-hint">ЛКМ / ← / A — назад · ПКМ / → / D — вперёд · МЫШЬ — обзор</span>
+          <button type="button" className="spec-nav-btn" id="bSpecNext" aria-label="Следующий союзник">
+            СЛЕД ▶
+          </button>
+        </div>
       </div>
       <div id="dead" />
+
+      <div id="touchHud" className="hud" data-testid="touch-hud">
+        <div className="touch-top-bar">
+          <button type="button" className="tbtn tbtn-top" id="tBtnScore" data-touch-control="true" data-testid="touch-btn-score">
+            СЧЁТ
+          </button>
+          <button type="button" className="tbtn tbtn-top" id="tBtnPause" data-touch-control="true" data-testid="touch-btn-pause">
+            ПАУЗА
+          </button>
+        </div>
+
+        <div id="touchJoyBase" className="touch-joy-base" data-touch-control="true" data-testid="touch-joystick">
+          <div className="touch-joy-cross" aria-hidden="true" />
+          <div id="touchJoyKnob" className="touch-joy-knob" />
+        </div>
+
+        <div className="touch-actions">
+          <div className="touch-sec-row">
+            <button type="button" className="tbtn tbtn-sec hidden" id="tBtnZoom" data-touch-control="true" data-testid="touch-btn-zoom">
+              ЗУМ x1.0
+            </button>
+            <button type="button" className="tbtn tbtn-sec" id="tBtnBinoc" data-touch-control="true" data-testid="touch-btn-binoc">
+              БИНОКЛЬ
+            </button>
+            <button type="button" className="tbtn tbtn-sec" id="tBtnSniper" data-touch-control="true" data-testid="touch-btn-sniper">
+              ПРИЦЕЛ
+            </button>
+            <button type="button" className="tbtn tbtn-sec tbtn-reload" id="tBtnMgReload" data-touch-control="true" data-testid="touch-btn-mg-reload">
+              ЛЕНТА R
+            </button>
+          </div>
+          <div className="touch-main-row">
+            <button type="button" className="tbtn tbtn-mg" id="tBtnMg" data-touch-control="true" data-testid="touch-btn-mg">
+              <span className="tbtn-label">ПУЛЕМЁТ</span>
+              <span id="tMgAmmoTxt" className="tbtn-sub">
+                100/400
+              </span>
+            </button>
+            <button type="button" className="tbtn tbtn-fire" id="tBtnFire" data-touch-control="true" data-testid="touch-btn-fire">
+              <span className="tbtn-label">ОГОНЬ</span>
+              <span id="tFireReloadTxt" className="tbtn-sub">
+                ГОТОВ
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div id="scoreboard" className="hidden" data-testid="scoreboard">
         <div className="sb-card">
@@ -168,10 +223,15 @@ export default function App() {
               <div className="sb-mode" id="sbModeName">
                 БОЙ ДО 100 КИЛЛОВ
               </div>
-              <div className="sb-sub">Таблица счёта · удерживайте TAB</div>
+              <div className="sb-sub">Таблица счёта · удерживайте TAB или нажмите СЧЁТ</div>
             </div>
-            <div className="sb-score" id="sbTeamScore">
-              МЫ 0 : 0 ВРАГИ (цель: 100)
+            <div className="sb-head-right">
+              <div className="sb-score" id="sbTeamScore">
+                МЫ 0 : 0 ВРАГИ (цель: 100)
+              </div>
+              <button type="button" className="sb-close-btn" id="bSbClose" aria-label="Закрыть счёт">
+                ЗАКРЫТЬ
+              </button>
             </div>
           </div>
           <div className="sb-cols">
@@ -193,6 +253,38 @@ export default function App() {
       </div>
 
       <div id="menu">
+        <div id="controlSelectPanel" className="panel hidden" data-testid="control-select-panel">
+          <h1>IRON &amp; SKY</h1>
+          <div className="tag">ВЫБЕРИТЕ УПРАВЛЕНИЕ</div>
+          <div className="ctrl-intro">
+            Выберите удобный способ управления перед началом игры. Вы всегда сможете переключить его позже в разделе «Управление».
+          </div>
+          <div className="ctrl-cards">
+            <button type="button" className="ctrl-card" id="bChoosePc" data-testid="choose-pc">
+              <div className="ctrl-card-head">
+                <span className="ctrl-card-title">ПК (КЛАВИАТУРА И МЫШЬ)</span>
+                <span id="ctrlRecPc" className="ctrl-rec hidden">
+                  РЕКОМЕНДУЕТСЯ
+                </span>
+              </div>
+              <div className="ctrl-card-desc">
+                Движение на WASD, обзор и стрельба мышью, пулемёт на F, прицел на Shift, таблица счёта на TAB.
+              </div>
+            </button>
+            <button type="button" className="ctrl-card" id="bChooseTouch" data-testid="choose-touch">
+              <div className="ctrl-card-head">
+                <span className="ctrl-card-title">ТЕЛЕФОН (СЕНСОР)</span>
+                <span id="ctrlRecTouch" className="ctrl-rec hidden">
+                  РЕКОМЕНДУЕТСЯ
+                </span>
+              </div>
+              <div className="ctrl-card-desc">
+                Виртуальный джойстик слева, поворот камеры свайпом в любом месте экрана, кнопки огня, пулемёта, прицела, бинокля, паузы и счёта.
+              </div>
+            </button>
+          </div>
+        </div>
+
         <div id="mainPanel" className="panel">
           <h1>IRON &amp; SKY</h1>
           <div className="tag">ТАНКОВЫЙ БОЙ</div>

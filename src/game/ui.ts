@@ -1,4 +1,16 @@
-import { settings, setSetting, setKeyBind, resetSettings, KEY_LABELS, keyName, storage, type GameSettings, type KeyAction } from './settings';
+import {
+  detectTouchDeviceHint,
+  KEY_LABELS,
+  keyName,
+  resetSettings,
+  setKeyBind,
+  setSetting,
+  settings,
+  storage,
+  type ControlMode,
+  type GameSettings,
+  type KeyAction,
+} from './settings';
 import { audio } from './audio';
 import { getAllTanks, getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
 import { getSilver, isTankOwned, purchaseTank } from './economy';
@@ -22,6 +34,7 @@ interface SettingItem {
   pct?: boolean;
   num?: boolean;
   opts?: Array<[string | number, string]>;
+  controlOnly?: ControlMode;
 }
 
 const TABS: Record<string, { label: string; items: SettingItem[] }> = {
@@ -37,10 +50,11 @@ const TABS: Record<string, { label: string; items: SettingItem[] }> = {
   controls: {
     label: 'Управление',
     items: [
-      { k: 'sens', t: 'range', l: 'Чувствительность мыши', min: 0.2, max: 3, step: 0.05 },
+      { k: 'sens', t: 'range', l: 'Чувствительность мыши', min: 0.2, max: 3, step: 0.05, controlOnly: 'pc' },
+      { k: 'touchSens', t: 'range', l: 'Чувствительность свайпа', min: 0.3, max: 2.8, step: 0.05, controlOnly: 'touch' },
       { k: 'sensSniper', t: 'range', l: 'Чувствительность в прицеле', min: 0.2, max: 3, step: 0.05 },
       { k: 'invertY', t: 'check', l: 'Инвертировать вертикаль' },
-      { t: 'keys' },
+      { t: 'keys', controlOnly: 'pc' },
     ],
   },
   graphics: {
@@ -107,6 +121,7 @@ export function createUI(h: UIHandlers) {
   const $ = (id: string) => document.getElementById(id)!;
   const menu = $('menu');
   const panels: Record<string, HTMLElement> = {
+    controlSelect: $('controlSelectPanel'),
     main: $('mainPanel'),
     pause: $('pausePanel'),
     settings: $('settingsPanel'),
@@ -116,6 +131,8 @@ export function createUI(h: UIHandlers) {
     hangar: $('hangarScreen'),
     matchEnd: $('matchEndPanel'),
   };
+
+  document.body.dataset.control = settings.controlMode;
 
   const ui = {
     rebinding: false,
@@ -130,6 +147,12 @@ export function createUI(h: UIHandlers) {
   let tab = 'sound';
   let inspectedTankId: string | null = null;
 
+  function applyControlChoice(nextMode: ControlMode): void {
+    setSetting('controlMode', nextMode);
+    setSetting('controlChosen', true);
+    document.body.dataset.control = nextMode;
+  }
+
   function show(which: string | null): void {
     ui.currentScreen = which;
     h.onHangarToggle(which === 'hangar');
@@ -143,7 +166,13 @@ export function createUI(h: UIHandlers) {
     for (const k in panels) panels[k].classList.toggle('hidden', k !== which);
     document.body.dataset.screen = which;
 
-    if (which === 'main') {
+    if (which === 'controlSelect') {
+      const preferTouch = detectTouchDeviceHint();
+      $('ctrlRecPc').classList.toggle('hidden', preferTouch);
+      $('ctrlRecTouch').classList.toggle('hidden', !preferTouch);
+      $('bChoosePc').classList.toggle('recommended', !preferTouch);
+      $('bChooseTouch').classList.toggle('recommended', preferTouch);
+    } else if (which === 'main') {
       $('bPlay').textContent = h.started() ? 'ПРОДОЛЖИТЬ БИТВУ' : 'ИГРАТЬ';
       $('bNew').style.display = h.started() ? 'block' : 'none';
       const activeMap = h.maps.find((m) => m.id === h.getMap());
@@ -162,7 +191,11 @@ export function createUI(h: UIHandlers) {
                 : activeMode.id === 'rounds5v5'
                   ? '+50 серебра за килл · +500 за победу · После смерти — режим наблюдателя. Читы (sv_cheats) отключены.'
                   : '+50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу. Читы (sv_cheats) отключены.';
-        infoEl.innerHTML = `${activeMode.shortDesc}<br />${extra}<br />Консоль настроек: ~ · Таблица счёта: TAB · Таран: -20 ХП`;
+        const ctrlTip =
+          settings.controlMode === 'touch'
+            ? 'Управление: Телефон (джойстик слева, свайп-обзор, кнопки справа)'
+            : 'Консоль настроек: ~ · Таблица счёта: TAB · Таран: -20 ХП';
+        infoEl.innerHTML = `${activeMode.shortDesc}<br />${extra}<br />${ctrlTip}`;
       }
     } else if (which === 'hangar') {
       renderHangar();
@@ -184,6 +217,17 @@ export function createUI(h: UIHandlers) {
   ui.openSettings = openSettings;
 
   const click = () => audio.ui('click');
+
+  $('bChoosePc').onclick = () => {
+    click();
+    applyControlChoice('pc');
+    show('main');
+  };
+  $('bChooseTouch').onclick = () => {
+    click();
+    applyControlChoice('touch');
+    show('main');
+  };
 
   $('bPlay').onclick = () => {
     click();
@@ -554,7 +598,41 @@ export function createUI(h: UIHandlers) {
       : 'Внимание: браузер блокирует localStorage, настройки не сохранятся после перезагрузки.';
     st.style.color = storage.ok ? '#9aa58a' : '#ff9a7a';
     body.appendChild(st);
+
+    if (tab === 'controls') {
+      const modeRow = document.createElement('div');
+      modeRow.className = 'ctrl-switch-row';
+
+      const modeLabel = document.createElement('div');
+      modeLabel.className = 'ctrl-switch-lbl';
+      modeLabel.textContent = 'Режим управления';
+
+      const seg = document.createElement('div');
+      seg.className = 'ctrl-seg';
+      seg.dataset.testid = 'control-mode-switcher';
+
+      const mkOpt = (value: ControlMode, label: string, testId: string) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ctrl-seg-btn' + (settings.controlMode === value ? ' on' : '');
+        b.textContent = label;
+        b.dataset.testid = testId;
+        b.onclick = () => {
+          if (settings.controlMode === value) return;
+          click();
+          applyControlChoice(value);
+          renderSettings();
+        };
+        return b;
+      };
+
+      seg.append(mkOpt('pc', 'ПК (мышь + клавиатура)', 'switch-pc'), mkOpt('touch', 'Телефон (сенсор)', 'switch-touch'));
+      modeRow.append(modeLabel, seg);
+      body.appendChild(modeRow);
+    }
+
     for (const it of TABS[tab].items) {
+      if (it.controlOnly && it.controlOnly !== settings.controlMode) continue;
       if (it.t === 'keys') {
         renderKeys(body);
         continue;
@@ -622,6 +700,18 @@ export function createUI(h: UIHandlers) {
         note.textContent = 'Настройка точности ботов доступна только в режиме «Тренировка».';
         body.appendChild(note);
       }
+    }
+
+    if (tab === 'controls' && settings.controlMode === 'touch') {
+      const guide = document.createElement('div');
+      guide.className = 'ctrl-touch-guide';
+      guide.dataset.testid = 'touch-guide';
+      guide.innerHTML =
+        '<div><b>Джойстик слева:</b> газ, задний ход и поворот корпуса.</div>' +
+        '<div><b>Свайп по свободному экрану:</b> поворот камеры и наведение башни.</div>' +
+        '<div><b>Кнопки справа:</b> Огонь, Пулемёт, Лента R, Прицел, Бинокль и Зум.</div>' +
+        '<div><b>Сверху:</b> Счёт (таблица боя) и Пауза.</div>';
+      body.appendChild(guide);
     }
   }
 

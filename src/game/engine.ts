@@ -12,6 +12,7 @@ import { HitCam } from './hitcam';
 import { Minimap } from './minimap';
 import { GameConsole, type ConsoleGameAPI } from './console';
 import { createUI } from './ui';
+import { attachTouchControls } from './touchControls';
 import { getSelectedTankId, DEFAULT_TANK_ID } from './tanks';
 import { addSilver, computeKillReward, getSilver } from './economy';
 import {
@@ -291,6 +292,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   const cam = { yaw: 0, pitch: 0.2 };
   const aim = { yaw: 0, elev: 0, point: new THREE.Vector3(), range: null as number | null };
   let binocFrozen = false;
+  let touchCtl: ReturnType<typeof attachTouchControls> | null = null;
 
   const hitcam = new HitCam($<HTMLCanvasElement>('hitcam'));
   const minimap = new Minimap($<HTMLCanvasElement>('minimap'));
@@ -321,7 +323,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     (scene.fog as THREE.Fog).far = world.fogFar * f;
     (scene.fog as THREE.Fog).near = world.fogNear * Math.min(1, f);
     $('vignette').style.display = settings.vignette ? 'block' : 'none';
-    $('help').style.display = settings.hints ? 'block' : 'none';
+    $('help').style.display = settings.hints && settings.controlMode !== 'touch' ? 'block' : 'none';
     $('hitcam').dataset.on = settings.hitcam ? '1' : '0';
     if (!settings.hitcam) hitcam.hide();
     updateHelp();
@@ -337,8 +339,18 @@ export function initGame(mountEl: HTMLElement): () => void {
       `<b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>${n(K.comp)}</b> вычисл. &nbsp; <b>TAB</b> счёт &nbsp; <b>ESC</b> пауза`;
   }
 
-  const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', '*']);
+  const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', 'controlMode', 'touchSens', '*']);
   const unsubSettings = onSettings((k) => {
+    if (k === 'controlMode' || k === '*') {
+      document.body.dataset.control = settings.controlMode;
+      touchCtl?.reset();
+      if (settings.controlMode === 'touch') {
+        if (document.pointerLockElement) document.exitPointerLock();
+        if (state === 'play') locked = true;
+      } else if (state === 'play') {
+        locked = document.pointerLockElement === renderer.domElement || fallback || isSoftwareGl;
+      }
+    }
     if (GFX_KEYS.has(k)) applyGraphics();
   });
 
@@ -625,7 +637,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   let lockTimer: ReturnType<typeof setTimeout> | undefined;
 
   function tryLock() {
-    if (isSoftwareGl || fallback) {
+    if (settings.controlMode === 'touch' || isSoftwareGl || fallback) {
       locked = true;
       return;
     }
@@ -668,6 +680,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     state = 'pause';
     setScoreboardOpen(false);
     mouseDown = false;
+    touchCtl?.reset();
     locked = false;
     for (const k in keys) keys[k] = false;
     audio.engineSilence();
@@ -730,6 +743,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     document.body.className = 'menu';
     document.body.dataset.state = 'title';
     mouseDown = false;
+    touchCtl?.reset();
     if (document.pointerLockElement) document.exitPointerLock();
     fallback = false;
     locked = false;
@@ -788,7 +802,8 @@ export function initGame(mountEl: HTMLElement): () => void {
   });
 
   document.body.dataset.state = 'title';
-  ui.show('main');
+  document.body.dataset.control = settings.controlMode;
+  ui.show(settings.controlChosen ? 'main' : 'controlSelect');
 
   const unlockMenuMusic = () => {
     if (audio.init() && state === 'menu') audio.music('menu');
@@ -796,6 +811,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   addEventListener('pointerdown', unlockMenuMusic, { once: true });
 
   const onPointerLockChange = () => {
+    if (settings.controlMode === 'touch') return;
     locked = document.pointerLockElement === renderer.domElement;
     if (locked) {
       everLocked = true;
@@ -805,7 +821,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (!locked && state === 'play' && !consoleOpen && !fallback && !isSoftwareGl) openPause();
   };
   const onPointerLockError = () => {
-    if (state !== 'play' || consoleOpen) return;
+    if (settings.controlMode === 'touch' || state !== 'play' || consoleOpen) return;
     if (++lockTries > 8 && !everLocked) {
       enableFallback();
       return;
@@ -891,13 +907,13 @@ export function initGame(mountEl: HTMLElement): () => void {
     setScoreboardOpen(false);
   };
   const onMouseMove = (e: MouseEvent) => {
-    if (!locked || state !== 'play') return;
+    if (settings.controlMode === 'touch' || !locked || state !== 'play') return;
     const s = 0.0022 * clamp(fovCur / 60, 0.06, 1) * settings.sens * (mode === 'third' || spectating ? 1 : settings.sensSniper);
     cam.yaw -= e.movementX * s;
     cam.pitch -= e.movementY * s * (settings.invertY ? -1 : 1);
   };
   const onMouseDown = (e: MouseEvent) => {
-    if (state !== 'play' || consoleOpen) return;
+    if (settings.controlMode === 'touch' || state !== 'play' || consoleOpen) return;
     if (!locked) {
       tryLock();
       return;
@@ -937,6 +953,59 @@ export function initGame(mountEl: HTMLElement): () => void {
   addEventListener('mouseup', onMouseUp);
   addEventListener('contextmenu', onContextMenu);
   addEventListener('wheel', onWheel, { passive: true });
+
+  touchCtl = attachTouchControls({
+    isTouchGameplayActive: () => state === 'play' && settings.controlMode === 'touch' && !consoleOpen && !matchEnded,
+    onLookDelta: (dx, dy) => {
+      if (scoreboardOpen) return;
+      const s = 0.0042 * clamp(fovCur / 60, 0.06, 1) * settings.touchSens * (mode === 'third' || spectating ? 1 : settings.sensSniper);
+      cam.yaw -= dx * s;
+      cam.pitch -= dy * s * (settings.invertY ? -1 : 1);
+    },
+    onBinocTap: () => {
+      if (scoreboardOpen || spectating) return;
+      if (mode === 'binoc') {
+        snapTurretToView();
+        setMode('third');
+      }
+    },
+    onToggleSniper: () => {
+      if (spectating || scoreboardOpen) return;
+      setMode(mode === 'sniper' ? 'third' : 'sniper');
+    },
+    onToggleBinoc: () => {
+      if (spectating || scoreboardOpen) return;
+      setMode(mode === 'binoc' ? 'third' : 'binoc');
+    },
+    onCycleZoom: () => {
+      if (spectating || scoreboardOpen || mode === 'third') return;
+      const n = (mode === 'sniper' ? SNIPER_FOV : BINOC_FOV).length;
+      zoomIdx = (zoomIdx + 1) % n;
+    },
+    onReloadMg: () => {
+      if (spectating || scoreboardOpen || mode === 'binoc') return;
+      tank.reloadMg();
+    },
+    onPause: () => {
+      openPause();
+    },
+    onToggleScoreboard: () => {
+      if (state === 'play' && !matchEnded) {
+        setScoreboardOpen(!scoreboardOpen);
+      }
+    },
+  });
+
+  const onSbClose = () => setScoreboardOpen(false);
+  const onSpecPrev = () => {
+    if (spectating) cycleSpectateTarget(-1);
+  };
+  const onSpecNext = () => {
+    if (spectating) cycleSpectateTarget(1);
+  };
+  $('bSbClose').addEventListener('click', onSbClose);
+  $('bSpecPrev').addEventListener('click', onSpecPrev);
+  $('bSpecNext').addEventListener('click', onSpecNext);
 
   function setMode(m: 'third' | 'sniper' | 'binoc') {
     if (m === mode) return;
@@ -1187,6 +1256,13 @@ export function initGame(mountEl: HTMLElement): () => void {
     mgAmmo: $('mgAmmo'),
     mgBarFill: $('mgBarFill'),
     mgStateTxt: $('mgStateTxt'),
+    tBtnFire: $('tBtnFire'),
+    tFireReloadTxt: $('tFireReloadTxt'),
+    tBtnMg: $('tBtnMg'),
+    tMgAmmoTxt: $('tMgAmmoTxt'),
+    tBtnSniper: $('tBtnSniper'),
+    tBtnBinoc: $('tBtnBinoc'),
+    tBtnZoom: $('tBtnZoom'),
   };
   el.mv.textContent = String(tank.stats.muzzleVelocity);
   if (el.tankTag) el.tankTag.textContent = tank.spec.name;
@@ -1241,6 +1317,16 @@ export function initGame(mountEl: HTMLElement): () => void {
     survivalTimer: '',
     survivalUrgent: false,
     survivalKills: '',
+    tFireTxt: '',
+    tFireLoading: false,
+    tFireBroken: false,
+    tMgTxt: '',
+    tMgReloading: false,
+    tMgEmpty: false,
+    tSniperActive: false,
+    tBinocActive: false,
+    tZoomVisible: false,
+    tZoomTxt: '',
   };
 
   const _ip = new THREE.Vector3();
@@ -1269,7 +1355,8 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function updateHud(dt: number) {
     const v = Math.abs(tank.speed);
-    const thr = (keys[settings.keys.forward] ? 1 : 0) - (keys[settings.keys.back] ? 1 : 0);
+    const touchThr = settings.controlMode === 'touch' && touchCtl ? touchCtl.state.throttle : 0;
+    const thr = clamp((keys[settings.keys.forward] ? 1 : 0) - (keys[settings.keys.back] ? 1 : 0) + touchThr, -1, 1);
 
     const speedTxt = String(Math.round(v * 3.6));
     if (speedTxt !== hudCache.speed) {
@@ -1489,6 +1576,58 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     if (scoped) drawScope();
 
+    if (settings.controlMode === 'touch') {
+      if (rtxt !== hudCache.tFireTxt) {
+        hudCache.tFireTxt = rtxt;
+        el.tFireReloadTxt.textContent = rtxt;
+      }
+      if (ringLoading !== hudCache.tFireLoading) {
+        hudCache.tFireLoading = ringLoading;
+        el.tBtnFire.classList.toggle('loading', ringLoading);
+      }
+      if (broken !== hudCache.tFireBroken) {
+        hudCache.tFireBroken = broken;
+        el.tBtnFire.classList.toggle('broken', broken);
+      }
+
+      const tMgTxt = mgReloading ? `${mgSt.reloadT.toFixed(1)}с` : `${mgSt.magAmmo}/${mgSt.reserveAmmo}`;
+      if (tMgTxt !== hudCache.tMgTxt) {
+        hudCache.tMgTxt = tMgTxt;
+        el.tMgAmmoTxt.textContent = tMgTxt;
+      }
+      if (mgReloading !== hudCache.tMgReloading) {
+        hudCache.tMgReloading = mgReloading;
+        el.tBtnMg.classList.toggle('reloading', mgReloading);
+      }
+      if (mgEmpty !== hudCache.tMgEmpty) {
+        hudCache.tMgEmpty = mgEmpty;
+        el.tBtnMg.classList.toggle('empty', mgEmpty);
+      }
+
+      const sniperActive = mode === 'sniper';
+      if (sniperActive !== hudCache.tSniperActive) {
+        hudCache.tSniperActive = sniperActive;
+        el.tBtnSniper.classList.toggle('active', sniperActive);
+      }
+      const binocActive = mode === 'binoc';
+      if (binocActive !== hudCache.tBinocActive) {
+        hudCache.tBinocActive = binocActive;
+        el.tBtnBinoc.classList.toggle('active', binocActive);
+      }
+      const zoomVisible = !spectating && mode !== 'third';
+      if (zoomVisible !== hudCache.tZoomVisible) {
+        hudCache.tZoomVisible = zoomVisible;
+        el.tBtnZoom.classList.toggle('hidden', !zoomVisible);
+      }
+      if (zoomVisible) {
+        const tZoomTxt = `ЗУМ ${zoomTxt}`;
+        if (tZoomTxt !== hudCache.tZoomTxt) {
+          hudCache.tZoomTxt = tZoomTxt;
+          el.tBtnZoom.textContent = tZoomTxt;
+        }
+      }
+    }
+
     if (spectating) {
       if (hudCache.gunDisplay !== 'none') {
         hudCache.gunDisplay = 'none';
@@ -1670,6 +1809,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     showRoundBanner(null);
     setScoreboardOpen(false);
     mouseDown = false;
+    touchCtl?.reset();
     locked = false;
     for (const k in keys) keys[k] = false;
     if (document.pointerLockElement) document.exitPointerLock();
@@ -1737,6 +1877,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     showSilverToast(reward, 'Маус уничтожен', true);
     recordCurrentMatch(true, `Маус уничтожен · ${kills} фрагов`);
     mouseDown = false;
+    touchCtl?.reset();
     setScoreboardOpen(false);
     spectating = false;
     $('spectatorBar').classList.add('hidden');
@@ -2073,9 +2214,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     dt *= flags.timeScale;
     simTime += dt;
     const K = settings.keys;
+    const touchActive = settings.controlMode === 'touch' && !!touchCtl;
     const input = {
-      throttle: (keys[K.forward] ? 1 : 0) - (keys[K.back] ? 1 : 0),
-      steer: (keys[K.left] ? 1 : 0) - (keys[K.right] ? 1 : 0),
+      throttle: clamp((keys[K.forward] ? 1 : 0) - (keys[K.back] ? 1 : 0) + (touchActive ? touchCtl!.state.throttle : 0), -1, 1),
+      steer: clamp((keys[K.left] ? 1 : 0) - (keys[K.right] ? 1 : 0) + (touchActive ? touchCtl!.state.steer : 0), -1, 1),
       brake: !!keys[K.brake],
     };
     tank.update(dt, input, ballistics.fx);
@@ -2229,7 +2371,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (msgT < 0.4) msgEl.style.opacity = String(Math.max(0, msgT / 0.4));
     }
 
-    if (!spectating && mouseDown && locked && mode !== 'binoc' && !consoleOpen) {
+    const firingPrimary = mouseDown || (touchActive && touchCtl!.state.fireHeld);
+    if (!spectating && firingPrimary && (locked || touchActive) && mode !== 'binoc' && !consoleOpen && !scoreboardOpen) {
       const shot = tank.fire();
       if (shot) {
         recordPlayerShot();
@@ -2238,7 +2381,8 @@ export function initGame(mountEl: HTMLElement): () => void {
         shake = mode === 'third' ? 0.18 : 0;
       }
     }
-    if (!spectating && !matchEnded && keys[K.mg] && mode !== 'binoc' && !consoleOpen) {
+    const firingMg = !!keys[K.mg] || (touchActive && touchCtl!.state.mgHeld);
+    if (!spectating && !matchEnded && firingMg && mode !== 'binoc' && !consoleOpen && !scoreboardOpen) {
       const mgShot = tank.fireMg();
       if (mgShot) {
         ballistics.fire({ ...mgShot, owner: tank });
@@ -2303,6 +2447,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     removeEventListener('contextmenu', onContextMenu);
     removeEventListener('wheel', onWheel);
     removeEventListener('resize', onResize);
+    $('bSbClose').removeEventListener('click', onSbClose);
+    $('bSpecPrev').removeEventListener('click', onSpecPrev);
+    $('bSpecNext').removeEventListener('click', onSpecNext);
+    touchCtl?.dispose();
     audio.engineSilence();
     audio.music('off');
     if (boss) boss.dispose();

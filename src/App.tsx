@@ -200,12 +200,23 @@ export default function App() {
             </button>
           </div>
           <div className="touch-main-row">
-            <button type="button" className="tbtn tbtn-mg" id="tBtnMg" data-touch-control="true" data-testid="touch-btn-mg">
-              <span className="tbtn-label">ПУЛЕМЁТ</span>
-              <span id="tMgAmmoTxt" className="tbtn-sub">
-                100/400
-              </span>
-            </button>
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Джойстик пулемёта: удерживайте для огня и ведите для наведения"
+              className="tbtn tbtn-mg touch-mg-pad"
+              id="tBtnMg"
+              data-touch-control="true"
+              data-testid="touch-btn-mg"
+            >
+              <div className="touch-mg-cross" aria-hidden="true" />
+              <div id="tMgJoyKnob" className="touch-mg-knob">
+                <span className="tbtn-label">ПУЛЕМЁТ</span>
+                <span id="tMgAmmoTxt" className="tbtn-sub">
+                  100/400
+                </span>
+              </div>
+            </div>
             <button type="button" className="tbtn tbtn-fire" id="tBtnFire" data-touch-control="true" data-testid="touch-btn-fire">
               <span className="tbtn-label">ОГОНЬ</span>
               <span id="tFireReloadTxt" className="tbtn-sub">
@@ -279,7 +290,7 @@ export default function App() {
                 </span>
               </div>
               <div className="ctrl-card-desc">
-                Виртуальный джойстик слева, поворот камеры свайпом в любом месте экрана, кнопки огня, пулемёта, прицела, бинокля, паузы и счёта.
+                Джойстик движения слева, джойстик пулемёта (огонь + наведение) и кнопка выстрела справа, поворот камеры свайпом в любом месте экрана.
               </div>
             </button>
           </div>

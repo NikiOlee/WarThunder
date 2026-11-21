@@ -41,6 +41,11 @@ test('computeJoystickOutput clamps visual knob and axes beyond maxRadius', () =>
   assert.ok(Math.abs(knobDist - 50) < 1e-6);
   assert.ok(out.throttle > 0.7 && out.throttle <= 1);
   assert.ok(out.steer > 0.5 && out.steer <= 1);
+
+  const mgKnob = computeJoystickOutput(80, 0, 26, 0.05);
+  assert.equal(mgKnob.knobX, 26);
+  assert.equal(mgKnob.knobY, 0);
+  assert.equal(mgKnob.steer, -1);
 });
 
 test('settings preserve controlMode and controlChosen on resetSettings while restoring defaults', () => {

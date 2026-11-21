@@ -78,6 +78,7 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   const joyKnob = document.getElementById('touchJoyKnob');
   const btnFire = document.getElementById('tBtnFire');
   const btnMg = document.getElementById('tBtnMg');
+  const mgKnob = document.getElementById('tMgJoyKnob');
   const btnMgReload = document.getElementById('tBtnMgReload');
   const btnSniper = document.getElementById('tBtnSniper');
   const btnBinoc = document.getElementById('tBtnBinoc');
@@ -94,11 +95,29 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   let lookStartTime = 0;
   let firePointerId: number | null = null;
   let mgPointerId: number | null = null;
+  let mgLastX = 0;
+  let mgLastY = 0;
 
   const setKnobVisual = (x: number, y: number) => {
     if (joyKnob) {
       joyKnob.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
     }
+  };
+
+  const setMgKnobVisual = (x: number, y: number) => {
+    if (mgKnob) {
+      mgKnob.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    }
+  };
+
+  const updateMgKnobFromEvent = (clientX: number, clientY: number) => {
+    if (!btnMg) return;
+    const rect = btnMg.getBoundingClientRect();
+    const cx = rect.left + rect.width * 0.5;
+    const cy = rect.top + rect.height * 0.5;
+    const maxR = Math.max(14, rect.width * 0.28);
+    const out = computeJoystickOutput(clientX - cx, clientY - cy, maxR, 0.05);
+    setMgKnobVisual(out.knobX, out.knobY);
   };
 
   const updateJoystickFromEvent = (clientX: number, clientY: number) => {
@@ -121,15 +140,20 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
     setKnobVisual(0, 0);
   };
 
+  const resetMgJoystick = () => {
+    mgPointerId = null;
+    state.mgHeld = false;
+    btnMg?.classList.remove('pressed');
+    setMgKnobVisual(0, 0);
+  };
+
   const resetAll = () => {
     resetJoystick();
+    resetMgJoystick();
     lookPointerId = null;
     firePointerId = null;
-    mgPointerId = null;
     state.fireHeld = false;
-    state.mgHeld = false;
     btnFire?.classList.remove('pressed');
-    btnMg?.classList.remove('pressed');
   };
 
   const onJoyDown = (e: PointerEvent) => {
@@ -181,10 +205,12 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   };
 
   const onMgDown = (e: PointerEvent) => {
-    if (!hooks.isTouchGameplayActive()) return;
+    if (!hooks.isTouchGameplayActive() || mgPointerId !== null) return;
     e.preventDefault();
     e.stopPropagation();
     mgPointerId = e.pointerId;
+    mgLastX = e.clientX;
+    mgLastY = e.clientY;
     state.mgHeld = true;
     btnMg?.classList.add('pressed');
     try {
@@ -192,14 +218,30 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
     } catch {
       // ignore
     }
+    updateMgKnobFromEvent(e.clientX, e.clientY);
+  };
+
+  const onMgMove = (e: PointerEvent) => {
+    if (e.pointerId !== mgPointerId) return;
+    if (!hooks.isTouchGameplayActive()) {
+      resetMgJoystick();
+      return;
+    }
+    e.preventDefault();
+    updateMgKnobFromEvent(e.clientX, e.clientY);
+    const dx = e.clientX - mgLastX;
+    const dy = e.clientY - mgLastY;
+    mgLastX = e.clientX;
+    mgLastY = e.clientY;
+    if (dx !== 0 || dy !== 0) {
+      hooks.onLookDelta(dx, dy);
+    }
   };
 
   const onMgUp = (e: PointerEvent) => {
     if (e.pointerId !== mgPointerId) return;
     e.preventDefault();
-    mgPointerId = null;
-    state.mgHeld = false;
-    btnMg?.classList.remove('pressed');
+    resetMgJoystick();
   };
 
   const bindTapButton = (el: HTMLElement | null, handler: () => void) => {
@@ -263,6 +305,7 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   btnFire?.addEventListener('pointercancel', onFireUp);
 
   btnMg?.addEventListener('pointerdown', onMgDown);
+  btnMg?.addEventListener('pointermove', onMgMove);
   btnMg?.addEventListener('pointerup', onMgUp);
   btnMg?.addEventListener('pointercancel', onMgUp);
 
@@ -293,6 +336,7 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
       btnFire?.removeEventListener('pointercancel', onFireUp);
 
       btnMg?.removeEventListener('pointerdown', onMgDown);
+      btnMg?.removeEventListener('pointermove', onMgMove);
       btnMg?.removeEventListener('pointerup', onMgUp);
       btnMg?.removeEventListener('pointercancel', onMgUp);
 

@@ -2086,17 +2086,54 @@ body.play[data-control="touch"] #spectatorBar {
 }
 
 .tbtn-mg {
-  width: 78px;
-  height: 66px;
+  position: relative;
+  width: clamp(86px, 16vmin, 102px);
+  height: clamp(86px, 16vmin, 102px);
   border-radius: 50%;
-  padding: 4px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 210, 122, 0.52);
+  background: rgba(16, 22, 14, 0.44);
+  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.45);
+}
+
+.tbtn-mg:active,
+.tbtn-mg.pressed {
+  transform: none;
+  background: rgba(24, 32, 18, 0.58);
+  border-color: #ffd27a;
+}
+
+.touch-mg-cross {
+  position: absolute;
+  inset: 16%;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 210, 122, 0.28);
+  pointer-events: none;
+}
+
+.touch-mg-knob {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  border: 1.5px solid rgba(255, 210, 122, 0.65);
-  background: rgba(24, 30, 18, 0.72);
+  background: rgba(28, 36, 20, 0.86);
+  border: 1.5px solid rgba(255, 210, 122, 0.72);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.tbtn-mg.pressed .touch-mg-knob {
+  background: rgba(88, 66, 26, 0.88);
+  border-color: #ffd27a;
+  color: #fff;
 }
 
 .tbtn-mg.reloading {
@@ -2104,9 +2141,17 @@ body.play[data-control="touch"] #spectatorBar {
   color: #ffb43c;
 }
 
+.tbtn-mg.reloading .touch-mg-knob {
+  border-color: #ffb43c;
+}
+
 .tbtn-mg.empty {
   border-color: #ff4a3a;
   color: #ff6a4a;
+}
+
+.tbtn-mg.empty .touch-mg-knob {
+  border-color: #ff4a3a;
 }
 
 .tbtn-fire {

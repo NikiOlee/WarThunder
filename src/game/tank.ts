@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { getTankSpec, type TankSpec } from './tanks';
 import { createMgState, startMgReload, stepMgState, tryFireMg, type MachineGunState } from './machineGun';
-import { buildTankTracks, type TrackScrollRef, type TrackWheelRef } from './trackAssembly';
+import {
+  buildTankTracks,
+  updateTrackSuspensionAndFlex,
+  type TrackScrollRef,
+  type TrackWheelRef,
+} from './trackAssembly';
 import type { GameWorld } from './world';
 import type { Particles } from './ballistics';
 
@@ -12,6 +17,93 @@ const wrapPi = (a: number) => {
   return a - Math.PI;
 };
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+export function stepTurretAngles(params: {
+  alive: boolean;
+  turretYaw: number;
+  gunElev: number;
+  heading: number;
+  pitchUp: number;
+  rollLeftUp: number;
+  aimYaw: number;
+  aimElev: number;
+  traverseRate: number;
+  elevMin: number;
+  elevMax: number;
+  elevRate: number;
+  dt: number;
+}): { turretYaw: number; gunElev: number } {
+  if (!params.alive) {
+    return { turretYaw: params.turretYaw, gunElev: params.gunElev };
+  }
+  const wantYaw = wrapPi(params.aimYaw - params.heading);
+  const err = wrapPi(wantYaw - params.turretYaw);
+  const rate = clamp(err * 4, -params.traverseRate, params.traverseRate);
+  const turretYaw = Math.abs(err) < 1e-4 ? wantYaw : wrapPi(params.turretYaw + rate * params.dt);
+
+  const tilt = params.pitchUp * Math.cos(turretYaw) + params.rollLeftUp * Math.sin(turretYaw);
+  const wantElev = clamp(params.aimElev - tilt, params.elevMin, params.elevMax);
+  const e = wantElev - params.gunElev;
+  const gunElev = params.gunElev + clamp(e * 5, -params.elevRate, params.elevRate) * params.dt;
+  return { turretYaw, gunElev };
+}
+
+export function computeHullGroundPose(
+  x: number,
+  z: number,
+  heading: number,
+  L: number,
+  W: number,
+  heightAt: (px: number, pz: number) => number,
+): { pitchUp: number; rollLeftUp: number; slope: number; targetY: number; crestFlex: number } {
+  const s = Math.sin(heading);
+  const c = Math.cos(heading);
+  const sample = (lx: number, lz: number) => heightAt(x + c * lx + s * lz, z - s * lx + c * lz);
+
+  const hc = heightAt(x, z);
+  const hf = sample(0, L);
+  const hb = sample(0, -L);
+  const hl = sample(W, 0);
+  const hr = sample(-W, 0);
+
+  const lCorner = L * 0.8;
+  const hfl = sample(W, lCorner);
+  const hfr = sample(-W, lCorner);
+  const hbl = sample(W, -lCorner);
+  const hbr = sample(-W, -lCorner);
+
+  const hfAvg = (hf + hfl + hfr) / 3;
+  const hbAvg = (hb + hbl + hbr) / 3;
+  const hlAvg = (hl + hfl + hbl) / 3;
+  const hrAvg = (hr + hfr + hbr) / 3;
+
+  const slope = (hfAvg - hbAvg) / (2 * L);
+  const pitchUp = Math.atan2(hfAvg - hbAvg, 2 * L);
+  const rollLeftUp = Math.atan2(hlAvg - hrAvg, 2 * W);
+
+  const sinP = Math.sin(pitchUp);
+  const sinR = Math.sin(rollLeftUp);
+
+  // Guarantee no track footprint sample sinks beneath terrain on convex hill crests or ridges
+  const req = (hVal: number, lx: number, lz: number) => hVal - (lz * sinP + lx * sinR);
+  const maxFloor = Math.max(
+    req(hc, 0, 0),
+    req(hf, 0, L),
+    req(hb, 0, -L),
+    req(hl, W, 0),
+    req(hr, -W, 0),
+    req(hfl, W, lCorner),
+    req(hfr, -W, lCorner),
+    req(hbl, W, -lCorner),
+    req(hbr, -W, -lCorner),
+  );
+
+  const avgY = (hf + hb + hl + hr + hc) / 5;
+  const targetY = Math.max(avgY + 0.06, maxFloor + 0.065);
+  const crestFlex = clamp(hc - (hf + hb) * 0.5, -0.025, 0.06);
+
+  return { pitchUp, rollLeftUp, slope, targetY, crestFlex };
+}
 
 function prism(points: Array<[number, number]>, width: number): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
@@ -150,6 +242,8 @@ export class Tank {
   private _rollLeftUp = 0;
   private _springX = 0;
   private _springV = 0;
+  private _trackPhase = 0;
+  private _crestFlex = 0;
   private _dust = 0;
 
   turretYaw = 0;
@@ -1922,12 +2016,8 @@ export class Tank {
   }
 
   private _sampleGround(dt: number, snap: boolean): void {
-    const h = this.heading;
-    const s = Math.sin(h);
-    const c = Math.cos(h);
     const x = this.root.position.x;
     const z = this.root.position.z;
-    const H = this.world.heightAt;
     const isMaus = this.spec.id === 'maus';
     const isT62M = this.spec.id === 't62m';
     const isT72B3 = this.spec.id === 't72b3';
@@ -1951,23 +2041,18 @@ export class Tank {
                   ? 3.45
                   : 3.2;
     const W = isMaus ? 1.95 : 1.8;
-    const hf = H(x + s * L, z + c * L);
-    const hb = H(x - s * L, z - c * L);
-    const hl = H(x + c * W, z - s * W);
-    const hr = H(x - c * W, z + s * W);
-    this.slope = (hf - hb) / (2 * L);
-    const tp = Math.atan2(hf - hb, 2 * L);
-    const tr = Math.atan2(hl - hr, 2 * W);
-    const ty = (hf + hb + hl + hr) / 4 + 0.05;
+    const pose = computeHullGroundPose(x, z, this.heading, L, W, this.world.heightAt);
+    this.slope = pose.slope;
+    this._crestFlex = pose.crestFlex;
     if (snap) {
-      this._pitchUp = tp;
-      this._rollLeftUp = tr;
-      this.root.position.y = ty;
+      this._pitchUp = pose.pitchUp;
+      this._rollLeftUp = pose.rollLeftUp;
+      this.root.position.y = pose.targetY;
     } else {
       const k = Math.min(1, dt * 8);
-      this._pitchUp += (tp - this._pitchUp) * k;
-      this._rollLeftUp += (tr - this._rollLeftUp) * k;
-      this.root.position.y += (ty - this.root.position.y) * Math.min(1, dt * 12);
+      this._pitchUp += (pose.pitchUp - this._pitchUp) * k;
+      this._rollLeftUp += (pose.rollLeftUp - this._rollLeftUp) * k;
+      this.root.position.y += (pose.targetY - this.root.position.y) * Math.min(1, dt * 14);
     }
   }
 
@@ -2120,6 +2205,7 @@ export class Tank {
     const hw = isMaus ? 1.9 : 1.75;
     const vl = this.speed - this.yawRate * hw;
     const vr = this.speed + this.yawRate * hw;
+    this._trackPhase += (Math.abs(this.speed) + Math.abs(this.yawRate) * hw) * dt * 1.35;
     for (const t of this.tracks) {
       const vt = t.sign > 0 ? vl : vr;
       t.tex.offset.x += (vt * dt * t.tex.repeat.x) / t.perimeter;
@@ -2127,6 +2213,14 @@ export class Tank {
     for (const w of this.wheels) {
       w.mesh.rotation.x += ((w.side > 0 ? vl : vr) * dt) / w.radius;
     }
+    updateTrackSuspensionAndFlex(this.tracks, this.wheels, {
+      phase: this._trackPhase,
+      speed: this.speed,
+      accel: this.accel,
+      yawRate: this.yawRate,
+      crestFlex: this._crestFlex,
+      alive: this.alive,
+    });
 
     if (fx) {
       this._dust += Math.min(1, (sAbs + Math.abs(this.yawRate) * 8) / 10) * 16 * dt;
@@ -2159,16 +2253,25 @@ export class Tank {
   }
 
   updateTurret(dt: number, aimYaw: number, aimElev: number): void {
+    if (!this.alive) return;
     const st = this.stats;
-    const wantYaw = wrapPi(aimYaw - this.heading);
-    const err = wrapPi(wantYaw - this.turretYaw);
-    const rate = clamp(err * 4, -st.traverseRate, st.traverseRate);
-    this.turretYaw = Math.abs(err) < 1e-4 ? wantYaw : wrapPi(this.turretYaw + rate * dt);
-
-    const tilt = this._pitchUp * Math.cos(this.turretYaw) + this._rollLeftUp * Math.sin(this.turretYaw);
-    const wantElev = clamp(aimElev - tilt, st.elevMin, st.elevMax);
-    const e = wantElev - this.gunElev;
-    this.gunElev += clamp(e * 5, -st.elevRate, st.elevRate) * dt;
+    const next = stepTurretAngles({
+      alive: this.alive,
+      turretYaw: this.turretYaw,
+      gunElev: this.gunElev,
+      heading: this.heading,
+      pitchUp: this._pitchUp,
+      rollLeftUp: this._rollLeftUp,
+      aimYaw,
+      aimElev,
+      traverseRate: st.traverseRate,
+      elevMin: st.elevMin,
+      elevMax: st.elevMax,
+      elevRate: st.elevRate,
+      dt,
+    });
+    this.turretYaw = next.turretYaw;
+    this.gunElev = next.gunElev;
     this._applyPose();
   }
 
@@ -2226,8 +2329,20 @@ export class Tank {
     this.reloadTimer = 0;
     this.recoil = 0;
     this.mgState = createMgState(this.stats.mg);
+    this._springX = 0;
+    this._springV = 0;
+    this._trackPhase = 0;
+    this._crestFlex = 0;
     this.root.position.set(x, 0, z);
     this._sampleGround(0, true);
+    updateTrackSuspensionAndFlex(this.tracks, this.wheels, {
+      phase: 0,
+      speed: 0,
+      accel: 0,
+      yawRate: 0,
+      crestFlex: this._crestFlex,
+      alive: true,
+    });
     this._applyPose();
     this.root.updateMatrixWorld(true);
   }

@@ -188,3 +188,11 @@ export function resolveMgHit(part: HitPart, mgDamage: number): HitResolution {
     zone: part,
   };
 }
+
+export const SKY_EASTER_MSG = 'Ты что дуралей!? Богов не трогай!';
+
+export function isShotIntoSky(dirY: number, aimRange: number | null, hasWorldHit: boolean): boolean {
+  if (hasWorldHit) return false;
+  if (aimRange === null && dirY > 0.08) return true;
+  return dirY > 0.18;
+}

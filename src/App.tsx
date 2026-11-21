@@ -300,9 +300,14 @@ export default function App() {
           <h1>IRON &amp; SKY</h1>
           <div className="tag">ТАНКОВЫЙ БОЙ</div>
           <div className="btnrow">
-            <button type="button" className="btn" id="bPlay" data-start="true">
-              ИГРАТЬ
-            </button>
+            <div className="play-btn-col">
+              <div className="play-easter" id="playEaster">
+                Кто не одной каточки не сыграл тот пивасик весь пролил!
+              </div>
+              <button type="button" className="btn" id="bPlay" data-start="true">
+                ИГРАТЬ
+              </button>
+            </div>
             <button type="button" className="btn" id="bModes">
               РЕЖИМЫ
             </button>

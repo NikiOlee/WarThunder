@@ -384,6 +384,55 @@ export function createWorld(scene: THREE.Scene): GameWorld {
   });
   const sky = new THREE.Group();
   sky.add(new THREE.Mesh(new THREE.SphereGeometry(2600, 32, 16), skyMat));
+
+  // Hidden sky easter-egg photo on "Холмы" at high zenith (~67° up), visible only when raising the camera
+  if (typeof document !== 'undefined' && typeof Image !== 'undefined') {
+    const emblemCanvas = makeCanvas(512, 512);
+    const emblemTex = new THREE.CanvasTexture(emblemCanvas);
+    emblemTex.colorSpace = THREE.SRGBColorSpace;
+    const emblemMat = new THREE.MeshBasicMaterial({
+      map: emblemTex,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      fog: false,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+    });
+    const emblemMesh = new THREE.Mesh(new THREE.PlaneGeometry(380, 380), emblemMat);
+    const skyPos = new THREE.Vector3(0.14, 0.78, 0.61).normalize().multiplyScalar(1950);
+    emblemMesh.position.copy(skyPos);
+    emblemMesh.lookAt(0, 0, 0);
+    emblemMesh.visible = false;
+    sky.add(emblemMesh);
+
+    const baseUrl =
+      (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/WarThunder/';
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const ctx = emblemCanvas.getContext('2d');
+      if (!ctx) return;
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) * 0.5;
+      const sy = (img.height - side) * 0.5;
+      ctx.clearRect(0, 0, 512, 512);
+      ctx.save();
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, 512, 512);
+      ctx.globalCompositeOperation = 'destination-in';
+      const grad = ctx.createRadialGradient(256, 256, 150, 256, 256, 252);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.68, 'rgba(255,255,255,0.92)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 512, 512);
+      ctx.restore();
+      emblemTex.needsUpdate = true;
+      emblemMesh.visible = true;
+    };
+    img.src = `${baseUrl.replace(/\/$/, '')}/assets/sky_emblem.jpg`;
+  }
+
   root.add(sky);
 
   function createEnvironment(renderer: THREE.WebGLRenderer) {

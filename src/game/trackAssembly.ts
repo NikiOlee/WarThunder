@@ -26,6 +26,7 @@ export interface TrackAssemblySpec {
 export interface TrackContourResult {
   outerPts: Array<[number, number]>;
   innerPts: Array<[number, number]>;
+  pointKind: Array<'bottom' | 'idler' | 'top' | 'sprocket'>;
   perimeter: number;
   minZ: number;
   maxZ: number;
@@ -33,16 +34,46 @@ export interface TrackContourResult {
   maxY: number;
 }
 
+export interface TrackBeltAnim {
+  geometry: THREE.BufferGeometry;
+  baseY: Float32Array;
+  pointIndices: Uint16Array;
+  contourZ: Float32Array;
+  contourIsBottom: Float32Array;
+  contourIsTop: Float32Array;
+  contourDy: Float32Array;
+  minWheelZ: number;
+  maxWheelZ: number;
+  maxTopDy: number;
+  maxBottomDrop: number;
+}
+
 export interface TrackScrollRef {
   tex: THREE.CanvasTexture;
   sign: number;
   perimeter: number;
+  anim?: TrackBeltAnim;
 }
 
 export interface TrackWheelRef {
   mesh: THREE.Object3D;
   side: number;
   radius: number;
+  z: number;
+  restY: number;
+  isRoadWheel: boolean;
+  arm?: THREE.Object3D;
+  armRestY?: number;
+  armRestRotX?: number;
+}
+
+export interface TrackFlexInputs {
+  phase: number;
+  speed: number;
+  accel: number;
+  yawRate: number;
+  crestFlex: number;
+  alive: boolean;
 }
 
 export function createTreadTexture(repeatCount = 18): THREE.CanvasTexture {
@@ -92,12 +123,14 @@ export function createTreadTexture(repeatCount = 18): THREE.CanvasTexture {
  * Computes a closed CCW 2D contour (z, y) wrapping smoothly under the road wheels,
  * up around the front idler, back over the top run / return rollers, and down around
  * the rear drive sprocket, plus an inset inner contour separated by `beltThickness`.
+ * Subdivides both bottom and top spans so track belts can subtly flex in motion.
  */
 export function buildTrackContour(spec: TrackAssemblySpec): TrackContourResult {
   const padClear = 0.018;
   const t = spec.beltThickness;
-  const minWheelZ = Math.min(...spec.wheelPositionsZ);
-  const maxWheelZ = Math.max(...spec.wheelPositionsZ);
+  const sortedWheels = [...spec.wheelPositionsZ].sort((a, b) => a - b);
+  const minWheelZ = sortedWheels[0];
+  const maxWheelZ = sortedWheels[sortedWheels.length - 1];
 
   const bottomInnerY = spec.wheelY - spec.wheelR - padClear;
   const rIdlerIn = spec.idlerR + padClear;
@@ -113,15 +146,23 @@ export function buildTrackContour(spec: TrackAssemblySpec): TrackContourResult {
   const midTopIn = Math.max(rollerTopIn, Math.min(idlerTopIn, sprocketTopIn));
 
   const innerPts: Array<[number, number]> = [];
-  const pushUnique = (z: number, y: number) => {
+  const pointKind: Array<'bottom' | 'idler' | 'top' | 'sprocket'> = [];
+  const pushUnique = (z: number, y: number, kind: 'bottom' | 'idler' | 'top' | 'sprocket') => {
     const prev = innerPts[innerPts.length - 1];
     if (prev && Math.hypot(z - prev[0], y - prev[1]) < 1e-4) return;
     innerPts.push([z, y]);
+    pointKind.push(kind);
   };
 
-  // 1. Rear wheel bottom -> front wheel bottom
-  pushUnique(minWheelZ, bottomInnerY);
-  pushUnique(maxWheelZ, bottomInnerY);
+  // 1. Rear wheel bottom -> front wheel bottom (subdivided at every road wheel + mid-span sag point)
+  for (let i = 0; i < sortedWheels.length; i++) {
+    const wz = sortedWheels[i];
+    pushUnique(wz, bottomInnerY, 'bottom');
+    if (i < sortedWheels.length - 1) {
+      const midZ = (wz + sortedWheels[i + 1]) * 0.5;
+      pushUnique(midZ, bottomInnerY, 'bottom');
+    }
+  }
 
   // 2. Front idler arc (CCW in (z, y): from bottom-rear approach around front +z tip to top)
   const idlerSegs = 9;
@@ -129,18 +170,36 @@ export function buildTrackContour(spec: TrackAssemblySpec): TrackContourResult {
   const idlerEnd = Math.PI * 0.5;
   for (let i = 0; i <= idlerSegs; i++) {
     const a = idlerStart + ((idlerEnd - idlerStart) * i) / idlerSegs;
-    pushUnique(spec.idlerZ + Math.cos(a) * rIdlerIn, spec.idlerY + Math.sin(a) * rIdlerIn);
+    pushUnique(spec.idlerZ + Math.cos(a) * rIdlerIn, spec.idlerY + Math.sin(a) * rIdlerIn, 'idler');
   }
 
-  // 3. Top run with subtle catenary over return rollers / road wheels
+  // 3. Top run with subtle catenary over return rollers / road wheels (subdivided for dynamic whip/sag)
+  const frontTopZ = spec.idlerZ - rIdlerIn * 0.3;
+  const rearTopZ = spec.sprocketZ + rSprocketIn * 0.3;
   if (spec.returnRollersZ && spec.returnRollersZ.length > 0) {
     const sorted = [...spec.returnRollersZ].sort((a, b) => b - a);
-    for (const rz of sorted) {
-      pushUnique(rz, midTopIn);
+    const anchors: Array<[number, number]> = [
+      [frontTopZ, idlerTopIn],
+      ...sorted.map((rz): [number, number] => [rz, midTopIn]),
+      [rearTopZ, sprocketTopIn],
+    ];
+    for (let i = 0; i < anchors.length - 1; i++) {
+      const [z0, y0] = anchors[i];
+      const [z1, y1] = anchors[i + 1];
+      if (i > 0) pushUnique(z0, y0, 'top');
+      const midZ = (z0 + z1) * 0.5;
+      const midY = (y0 + y1) * 0.5 - 0.012;
+      pushUnique(midZ, midY, 'top');
     }
   } else {
-    const midZ = (spec.idlerZ + spec.sprocketZ) * 0.5;
-    pushUnique(midZ, midTopIn - 0.015);
+    const topSteps = 6;
+    for (let s = 1; s < topSteps; s++) {
+      const f = s / topSteps;
+      const z = frontTopZ + (rearTopZ - frontTopZ) * f;
+      const sag = Math.sin(f * Math.PI) * 0.016;
+      const y = idlerTopIn + (sprocketTopIn - idlerTopIn) * f - sag;
+      pushUnique(z, Math.max(midTopIn - 0.016, y), 'top');
+    }
   }
 
   // 4. Rear drive sprocket arc (CCW in (z, y): from top around rear -z tip to bottom-front)
@@ -149,7 +208,7 @@ export function buildTrackContour(spec: TrackAssemblySpec): TrackContourResult {
   const spEnd = Math.PI * 1.62;
   for (let i = 0; i <= spSegs; i++) {
     const a = spStart + ((spEnd - spStart) * i) / spSegs;
-    pushUnique(spec.sprocketZ + Math.cos(a) * rSprocketIn, spec.sprocketY + Math.sin(a) * rSprocketIn);
+    pushUnique(spec.sprocketZ + Math.cos(a) * rSprocketIn, spec.sprocketY + Math.sin(a) * rSprocketIn, 'sprocket');
   }
 
   // Ensure last point doesn't duplicate first
@@ -158,6 +217,7 @@ export function buildTrackContour(spec: TrackAssemblySpec): TrackContourResult {
     const last = innerPts[innerPts.length - 1];
     if (Math.hypot(last[0] - first[0], last[1] - first[1]) < 1e-4) {
       innerPts.pop();
+      pointKind.pop();
     }
   }
 
@@ -211,16 +271,17 @@ export function buildTrackContour(spec: TrackAssemblySpec): TrackContourResult {
     if (a[1] > maxY) maxY = a[1];
   }
 
-  return { outerPts, innerPts, perimeter, minZ, maxZ, minY, maxY };
+  return { outerPts, innerPts, pointKind, perimeter, minZ, maxZ, minY, maxY };
 }
 
 /**
- * Builds a hollow closed track-belt BufferGeometry with crisp split normals and
- * perimeter-mapped UVs so scrolling texture.offset.x animates tread lugs smoothly.
+ * Builds a hollow closed track-belt BufferGeometry with crisp split normals,
+ * perimeter-mapped UVs, and per-vertex contour animation metadata.
  */
 export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
   geometry: THREE.BufferGeometry;
   contour: TrackContourResult;
+  pointIndices: Uint16Array;
 } {
   const contour = buildTrackContour(spec);
   const { outerPts, innerPts, perimeter } = contour;
@@ -237,10 +298,11 @@ export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
     arcU.push(acc / Math.max(1e-4, perimeter));
   }
 
-  // 4 quads per segment (outer, inner, +X edge, -X edge) * 6 indices, 4 verts per quad
+  // 4 quads per segment (outer, inner, +X edge, -X edge) * 4 verts per quad
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
+  const vertPointIndices: number[] = [];
 
   const pushQuad = (
     p0: [number, number, number],
@@ -251,10 +313,15 @@ export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
     uv1: [number, number],
     uv2: [number, number],
     uv3: [number, number],
+    pi0: number,
+    pi1: number,
+    pi2: number,
+    pi3: number,
   ) => {
     const base = positions.length / 3;
     positions.push(...p0, ...p1, ...p2, ...p3);
     uvs.push(...uv0, ...uv1, ...uv2, ...uv3);
+    vertPointIndices.push(pi0, pi1, pi2, pi3);
     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
 
@@ -283,6 +350,10 @@ export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
       [u1, 0],
       [u1, 1],
       [u0, 1],
+      i,
+      j,
+      j,
+      i,
     );
 
     // 2. Inner track face (facing inside the loop toward wheels)
@@ -295,6 +366,10 @@ export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
       [u0, 1],
       [u1, 1],
       [u1, 0],
+      i,
+      i,
+      j,
+      j,
     );
 
     // 3. +X rim face (outer edge of track)
@@ -307,6 +382,10 @@ export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
       [u0, 0.14],
       [u1, 0.14],
       [u1, 0.02],
+      i,
+      i,
+      j,
+      j,
     );
 
     // 4. -X rim face (inner edge of track)
@@ -319,6 +398,10 @@ export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
       [u1, 0.86],
       [u1, 0.98],
       [u0, 0.98],
+      i,
+      j,
+      j,
+      i,
     );
   }
 
@@ -327,7 +410,165 @@ export function createTrackBeltGeometry(spec: TrackAssemblySpec): {
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
-  return { geometry, contour };
+  geometry.computeBoundingSphere();
+  if (geometry.boundingSphere) {
+    geometry.boundingSphere.radius += 0.2;
+  }
+
+  return { geometry, contour, pointIndices: new Uint16Array(vertPointIndices) };
+}
+
+export function createTrackBeltAnim(
+  geometry: THREE.BufferGeometry,
+  contour: TrackContourResult,
+  pointIndices: Uint16Array,
+  spec: TrackAssemblySpec,
+): TrackBeltAnim {
+  const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
+  const baseY = new Float32Array(posAttr.count);
+  for (let v = 0; v < posAttr.count; v++) {
+    baseY[v] = posAttr.getY(v);
+  }
+
+  const n = contour.outerPts.length;
+  const contourZ = new Float32Array(n);
+  const contourIsBottom = new Float32Array(n);
+  const contourIsTop = new Float32Array(n);
+  const minWheelZ = Math.min(...spec.wheelPositionsZ);
+  const maxWheelZ = Math.max(...spec.wheelPositionsZ);
+
+  for (let i = 0; i < n; i++) {
+    contourZ[i] = contour.outerPts[i][0];
+    const kind = contour.pointKind[i];
+    if (kind === 'bottom') {
+      // Taper cleanly at end road wheels so idler/sprocket wraps seamlessly without kinks
+      const z = contourZ[i];
+      const edgeFade =
+        Math.abs(z - minWheelZ) < 0.05 || Math.abs(z - maxWheelZ) < 0.05 ? 0.55 : 1.0;
+      contourIsBottom[i] = edgeFade;
+    } else if (kind === 'top') {
+      contourIsTop[i] = 1.0;
+    }
+  }
+
+  // Keep upward belt flex strictly below fender underside
+  const fenderClear = Math.max(0.015, spec.fenderY - 0.045 - contour.maxY);
+
+  return {
+    geometry,
+    baseY,
+    pointIndices,
+    contourZ,
+    contourIsBottom,
+    contourIsTop,
+    contourDy: new Float32Array(n),
+    minWheelZ,
+    maxWheelZ,
+    maxTopDy: Math.min(0.024, fenderClear),
+    maxBottomDrop: 0.014,
+  };
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * Animates torsion-bar road wheel travel and subtly flexes both the bottom
+ * ground-hugging run and upper catenary run of each track belt without allocations.
+ */
+export function updateTrackSuspensionAndFlex(
+  tracks: TrackScrollRef[],
+  wheels: TrackWheelRef[],
+  inputs: TrackFlexInputs,
+): void {
+  const speedAbs = Math.abs(inputs.speed);
+  const speedFactor = inputs.alive ? Math.min(1, speedAbs / 3.5) : 0;
+  const accelClamped = inputs.alive ? clamp(inputs.accel, -9, 9) : 0;
+  const yawClamped = inputs.alive ? clamp(inputs.yawRate, -1, 1) : 0;
+  const crestFlex = clamp(inputs.crestFlex, -0.02, 0.06);
+
+  // Determine longitudinal bounds across all road wheels for normalized weight transfer
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < wheels.length; i++) {
+    if (!wheels[i].isRoadWheel) continue;
+    const wz = wheels[i].z;
+    if (wz < minZ) minZ = wz;
+    if (wz > maxZ) maxZ = wz;
+  }
+  const halfSpan = Math.max(0.5, (maxZ - minZ) * 0.5);
+  const midZ = (maxZ + minZ) * 0.5;
+
+  const evalBottomDy = (z: number, side: number): number => {
+    const zn = clamp((z - midZ) / halfSpan, -1, 1);
+    const weightShift = -accelClamped * 0.0028 * zn;
+    const turnRoll = side * yawClamped * 0.014;
+    const ripple =
+      speedFactor > 0.01
+        ? Math.sin(inputs.phase * 1.15 - z * 1.45 + side * 0.65) * 0.022 * speedFactor
+        : 0;
+    const crestLift = (1 - zn * zn) * crestFlex;
+    return clamp(weightShift + turnRoll + ripple + crestLift, -0.018, 0.065);
+  };
+
+  // 1. Articulate road wheels and torsion swing arms
+  for (let i = 0; i < wheels.length; i++) {
+    const w = wheels[i];
+    if (!w.isRoadWheel) continue;
+    const dy = evalBottomDy(w.z, w.side);
+    w.mesh.position.y = w.restY + dy;
+    if (w.arm && w.armRestY !== undefined && w.armRestRotX !== undefined) {
+      w.arm.position.y = w.armRestY + dy * 0.5;
+      w.arm.rotation.x = w.armRestRotX + dy * 1.25;
+    }
+  }
+
+  // 2. Flex left and right track belt BufferGeometries independently
+  for (let ti = 0; ti < tracks.length; ti++) {
+    const tr = tracks[ti];
+    const anim = tr.anim;
+    if (!anim) continue;
+
+    const n = anim.contourZ.length;
+    const dyArr = anim.contourDy;
+    const trackSpeedFactor = inputs.alive
+      ? Math.min(1, Math.abs(inputs.speed - tr.sign * inputs.yawRate * 1.75) / 3.5)
+      : 0;
+
+    for (let i = 0; i < n; i++) {
+      const z = anim.contourZ[i];
+      const wBot = anim.contourIsBottom[i];
+      const wTop = anim.contourIsTop[i];
+      let dy = 0;
+
+      if (wBot > 0) {
+        const botDy = evalBottomDy(z, tr.sign);
+        // Micro-sag ripple between bogies when belt links travel under tension
+        const interWheelWave =
+          trackSpeedFactor > 0.01
+            ? Math.sin(inputs.phase * 2.4 - z * 2.2 + tr.sign) * 0.006 * trackSpeedFactor
+            : 0;
+        dy = clamp(botDy + interWheelWave, -anim.maxBottomDrop, 0.065) * wBot;
+      } else if (wTop > 0) {
+        // Upper catenary slack wave / whip while driving + slight acceleration slack
+        const whip =
+          trackSpeedFactor > 0.01
+            ? Math.sin(inputs.phase * 2.1 - z * 1.15 + tr.sign * 0.5) * 0.018 * trackSpeedFactor
+            : 0;
+        const torqueSag = -Math.abs(accelClamped) * 0.0016;
+        dy = clamp(whip + torqueSag, -0.026, anim.maxTopDy) * wTop;
+      }
+      dyArr[i] = dy;
+    }
+
+    const posAttr = anim.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const count = posAttr.count;
+    const baseY = anim.baseY;
+    const ptIdx = anim.pointIndices;
+    for (let v = 0; v < count; v++) {
+      posAttr.setY(v, baseY[v] + dyArr[ptIdx[v]]);
+    }
+    posAttr.needsUpdate = true;
+  }
 }
 
 /**
@@ -372,7 +613,7 @@ export function buildTankTracks(
   wheelWidth: number;
   contour: TrackContourResult;
 } {
-  const { geometry: beltGeo, contour } = createTrackBeltGeometry(spec);
+  const { geometry: baseBeltGeo, contour, pointIndices } = createTrackBeltGeometry(spec);
   const wheelInset = spec.wheelInset ?? 0.1;
   const wheelW = Math.max(0.28, spec.trackWidth - wheelInset);
   const rubberMat = mats.darkMat;
@@ -388,7 +629,7 @@ export function buildTankTracks(
   hubGeo.rotateZ(Math.PI / 2);
   const spokeGeo = new THREE.BoxGeometry(wheelW + 0.026, spec.wheelR * 1.38, spec.wheelR * 0.14);
 
-  // Torsion swing arm attached statically to hull (never spins!)
+  // Torsion swing arm attached statically to hull, pivoted cleanly with suspension travel
   const armGeo = new THREE.BoxGeometry(0.11, 0.1, 0.36);
 
   // Front idler tension wheel
@@ -440,13 +681,23 @@ export function buildTankTracks(
       metalness: 0.28,
       flatShading: true,
     });
-    const belt = new THREE.Mesh(beltGeo, beltMat);
+    // Independent geometry per side so left & right belts flex independently
+    const sideBeltGeo = sx === 1 ? baseBeltGeo : baseBeltGeo.clone();
+    const belt = new THREE.Mesh(sideBeltGeo, beltMat);
     belt.position.set(tx, 0, 0);
     hullGroup.add(belt);
-    tracks.push({ tex, sign: sx, perimeter: contour.perimeter });
+    const anim = createTrackBeltAnim(sideBeltGeo, contour, pointIndices, spec);
+    tracks.push({ tex, sign: sx, perimeter: contour.perimeter, anim });
 
-    // Road wheels + static hull torsion arms
+    // Road wheels + articulated hull torsion arms
     for (const wz of spec.wheelPositionsZ) {
+      const arm = new THREE.Mesh(armGeo, rubberMat);
+      const armRestY = spec.wheelY + 0.08;
+      const armRestRotX = -0.35;
+      arm.position.set(sx * (spec.trackX - wheelW * 0.42 - 0.08), armRestY, wz - 0.14);
+      arm.rotation.x = armRestRotX;
+      hullGroup.add(arm);
+
       const wg = new THREE.Group();
       wg.position.set(tx, spec.wheelY, wz);
       wg.add(new THREE.Mesh(tireGeo, rubberMat));
@@ -457,22 +708,34 @@ export function buildTankTracks(
       sp2.rotation.x = Math.PI * 0.5;
       wg.add(sp1, sp2);
       hullGroup.add(wg);
-      wheels.push({ mesh: wg, side: sx, radius: spec.wheelR });
-
-      const arm = new THREE.Mesh(armGeo, rubberMat);
-      arm.position.set(sx * (spec.trackX - wheelW * 0.42 - 0.08), spec.wheelY + 0.08, wz - 0.14);
-      arm.rotation.x = -0.35;
-      hullGroup.add(arm);
+      wheels.push({
+        mesh: wg,
+        side: sx,
+        radius: spec.wheelR,
+        z: wz,
+        restY: spec.wheelY,
+        isRoadWheel: true,
+        arm,
+        armRestY,
+        armRestRotX,
+      });
     }
 
-    // Front idler wheel
+    // Front idler tension wheel
     const idlerGroup = new THREE.Group();
     idlerGroup.position.set(tx, spec.idlerY, spec.idlerZ);
     idlerGroup.add(new THREE.Mesh(idlerTireGeo, rubberMat));
     idlerGroup.add(new THREE.Mesh(idlerDiscGeo, rimMat));
     idlerGroup.add(new THREE.Mesh(idlerHubGeo, hubMat));
     hullGroup.add(idlerGroup);
-    wheels.push({ mesh: idlerGroup, side: sx, radius: spec.idlerR });
+    wheels.push({
+      mesh: idlerGroup,
+      side: sx,
+      radius: spec.idlerR,
+      z: spec.idlerZ,
+      restY: spec.idlerY,
+      isRoadWheel: false,
+    });
 
     // Rear toothed drive sprocket
     const spGroup = new THREE.Group();
@@ -486,7 +749,14 @@ export function buildTankTracks(
     innerRing.position.set(-ringOffset, 0, 0);
     spGroup.add(outerRing, innerRing);
     hullGroup.add(spGroup);
-    wheels.push({ mesh: spGroup, side: sx, radius: spec.sprocketR });
+    wheels.push({
+      mesh: spGroup,
+      side: sx,
+      radius: spec.sprocketR,
+      z: spec.sprocketZ,
+      restY: spec.sprocketY,
+      isRoadWheel: false,
+    });
 
     // Return rollers
     if (spec.returnRollersZ) {
@@ -494,7 +764,14 @@ export function buildTankTracks(
         const roller = new THREE.Mesh(rollerGeo, rubberMat);
         roller.position.set(tx, topReturnY, rz);
         hullGroup.add(roller);
-        wheels.push({ mesh: roller, side: sx, radius: rollerR });
+        wheels.push({
+          mesh: roller,
+          side: sx,
+          radius: rollerR,
+          z: rz,
+          restY: topReturnY,
+          isRoadWheel: false,
+        });
       }
     }
 

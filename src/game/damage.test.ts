@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks } from './tanks';
-import { BARREL_HITBOX_BOUNDS, isPointInBarrelZone, resolveHit } from './damage';
+import { BARREL_HITBOX_BOUNDS, SKY_EASTER_MSG, isPointInBarrelZone, isShotIntoSky, resolveHit } from './damage';
+import { computeHullGroundPose, stepTurretAngles } from './tank';
 
 test('T-55, M60A3 Patton, T-62M, T-72B3, Leopard 2A4, M1A1 Abrams, ZTZ-96A, and T-90M specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
   const tanks = getAllTanks();
@@ -348,4 +349,44 @@ test('Juggernaut Maus spec has 4000 HP (+3000), -5% speed/turret traverse, and 8
   assert.ok(Math.abs(maus.maxSpeed - (22 * 0.95) / 3.6) < 1e-6);
   assert.ok(Math.abs(maus.traverseRate - 16 * 0.95 * (Math.PI / 180)) < 1e-6);
   assert.equal(maus.reload, 8.5);
+});
+
+test('Turret and gun stay completely locked when tank is dead, and rotate when alive', () => {
+  const baseParams = {
+    turretYaw: 0.4,
+    gunElev: 0.08,
+    heading: 0,
+    pitchUp: 0,
+    rollLeftUp: 0,
+    aimYaw: 1.8,
+    aimElev: 0.25,
+    traverseRate: 0.5,
+    elevMin: -0.1,
+    elevMax: 0.32,
+    elevRate: 0.3,
+    dt: 0.05,
+  };
+
+  const deadStep = stepTurretAngles({ ...baseParams, alive: false });
+  assert.equal(deadStep.turretYaw, baseParams.turretYaw);
+  assert.equal(deadStep.gunElev, baseParams.gunElev);
+
+  const aliveStep = stepTurretAngles({ ...baseParams, alive: true });
+  assert.ok(aliveStep.turretYaw > baseParams.turretYaw);
+  assert.ok(aliveStep.gunElev > baseParams.gunElev);
+});
+
+test('computeHullGroundPose keeps hull and tracks above convex hill crests so tracks never sink into terrain', () => {
+  // Sharp convex hill crest peaking at y=4.0m at z=0, dropping off to ~0.4m at z=+-3.2m
+  const crestTerrain = (_x: number, z: number) => Math.max(0, 4.0 - z * z * 0.35);
+  const pose = computeHullGroundPose(0, 0, 0, 3.2, 1.8, crestTerrain);
+  assert.ok(pose.targetY >= crestTerrain(0, 0) + 0.06, `tank rootY (${pose.targetY}) must clear crest peak`);
+  assert.ok(pose.crestFlex > 0.02, `expected positive crestFlex over ridge, got ${pose.crestFlex}`);
+});
+
+test('Sky-shot easter egg detects firing into open sky and ignores ground/obstacle shots', () => {
+  assert.equal(SKY_EASTER_MSG, 'Ты что дуралей!? Богов не трогай!');
+  assert.equal(isShotIntoSky(0.26, null, false), true);
+  assert.equal(isShotIntoSky(0.26, 250, true), false);
+  assert.equal(isShotIntoSky(0.02, 180, false), false);
 });

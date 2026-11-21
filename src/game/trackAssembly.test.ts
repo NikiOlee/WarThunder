@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import {
   buildTrackContour,
   createToothedSprocketGeometry,
+  createTrackBeltAnim,
   createTrackBeltGeometry,
+  updateTrackSuspensionAndFlex,
   type TrackAssemblySpec,
+  type TrackScrollRef,
+  type TrackWheelRef,
 } from './trackAssembly';
 
 const TANK_SUSPENSION_CHECKS: Array<{
@@ -280,4 +285,82 @@ test('createToothedSprocketGeometry creates valid gear ring centered on X axle',
   assert.ok(Math.abs(bb.min.x + 0.0425) < 0.01 && Math.abs(bb.max.x - 0.0425) < 0.01);
   assert.ok(bb.max.y > 0.3 && bb.max.y < 0.34);
   geo.dispose();
+});
+
+test('updateTrackSuspensionAndFlex animates road wheels and subtly flexes left/right track belts within clearances', () => {
+  const t55Entry = TANK_SUSPENSION_CHECKS.find((e) => e.id === 't55')!;
+  const { geometry: leftGeo, contour, pointIndices } = createTrackBeltGeometry(t55Entry.spec);
+  const rightGeo = leftGeo.clone();
+
+  const leftAnim = createTrackBeltAnim(leftGeo, contour, pointIndices, t55Entry.spec);
+  const rightAnim = createTrackBeltAnim(rightGeo, contour, pointIndices, t55Entry.spec);
+
+  const tracks: TrackScrollRef[] = [
+    { tex: new THREE.CanvasTexture(), sign: 1, perimeter: contour.perimeter, anim: leftAnim },
+    { tex: new THREE.CanvasTexture(), sign: -1, perimeter: contour.perimeter, anim: rightAnim },
+  ];
+  const wheels: TrackWheelRef[] = [];
+  for (const sx of [1, -1]) {
+    for (const wz of t55Entry.spec.wheelPositionsZ) {
+      const mesh = new THREE.Object3D();
+      mesh.position.set(sx * t55Entry.spec.trackX, t55Entry.spec.wheelY, wz);
+      const arm = new THREE.Object3D();
+      arm.position.set(sx * 1.5, t55Entry.spec.wheelY + 0.08, wz - 0.14);
+      arm.rotation.x = -0.35;
+      wheels.push({
+        mesh,
+        side: sx,
+        radius: t55Entry.spec.wheelR,
+        z: wz,
+        restY: t55Entry.spec.wheelY,
+        isRoadWheel: true,
+        arm,
+        armRestY: t55Entry.spec.wheelY + 0.08,
+        armRestRotX: -0.35,
+      });
+    }
+  }
+
+  // Simulate driving at speed while steering & traversing a hill crest
+  updateTrackSuspensionAndFlex(tracks, wheels, {
+    phase: 2.3,
+    speed: 11.5,
+    accel: 4.5,
+    yawRate: 0.45,
+    crestFlex: 0.04,
+    alive: true,
+  });
+
+  const leftPos = leftGeo.getAttribute('position') as THREE.BufferAttribute;
+  const rightPos = rightGeo.getAttribute('position') as THREE.BufferAttribute;
+
+  let maxDelta = 0;
+  let maxSideDiff = 0;
+  let maxY = -Infinity;
+  let minY = Infinity;
+  for (let i = 0; i < leftPos.count; i++) {
+    const ly = leftPos.getY(i);
+    const ry = rightPos.getY(i);
+    assert.ok(Number.isFinite(ly) && Number.isFinite(ry));
+    maxDelta = Math.max(maxDelta, Math.abs(ly - leftAnim.baseY[i]));
+    maxSideDiff = Math.max(maxSideDiff, Math.abs(ly - ry));
+    maxY = Math.max(maxY, ly, ry);
+    minY = Math.min(minY, ly, ry);
+  }
+
+  // Track must visibly flex while staying strictly below fender underside and near ground plane
+  assert.ok(maxDelta > 0.008 && maxDelta < 0.09, `expected subtle non-static flex, got maxDelta=${maxDelta}`);
+  assert.ok(maxSideDiff > 0.005, `expected left/right belts to flex independently during turns, got diff=${maxSideDiff}`);
+  assert.ok(maxY < t55Entry.fenderBottomY, `flexed top belt (${maxY}) must stay under fender (${t55Entry.fenderBottomY})`);
+  assert.ok(minY >= -0.025, `flexed bottom belt (${minY}) must not sink deep below local zero`);
+
+  // Verify road wheels and swing arms articulated too
+  const movedWheel = wheels.some((w) => Math.abs(w.mesh.position.y - w.restY) > 0.005);
+  const movedArm = wheels.some((w) => w.arm && Math.abs(w.arm.rotation.x - w.armRestRotX!) > 0.005);
+  assert.equal(movedWheel, true);
+  assert.equal(movedArm, true);
+
+  leftGeo.dispose();
+  rightGeo.dispose();
+  for (const tr of tracks) tr.tex.dispose();
 });

@@ -27,6 +27,7 @@ import {
   type ScoreboardRow,
 } from './modes';
 import { resolveTankCollisionPair } from './collision';
+import { isShotIntoSky, SKY_EASTER_MSG } from './damage';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { recordMatchHistory } from './matchHistory';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -286,6 +287,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   let kills = 0;
   let playerDeadT = 0;
   let msgT = 0;
+  let lastSkyMsgTime = -10;
   let menuAngle = 0;
   let consoleOpen = false;
   const keys: Record<string, boolean> = Object.create(null);
@@ -501,6 +503,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     pendingRoundMatchWinner = null;
     showRoundBanner(null);
     msgT = 0;
+    lastSkyMsgTime = -10;
     $('msg').style.opacity = '0';
     $('msg').textContent = '';
     updateModeScoreHud();
@@ -2221,7 +2224,9 @@ export function initGame(mountEl: HTMLElement): () => void {
       brake: !!keys[K.brake],
     };
     tank.update(dt, input, ballistics.fx);
-    tank.updateTurret(dt, aim.yaw, aim.elev);
+    if (tank.alive && !matchEnded) {
+      tank.updateTurret(dt, aim.yaw, aim.elev);
+    }
     tank.root.updateMatrixWorld(true);
 
     for (let i = 0; i < bots.length; i++) {
@@ -2379,6 +2384,10 @@ export function initGame(mountEl: HTMLElement): () => void {
         ballistics.fire({ ...shot, owner: tank });
         kick += mode === 'third' ? 0.018 : 0.0035;
         shake = mode === 'third' ? 0.18 : 0;
+        if (shot.dir.y > 0.08 && isShotIntoSky(shot.dir.y, aim.range, !!world.raycast(shot.pos, shot.dir, 650))) {
+          showMsg(SKY_EASTER_MSG, '#ffd27a');
+          lastSkyMsgTime = simTime;
+        }
       }
     }
     const firingMg = !!keys[K.mg] || (touchActive && touchCtl!.state.mgHeld);
@@ -2386,6 +2395,14 @@ export function initGame(mountEl: HTMLElement): () => void {
       const mgShot = tank.fireMg();
       if (mgShot) {
         ballistics.fire({ ...mgShot, owner: tank });
+        if (
+          mgShot.dir.y > 0.08 &&
+          simTime - lastSkyMsgTime >= 2.5 &&
+          isShotIntoSky(mgShot.dir.y, aim.range, !!world.raycast(mgShot.pos, mgShot.dir, 650))
+        ) {
+          showMsg(SKY_EASTER_MSG, '#ffd27a');
+          lastSkyMsgTime = simTime;
+        }
       }
     }
 

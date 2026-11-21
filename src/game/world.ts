@@ -385,9 +385,11 @@ export function createWorld(scene: THREE.Scene): GameWorld {
   const sky = new THREE.Group();
   sky.add(new THREE.Mesh(new THREE.SphereGeometry(2600, 32, 16), skyMat));
 
-  // Hidden sky easter-egg photo on "Холмы" at high zenith (~67° up), visible only when raising the camera
+  // Hidden sky easter-egg photo on "Холмы" at high zenith, visible only when raising the camera
   if (typeof document !== 'undefined' && typeof Image !== 'undefined') {
-    const emblemCanvas = makeCanvas(512, 512);
+    const cw = 512;
+    const ch = 680;
+    const emblemCanvas = makeCanvas(cw, ch);
     const emblemTex = new THREE.CanvasTexture(emblemCanvas);
     emblemTex.colorSpace = THREE.SRGBColorSpace;
     const emblemMat = new THREE.MeshBasicMaterial({
@@ -399,7 +401,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       opacity: 0.92,
       side: THREE.DoubleSide,
     });
-    const emblemMesh = new THREE.Mesh(new THREE.PlaneGeometry(380, 380), emblemMat);
+    const emblemMesh = new THREE.Mesh(new THREE.PlaneGeometry(320, 425), emblemMat);
     const skyPos = new THREE.Vector3(0.14, 0.78, 0.61).normalize().multiplyScalar(1950);
     emblemMesh.position.copy(skyPos);
     emblemMesh.lookAt(0, 0, 0);
@@ -413,24 +415,36 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     img.onload = () => {
       const ctx = emblemCanvas.getContext('2d');
       if (!ctx) return;
-      const side = Math.min(img.width, img.height);
-      const sx = (img.width - side) * 0.5;
-      const sy = (img.height - side) * 0.5;
-      ctx.clearRect(0, 0, 512, 512);
+      ctx.clearRect(0, 0, cw, ch);
       ctx.save();
-      ctx.drawImage(img, sx, sy, side, side, 0, 0, 512, 512);
+      const targetAspect = cw / ch;
+      const srcAspect = img.width / Math.max(1, img.height);
+      let sx = 0;
+      let sy = 0;
+      let sw = img.width;
+      let sh = img.height;
+      if (srcAspect > targetAspect) {
+        sw = img.height * targetAspect;
+        sx = (img.width - sw) * 0.5;
+      } else {
+        sh = img.width / targetAspect;
+        sy = (img.height - sh) * 0.5;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
       ctx.globalCompositeOperation = 'destination-in';
-      const grad = ctx.createRadialGradient(256, 256, 150, 256, 256, 252);
+      ctx.translate(cw * 0.5, ch * 0.5);
+      ctx.scale(1, ch / cw);
+      const grad = ctx.createRadialGradient(0, 0, cw * 0.3, 0, 0, cw * 0.49);
       grad.addColorStop(0, 'rgba(255,255,255,1)');
-      grad.addColorStop(0.68, 'rgba(255,255,255,0.92)');
+      grad.addColorStop(0.7, 'rgba(255,255,255,0.9)');
       grad.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 512, 512);
+      ctx.fillRect(-cw * 0.5, -cw * 0.5, cw, cw);
       ctx.restore();
       emblemTex.needsUpdate = true;
       emblemMesh.visible = true;
     };
-    img.src = `${baseUrl.replace(/\/$/, '')}/assets/sky_emblem.jpg`;
+    img.src = `${baseUrl.replace(/\/$/, '')}/assets/aistudio/____________viber_2026-11-15_14-29-37-531_e2036c18.jpg`;
   }
 
   root.add(sky);

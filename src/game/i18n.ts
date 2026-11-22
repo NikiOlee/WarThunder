@@ -89,7 +89,7 @@ const DICT_RU: TranslationDict = {
   // Main menu line & info
   mapline: 'Режим: {mode} · Карта: {map} · Танк: {tank}',
   playEaster: 'Кто не одной каточки не сыграл тот пивасик весь пролил!',
-  skyEaster: 'Выстрел в небо! Птицы в шоке, а противник ржёт!',
+  skyEaster: 'Ты что дуралей!? Богов не трогай!',
   tipTouch: 'Управление: Телефон (джойстик слева, свайп-обзор, кнопки справа)',
   tipPc: 'Консоль настроек: ~ · Таблица счёта: TAB · Таран: -20 ХП',
   extraTraining: 'Читы (sv_cheats on) и настройка точности ботов активны. Серебро не начисляется.',
@@ -404,7 +404,7 @@ const DICT_SR: TranslationDict = {
   // Main menu line & info
   mapline: 'Režim: {mode} · Mapa: {map} · Tenk: {tank}',
   playEaster: 'Ko nije odigrao nijednu partiju, prosuo je sve pivo!',
-  skyEaster: 'Pucanj u nebo! Ptice su u šoku, a neprijatelj se smeje!',
+  skyEaster: 'Šta ti je, budalo!? Ne diraj bogove!',
   tipTouch: 'Kontrole: Telefon (džojstik levo, prevlačenje za pogled, dugmad desno)',
   tipPc: 'Konzola podešavanja: ~ · Tabela rezultata: TAB · Udarac: -20 HP',
   extraTraining: 'Čitovi (sv_cheats on) i podešavanje preciznosti botova su aktivni. Srebro se ne dodeljuje.',
@@ -719,7 +719,7 @@ const DICT_EN: TranslationDict = {
   // Main menu line & info
   mapline: 'Mode: {mode} · Map: {map} · Tank: {tank}',
   playEaster: "Whoever hasn't played a single match has spilled all the beer!",
-  skyEaster: 'Sky shot! The birds are shocked, and the enemy is laughing!',
+  skyEaster: "What are you, a fool!? Don't mess with the gods!",
   tipTouch: 'Controls: Mobile (joystick on left, swipe look, buttons on right)',
   tipPc: 'Settings console: ~ · Scoreboard: TAB · Ramming: -20 HP',
   extraTraining: 'Cheats (sv_cheats on) and bot accuracy setting are active. No silver earned.',

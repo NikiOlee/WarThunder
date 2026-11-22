@@ -88,6 +88,11 @@ test('t() translates strings and handles parameter interpolation', () => {
 
   const lineEn = t('mapline', { mode: 'TDM', map: 'Desert', tank: 'T-55' }, 'en');
   assert.equal(lineEn, 'Mode: TDM · Map: Desert · Tank: T-55');
+
+  // Sky shot easter egg translations
+  assert.equal(t('skyEaster', undefined, 'ru'), 'Ты что дуралей!? Богов не трогай!');
+  assert.equal(t('skyEaster', undefined, 'sr'), 'Šta ti je, budalo!? Ne diraj bogove!');
+  assert.equal(t('skyEaster', undefined, 'en'), "What are you, a fool!? Don't mess with the gods!");
 });
 
 test('getLanguage() and setLanguage() manage active language and chosen state', () => {

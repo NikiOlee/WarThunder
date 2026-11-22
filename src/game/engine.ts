@@ -1293,6 +1293,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     mgAmmo: $('mgAmmo'),
     mgBarFill: $('mgBarFill'),
     mgStateTxt: $('mgStateTxt'),
+    apsBadge: $('apsBadge'),
+    apsBadgeLbl: $('apsBadgeLbl'),
+    apsBadgeState: $('apsBadgeState'),
     tBtnFire: $('tBtnFire'),
     tFireReloadTxt: $('tFireReloadTxt'),
     tBtnMg: $('tBtnMg'),
@@ -1351,6 +1354,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     mgStateTxt: '',
     mgReloading: false,
     mgEmpty: false,
+    apsVisible: false,
+    apsReady: true,
+    apsLbl: '',
+    apsTxt: '',
     survivalTimer: '',
     survivalUrgent: false,
     survivalKills: '',
@@ -1528,6 +1535,30 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (mgTxt !== hudCache.mgStateTxt) {
       hudCache.mgStateTxt = mgTxt;
       el.mgStateTxt.textContent = mgTxt;
+    }
+
+    const apsVisible = !!(tank.spec.aps && tank.apsState && !spectating && tank.alive);
+    if (apsVisible !== hudCache.apsVisible) {
+      hudCache.apsVisible = apsVisible;
+      el.apsBadge.classList.toggle('hidden', !apsVisible);
+    }
+    if (apsVisible && tank.apsState) {
+      const apsLbl = t('hudApsName');
+      if (apsLbl !== hudCache.apsLbl) {
+        hudCache.apsLbl = apsLbl;
+        el.apsBadgeLbl.textContent = apsLbl;
+      }
+      const apsReady = tank.apsState.cooldown <= 0;
+      if (apsReady !== hudCache.apsReady) {
+        hudCache.apsReady = apsReady;
+        el.apsBadge.classList.toggle('ready', apsReady);
+        el.apsBadge.classList.toggle('cooling', !apsReady);
+      }
+      const apsTxt = apsReady ? t('hudApsReady') : t('hudApsCooldown', { t: tank.apsState.cooldown.toFixed(1) });
+      if (apsTxt !== hudCache.apsTxt) {
+        hudCache.apsTxt = apsTxt;
+        el.apsBadgeState.textContent = apsTxt;
+      }
     }
 
     const bossVisible = !!(boss && !matchEnded);
@@ -2169,6 +2200,15 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (e.destroyed) {
       const suffix = e.result === 'fuel' ? t('suffixFuel') : e.isMg ? t('suffixMg') : '';
       handleTankDestroyed(e.target, e.owner, suffix);
+    }
+  });
+
+  ballistics.onApsIntercept((e) => {
+    if (e.target === tank) {
+      showMsg(t('msgTrophyIntercept'), '#78f0ff');
+      shake = Math.max(shake, 0.14);
+    } else if (e.owner === tank) {
+      showMsg(t('msgTrophyEnemyBlocked'), '#ffd27a');
     }
   });
 

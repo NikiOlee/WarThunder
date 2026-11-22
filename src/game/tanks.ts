@@ -1,4 +1,5 @@
 import type { MachineGunSpec } from './machineGun';
+import type { TrophyApsConfig } from './aps';
 
 const DEG = Math.PI / 180;
 const TANK_STORAGE_KEY = 'ironsky.selectedTank.v1';
@@ -53,6 +54,10 @@ export interface TankSpec {
     fuel: number;
   };
   mg: MachineGunSpec;
+  aps?: TrophyApsConfig;
+  accelBoost?: number;
+  pivotBoost?: number;
+  stabilized?: boolean;
 }
 
 export const DEFAULT_TANK_ID = 't55';
@@ -473,6 +478,120 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       totalAmmo: 800,
       reloadTime: 2.6,
       muzzleVelocity: 940,
+      maxRange: 540,
+      spread: 0.005,
+    },
+  },
+  merkava4: {
+    id: 'merkava4',
+    name: 'Merkava Mk.4',
+    role: 'Современный ОБТ',
+    country: 'Израиль',
+    gunName: '120-мм гладкоствольная MG253',
+    description:
+      'Современный израильский основной боевой танк с передним расположением двигателя, массивным скошенным носом, сильно сдвинутой назад клиновидной башней «летающая тарелка» с цепями-экранами сзади, стабилизированной 120-мм пушкой и комплексом активной защиты «Trophy» (Ветровка), перехватывающим вражеский снаряд каждые 15–20 секунд.',
+    priceSilver: 12000,
+    maxSpeedKmh: 85,
+    maxSpeed: 85 / 3.6,
+    maxReverse: 10.5,
+    traverseRate: 38 * DEG,
+    elevRate: 22 * DEG,
+    elevMin: -8 * DEG,
+    elevMax: 20 * DEG,
+    reload: 2.5,
+    muzzleVelocity: 760,
+    maxRange: 750,
+    caliber: 0.12,
+    penetrationMm: 350,
+    maxHp: 155,
+    gunDamage: 82,
+    frontDamageReduction: 42,
+    frontDamageRange: [16, 24],
+    bossDamageCoef: 2.0,
+    accelBoost: 1.35,
+    pivotBoost: 1.55,
+    stabilized: true,
+    aps: {
+      cooldownMin: 15,
+      cooldownMax: 20,
+      interceptRadius: 6.5,
+    },
+    armor: {
+      hullFront: 260,
+      hullSide: 90,
+      hullRear: 45,
+      deck: 28,
+      turretFront: 275,
+      turretSide: 145,
+      turretRear: 70,
+      turretTop: 28,
+    },
+    damage: {
+      front: 18,
+      sideRear: 82,
+      fuel: 999,
+    },
+    mg: {
+      name: '7.62-мм пулемёт MAG',
+      damage: 0.995,
+      fireRate: 15,
+      magSize: 220,
+      totalAmmo: 880,
+      reloadTime: 2.5,
+      muzzleVelocity: 940,
+      maxRange: 550,
+      spread: 0.0042,
+    },
+  },
+  challenger2: {
+    id: 'challenger2',
+    name: 'Challenger 2',
+    role: 'Основной боевой танк',
+    country: 'Великобритания',
+    gunName: '120-мм нарезная L30A1',
+    description:
+      'Британский основной боевой танк с массивным длинным корпусом, крупной угловатой башней со скосами композитной брони «Чобхэм» и мощнейшей 120-мм нарезной пушкой L30A1, наносящей 90 единиц урона.',
+    priceSilver: 13000,
+    maxSpeedKmh: 55,
+    maxSpeed: 55 / 3.6,
+    maxReverse: 7.5,
+    traverseRate: 30 * DEG,
+    elevRate: 19 * DEG,
+    elevMin: -10 * DEG,
+    elevMax: 20 * DEG,
+    reload: 4.0,
+    muzzleVelocity: 780,
+    maxRange: 750,
+    caliber: 0.12,
+    penetrationMm: 365,
+    maxHp: 135,
+    gunDamage: 90,
+    frontDamageReduction: 40,
+    frontDamageRange: [18, 25],
+    bossDamageCoef: 2.15,
+    armor: {
+      hullFront: 265,
+      hullSide: 95,
+      hullRear: 48,
+      deck: 28,
+      turretFront: 285,
+      turretSide: 150,
+      turretRear: 75,
+      turretTop: 30,
+    },
+    damage: {
+      front: 20,
+      sideRear: 90,
+      fuel: 999,
+    },
+    mg: {
+      name: '7.62-мм пулемёт L94A1',
+      damage: 0.995,
+      fireRate: 13,
+      magSize: 200,
+      totalAmmo: 800,
+      reloadTime: 2.6,
+      muzzleVelocity: 930,
       maxRange: 540,
       spread: 0.005,
     },

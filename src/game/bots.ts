@@ -494,7 +494,7 @@ export class Bot {
       const dz = az - gp.z;
       const horiz = Math.hypot(dx, dz);
       const dy = ay - gp.y;
-      const noise = (0.0028 / Math.max(0.55, this.skill)) * (1 + range / 300);
+      const noise = (0.0028 / Math.max(0.55, this.skill)) * (1 + range / 300) * (t.stats.stabilized ? 0.45 : 1);
 
       aimYaw = Math.atan2(dx, dz) + this.noiseYaw * noise;
       aimElev = Math.atan2(dy, horiz) + Math.atan2(0.5 * G * flight * flight * 1.05, Math.max(1, horiz)) + this.noiseElev * noise * 0.7;

@@ -318,6 +318,14 @@ class AudioSys {
         this._burst(dst, t, 0.025, 0.24, 'highpass', 2400, 2400, 0.7);
         break;
       }
+      case 'trophy': {
+        // Radar lock chirp + directional mid-air countermeasure blast
+        this._tone(dst, 'triangle', 2200, 3100, t, 0.04, 0.28);
+        this._tone(dst, 'sine', 190, 52, t + 0.02, 0.24, 0.85);
+        this._burst(dst, t + 0.015, 0.18, 0.95, 'bandpass', 2600, 620, 0.7);
+        this._burst(dst, t + 0.02, 0.06, 0.65, 'highpass', 3600, 3600);
+        break;
+      }
       default:
         break;
     }

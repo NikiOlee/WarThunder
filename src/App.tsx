@@ -36,6 +36,10 @@ export default function App() {
           ГОТОВ
         </div>
       </div>
+      <div id="apsBadge" className="hud hidden" data-testid="aps-badge">
+        <span id="apsBadgeLbl">КАЗ «TROPHY»</span>
+        <b id="apsBadgeState">ГОТОВ</b>
+      </div>
 
       <div id="help" className="hud" />
       <div id="modeLabel" className="hud">

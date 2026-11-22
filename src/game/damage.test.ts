@@ -4,9 +4,9 @@ import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, get
 import { BARREL_HITBOX_BOUNDS, SKY_EASTER_MSG, isPointInBarrelZone, isShotIntoSky, resolveHit } from './damage';
 import { computeHullGroundPose, stepTurretAngles } from './tank';
 
-test('T-55, M60A3 Patton, T-62M, T-72B3, Leopard 2A4, M1A1 Abrams, ZTZ-96A, and T-90M specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
+test('T-55 through Challenger 2 specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
   const tanks = getAllTanks();
-  assert.equal(tanks.length, 8);
+  assert.equal(tanks.length, 10);
   assert.equal(tanks[0].id, 't55');
   assert.equal(tanks[0].name, 'Т-55');
   assert.equal(tanks[1].id, 'm60a3');
@@ -23,6 +23,10 @@ test('T-55, M60A3 Patton, T-62M, T-72B3, Leopard 2A4, M1A1 Abrams, ZTZ-96A, and 
   assert.equal(tanks[6].name, 'ZTZ-96A');
   assert.equal(tanks[7].id, 't90m');
   assert.equal(tanks[7].name, 'Т-90М');
+  assert.equal(tanks[8].id, 'merkava4');
+  assert.equal(tanks[8].name, 'Merkava Mk.4');
+  assert.equal(tanks[9].id, 'challenger2');
+  assert.equal(tanks[9].name, 'Challenger 2');
 
   const t55 = getTankSpec(DEFAULT_TANK_ID);
   assert.equal(t55.maxSpeedKmh, 50);
@@ -100,6 +104,32 @@ test('T-55, M60A3 Patton, T-62M, T-72B3, Leopard 2A4, M1A1 Abrams, ZTZ-96A, and 
   assert.equal(t90m.gunDamage, 75);
   assert.deepEqual(t90m.frontDamageRange, [20, 28]);
   assert.ok(t90m.damage.fuel >= t90m.maxHp);
+
+  const merkava4 = getTankSpec('merkava4');
+  assert.equal(merkava4.priceSilver, 12000);
+  assert.equal(merkava4.maxSpeedKmh, 85);
+  assert.ok(Math.abs(merkava4.maxSpeed * 3.6 - 85) < 0.01);
+  assert.equal(merkava4.reload, 2.5);
+  assert.equal(merkava4.maxRange, 750);
+  assert.equal(merkava4.gunDamage, 82);
+  assert.equal(merkava4.maxHp, 155);
+  assert.deepEqual(merkava4.frontDamageRange, [16, 24]);
+  assert.equal(merkava4.stabilized, true);
+  assert.ok((merkava4.accelBoost ?? 1) > 1);
+  assert.ok((merkava4.pivotBoost ?? 1) > 1);
+  assert.deepEqual(merkava4.aps, { cooldownMin: 15, cooldownMax: 20, interceptRadius: 6.5 });
+  assert.ok(merkava4.damage.fuel >= merkava4.maxHp);
+
+  const challenger2 = getTankSpec('challenger2');
+  assert.equal(challenger2.priceSilver, 13000);
+  assert.equal(challenger2.maxSpeedKmh, 55);
+  assert.ok(Math.abs(challenger2.maxSpeed * 3.6 - 55) < 0.01);
+  assert.equal(challenger2.reload, 4.0);
+  assert.equal(challenger2.maxRange, 750);
+  assert.equal(challenger2.gunDamage, 90);
+  assert.equal(challenger2.maxHp, 135);
+  assert.deepEqual(challenger2.frontDamageRange, [18, 25]);
+  assert.ok(challenger2.damage.fuel >= challenger2.maxHp);
 });
 
 test('Damage depends on attacker gunDamage and target armor zone (Patton and T-62M)', () => {
@@ -257,6 +287,35 @@ test('M1A1 Abrams, ZTZ-96A and T-90M reduce frontal damage, take full side/rear 
     assert.equal(rear.damage, 60);
 
     const fuel = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, t55Shell, 440, 'fuel', target);
+    assert.equal(fuel.result, 'fuel');
+    assert.ok(fuel.damage >= target.maxHp);
+  }
+});
+
+test('Merkava Mk.4 and Challenger 2 reduce frontal damage, take full side/rear damage, and die to a fuel hit', () => {
+  const merkava4 = getTankSpec('merkava4');
+  const challenger2 = getTankSpec('challenger2');
+  const heavyShell = { muzzleVelocity: 780, penetrationMm: 420, gunDamage: 90 };
+  const midShell = { muzzleVelocity: 500, penetrationMm: 240, gunDamage: 60 };
+
+  const merkFrontHull = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, heavyShell, 775, 'hull', merkava4);
+  assert.equal(merkFrontHull.result, 'pen');
+  assert.ok(merkFrontHull.damage >= 16 && merkFrontHull.damage <= 24);
+
+  const challyFrontTurret = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, heavyShell, 775, 'turret', challenger2);
+  assert.equal(challyFrontTurret.result, 'pen');
+  assert.ok(challyFrontTurret.damage >= 18 && challyFrontTurret.damage <= 25);
+
+  for (const target of [merkava4, challenger2]) {
+    const side = resolveHit('hull', { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, midShell, 460, 'hull', target);
+    assert.equal(side.result, 'pen');
+    assert.equal(side.damage, 60);
+
+    const rear = resolveHit('hull', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, heavyShell, 740, 'hull', target);
+    assert.equal(rear.result, 'pen');
+    assert.equal(rear.damage, 90);
+
+    const fuel = resolveHit('fuel', { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 1 }, midShell, 440, 'fuel', target);
     assert.equal(fuel.result, 'fuel');
     assert.ok(fuel.damage >= target.maxHp);
   }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BARREL_HITBOX_BOUNDS, resolveHit, resolveMgHit, type HitPart, type HitResolution } from './damage';
+import { canInterceptProjectile, triggerApsIntercept } from './aps';
 import { audio } from './audio';
 import { BOSS_BASE_DAMAGE } from './tanks';
 import type { Tank } from './tank';
@@ -263,6 +264,24 @@ const T90M_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.72, 0.94, -3.46), max: new THREE.Vector3(-0.96, 1.6, -1.34) },
   { part: 'fuel', min: new THREE.Vector3(-1.32, 0.96, -3.62), max: new THREE.Vector3(1.32, 1.62, -2.9) },
 ];
+const MERKAVA4_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.55, 0.05, -3.72), max: new THREE.Vector3(1.55, 1.74, 3.94) },
+  { part: 'trackL', min: new THREE.Vector3(1.56, 0.03, -3.76), max: new THREE.Vector3(2.2, 1.12, 3.76) },
+  { part: 'trackR', min: new THREE.Vector3(-2.2, 0.03, -3.76), max: new THREE.Vector3(-1.56, 1.12, 3.76) },
+  // Merkava Mk.4 rear fender & rear hatch fuel cells (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.96, -3.72), max: new THREE.Vector3(1.86, 1.64, -1.65) },
+  { part: 'fuel', min: new THREE.Vector3(-1.86, 0.96, -3.72), max: new THREE.Vector3(-0.96, 1.64, -1.65) },
+  { part: 'fuel', min: new THREE.Vector3(-1.35, 1.0, -3.84), max: new THREE.Vector3(1.35, 1.68, -3.1) },
+];
+const CHALLENGER2_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.56, 0.05, -3.86), max: new THREE.Vector3(1.56, 1.74, 3.88) },
+  { part: 'trackL', min: new THREE.Vector3(1.57, 0.03, -3.82), max: new THREE.Vector3(2.22, 1.12, 3.82) },
+  { part: 'trackR', min: new THREE.Vector3(-2.22, 0.03, -3.82), max: new THREE.Vector3(-1.57, 1.12, 3.82) },
+  // Challenger 2 rear fender fuel cells & twin rear external fuel drums (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.96, -3.65), max: new THREE.Vector3(1.86, 1.64, -1.48) },
+  { part: 'fuel', min: new THREE.Vector3(-1.86, 0.96, -3.65), max: new THREE.Vector3(-0.96, 1.64, -1.48) },
+  { part: 'fuel', min: new THREE.Vector3(-1.38, 0.96, -4.24), max: new THREE.Vector3(1.38, 1.66, -3.2) },
+];
 const MAUS_HULL_BOXES: HitBox[] = [
   { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
   { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
@@ -277,6 +296,8 @@ const LEOPARD2A4_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-
 const M1A1_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.56, 0.0, -2.7), max: new THREE.Vector3(1.56, 1.18, 1.78) };
 const ZTZ96A_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.5, 0.0, -2.35), max: new THREE.Vector3(1.5, 1.1, 1.76) };
 const T90M_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.53, 0.0, -2.6), max: new THREE.Vector3(1.53, 1.12, 1.8) };
+const MERKAVA4_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.78, 0.0, -2.58), max: new THREE.Vector3(1.78, 0.96, 1.82) };
+const CHALLENGER2_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.68, 0.0, -2.75), max: new THREE.Vector3(1.68, 1.18, 1.85) };
 const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
@@ -350,6 +371,13 @@ export interface TankHitEvent {
   detail: HitResolution;
 }
 
+export interface ApsInterceptEvent {
+  target: Tank;
+  owner: Tank | null;
+  point: THREE.Vector3;
+  cooldown: number;
+}
+
 export interface ImpactEvent {
   point: THREE.Vector3;
   normal: THREE.Vector3;
@@ -389,6 +417,7 @@ export class BallisticsSystem {
   projectiles: Projectile[] = [];
   listeners: Array<(e: ImpactEvent) => void> = [];
   tankListeners: Array<(e: TankHitEvent) => void> = [];
+  apsListeners: Array<(e: ApsInterceptEvent) => void> = [];
   targets: Tank[] = [];
 
   private _inv = new Map<Tank, THREE.Matrix4>();
@@ -456,8 +485,58 @@ export class BallisticsSystem {
   onTankHit(fn: (e: TankHitEvent) => void): void {
     this.tankListeners.push(fn);
   }
+  onApsIntercept(fn: (e: ApsInterceptEvent) => void): void {
+    this.apsListeners.push(fn);
+  }
   addTarget(tank: Tank): void {
     this.targets.push(tank);
+  }
+
+  private _emitApsInterceptFx(pt: THREE.Vector3): void {
+    const fx = this.fx;
+    // Bright Trophy APS air-burst core flash
+    fx.emit({ additive: true, x: pt.x, y: pt.y, z: pt.z, life: 0.22, s0: 4.5, s1: 11, r: 0.72, g: 0.96, b: 1, a: 1 });
+    fx.emit({ additive: true, x: pt.x, y: pt.y, z: pt.z, life: 0.14, s0: 2.8, s1: 6.5, r: 1, g: 0.88, b: 0.48, a: 1 });
+    for (let i = 0; i < 16; i++) {
+      const cyan = i % 2 === 0;
+      fx.emit({
+        additive: true,
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        vx: rnd(-16, 16),
+        vy: rnd(-4, 16),
+        vz: rnd(-16, 16),
+        life: rnd(0.28, 0.62),
+        s0: 0.42,
+        s1: 0.12,
+        r: cyan ? 0.6 : 1,
+        g: cyan ? 0.92 : 0.75,
+        b: cyan ? 1 : 0.3,
+        a: 1,
+        grav: -16,
+      });
+    }
+    for (let i = 0; i < 6; i++) {
+      fx.emit({
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        vx: rnd(-4, 4),
+        vy: rnd(1, 5),
+        vz: rnd(-4, 4),
+        life: rnd(0.6, 1.2),
+        s0: 0.9,
+        s1: 3.0,
+        r: 0.75,
+        g: 0.78,
+        b: 0.82,
+        a: 0.45,
+        drag: 1.5,
+      });
+    }
+    this.light.position.copy(pt);
+    this.lightT = 0.85;
   }
 
   private _spawnShockwave(pt: THREE.Vector3): void {
@@ -520,7 +599,11 @@ export class BallisticsSystem {
                     ? ZTZ96A_HULL_BOXES
                     : t.spec.id === 't90m'
                       ? T90M_HULL_BOXES
-                      : HULL_BOXES;
+                      : t.spec.id === 'merkava4'
+                        ? MERKAVA4_HULL_BOXES
+                        : t.spec.id === 'challenger2'
+                          ? CHALLENGER2_HULL_BOXES
+                          : HULL_BOXES;
       const turretBox = isMaus
         ? MAUS_TURRET_BOX
         : t.spec.id === 'm60a3'
@@ -537,7 +620,11 @@ export class BallisticsSystem {
                     ? ZTZ96A_TURRET_BOX
                     : t.spec.id === 't90m'
                       ? T90M_TURRET_BOX
-                      : TURRET_BOX;
+                      : t.spec.id === 'merkava4'
+                        ? MERKAVA4_TURRET_BOX
+                        : t.spec.id === 'challenger2'
+                          ? CHALLENGER2_TURRET_BOX
+                          : TURRET_BOX;
 
       _la.copy(a).applyMatrix4(inv);
       _lb.copy(b).applyMatrix4(inv);
@@ -1211,10 +1298,11 @@ export class BallisticsSystem {
       const p = this.projectiles[i];
       let hit: ReturnType<BallisticsSystem['_targetHit']> | ReturnType<GameWorld['segmentHit']> | null = null;
       let expiredByRange = false;
+      let apsIntercepted = false;
       const maxRange = p.shell.maxRange || DEFAULT_MAX_RANGE;
 
       p.acc = (p.acc || 0) + dt;
-      while (p.acc >= SUBSTEP && !hit && !expiredByRange) {
+      while (p.acc >= SUBSTEP && !hit && !expiredByRange && !apsIntercepted) {
         const h = SUBSTEP;
         p.acc -= h;
         p.prev.copy(p.pos);
@@ -1225,13 +1313,63 @@ export class BallisticsSystem {
         p.age += h;
         p.dist += sp * h;
 
-        hit = this.world.segmentHit(p.prev, p.pos);
+        const worldHit = this.world.segmentHit(p.prev, p.pos);
+        const worldDistSq = worldHit ? p.prev.distanceToSquared(worldHit.point) : Infinity;
+
+        if (p.shell.type !== 'MG') {
+          for (const t of this.targets) {
+            if (!t.spec.aps || !t.apsState) continue;
+            const res = canInterceptProjectile({
+              alive: t.alive,
+              apsConfig: t.spec.aps,
+              apsState: t.apsState,
+              projectileType: p.shell.type,
+              isFriendlyOrSelf: t === p.owner || !!(p.owner && t.team === p.owner.team),
+              ax: p.prev.x,
+              ay: p.prev.y,
+              az: p.prev.z,
+              bx: p.pos.x,
+              by: p.pos.y,
+              bz: p.pos.z,
+              vx: p.vel.x,
+              vy: p.vel.y,
+              vz: p.vel.z,
+              tx: t.root.position.x,
+              ty: t.root.position.y + 1.8,
+              tz: t.root.position.z,
+            });
+            if (res.intercept) {
+              const dx = res.ix - p.prev.x;
+              const dy = res.iy - p.prev.y;
+              const dz = res.iz - p.prev.z;
+              if (dx * dx + dy * dy + dz * dz <= worldDistSq + 1e-4) {
+                const cooldown = triggerApsIntercept(t.apsState, t.spec.aps);
+                const ipt = new THREE.Vector3(res.ix, res.iy, res.iz);
+                this._emitApsInterceptFx(ipt);
+                audio.play('trophy', ipt, 1.0, t.isPlayer);
+                for (const fn of this.apsListeners) {
+                  fn({ target: t, owner: p.owner, point: ipt, cooldown });
+                }
+                apsIntercepted = true;
+                break;
+              }
+            }
+          }
+          if (apsIntercepted) break;
+        }
+
+        hit = worldHit;
         const th = this._targetHit(p, p.prev, p.pos);
         if (th && (!hit || th.t < hit.t)) hit = th;
 
         if (!hit && p.dist >= maxRange) {
           expiredByRange = true;
         }
+      }
+
+      if (apsIntercepted) {
+        this._remove(i);
+        continue;
       }
 
       if (hit && hit.kind === 'tank') {

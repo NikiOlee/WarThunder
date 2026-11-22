@@ -123,6 +123,8 @@ test('Tank model names remain canonical while roles, countries, and descriptions
     'M1A1 Abrams',
     'ZTZ-96A',
     'Т-90М',
+    'Merkava Mk.4',
+    'Challenger 2',
     'Маус',
   ];
   const allTanks = [...getAllTanks(), MAUS_SPEC];
@@ -152,9 +154,16 @@ test('Tank model names remain canonical while roles, countries, and descriptions
   const mausRu = getTankText('maus', 'ru');
   const mausSr = getTankText('maus', 'sr');
   const mausEn = getTankText('maus', 'en');
-  assert.equal(mausRu.role, 'Сверхтяжёлый танк прорыва');
-  assert.equal(mausSr.role, 'Super-teški probojni tenk');
-  assert.equal(mausEn.role, 'Super-heavy Breakthrough Tank');
+  assert.equal(mausRu.role, 'Сверхтяжёлый танк (босс)');
+  assert.equal(mausSr.role, 'Superteški tenk (bos)');
+  assert.equal(mausEn.role, 'Super-Heavy Tank (Boss)');
+
+  // Trophy APS keys exist in all languages
+  assert.equal(t('hudApsName', undefined, 'ru'), 'КАЗ «TROPHY»');
+  assert.equal(t('hudApsName', undefined, 'sr'), 'APS «TROPHY»');
+  assert.equal(t('hudApsName', undefined, 'en'), 'TROPHY APS');
+  assert.ok(t('hstatApsVal', undefined, 'en').includes('Trophy APS'));
+  assert.ok(t('msgTrophyIntercept', undefined, 'ru').includes('TROPHY'));
 });
 
 test('Mode canonical specs preserved while UI displays localized text', () => {
@@ -179,7 +188,7 @@ test('Mode canonical specs preserved while UI displays localized text', () => {
 
   assert.equal(getModeText('dead', 'ru').name, 'Мертвецы');
   assert.equal(getModeText('dead', 'sr').name, 'Mrtvaci');
-  assert.equal(getModeText('dead', 'en').name, 'The Walking Dead');
+  assert.equal(getModeText('dead', 'en').name, 'Dead Men');
 });
 
 test('Maps localize correctly in ru, sr, and en', () => {
@@ -224,12 +233,12 @@ test('HitCam results and view orientation texts localize cleanly', () => {
 
   // Views
   assert.equal(t('hcTopView', undefined, 'ru'), 'СВЕРХУ');
-  assert.equal(t('hcTopView', undefined, 'sr'), 'ODZGO');
-  assert.equal(t('hcTopView', undefined, 'en'), 'TOP VIEW');
+  assert.equal(t('hcTopView', undefined, 'sr'), 'ODOZGO');
+  assert.equal(t('hcTopView', undefined, 'en'), 'TOP');
 
   assert.equal(t('hcSideView', undefined, 'ru'), 'СБОКУ');
   assert.equal(t('hcSideView', undefined, 'sr'), 'SA STRANE');
-  assert.equal(t('hcSideView', undefined, 'en'), 'SIDE VIEW');
+  assert.equal(t('hcSideView', undefined, 'en'), 'SIDE');
 });
 
 test('resetSettings preserves language and languageChosen', () => {
@@ -263,15 +272,19 @@ test('keyName and getKeyLabels provide localized key representations and action 
   const srLabels = getKeyLabels('sr');
   const enLabels = getKeyLabels('en');
 
-  assert.equal(ruLabels.shoot, 'Выстрел из орудия');
-  assert.equal(srLabels.shoot, 'Pucanj iz topa');
-  assert.equal(enLabels.shoot, 'Cannon fire');
+  assert.equal(ruLabels.forward, 'Вперёд');
+  assert.equal(srLabels.forward, 'Napred');
+  assert.equal(enLabels.forward, 'Forward');
 
-  assert.equal(ruLabels.machineGun, 'Огонь из пулемёта');
-  assert.equal(srLabels.machineGun, 'Paljba iz mitraljeza');
-  assert.equal(enLabels.machineGun, 'Machine gun fire');
+  assert.equal(ruLabels.mg, 'Пулемёт (огонь)');
+  assert.equal(srLabels.mg, 'Mitraljez (paljba)');
+  assert.equal(enLabels.mg, 'Machine Gun (fire)');
 
-  assert.equal(ruLabels.scoreboard, 'Таблица счёта');
-  assert.equal(srLabels.scoreboard, 'Tabela rezultata');
-  assert.equal(enLabels.scoreboard, 'Scoreboard');
+  assert.equal(ruLabels.sniper, 'Снайперский прицел');
+  assert.equal(srLabels.sniper, 'Snajperski nišan');
+  assert.equal(enLabels.sniper, 'Sniper Scope');
+
+  assert.equal(ruLabels.console, 'Консоль');
+  assert.equal(srLabels.console, 'Konzola');
+  assert.equal(enLabels.console, 'Console');
 });

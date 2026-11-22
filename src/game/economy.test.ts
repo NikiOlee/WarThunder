@@ -138,6 +138,42 @@ test('T-55 is free (0 silver) and owned by default, while M60A3 Patton costs 150
   assert.equal(setSelectedTankId('t90m'), 't90m');
   assert.equal(getSelectedTankId(), 't90m');
 
+  const merkava4 = getTankSpec('merkava4');
+  assert.equal(merkava4.priceSilver, 12000);
+  assert.equal(isTankOwned('merkava4'), false);
+
+  setSilver(11900);
+  const failedMerkava = purchaseTank('merkava4');
+  assert.equal(failedMerkava.ok, false);
+  assert.equal(failedMerkava.reason, 'insufficient');
+  assert.equal(isTankOwned('merkava4'), false);
+
+  addSilver(200); // 12100 silver
+  const boughtMerkava = purchaseTank('merkava4');
+  assert.equal(boughtMerkava.ok, true);
+  assert.equal(boughtMerkava.balance, 100);
+  assert.equal(isTankOwned('merkava4'), true);
+  assert.equal(setSelectedTankId('merkava4'), 'merkava4');
+  assert.equal(getSelectedTankId(), 'merkava4');
+
+  const challenger2 = getTankSpec('challenger2');
+  assert.equal(challenger2.priceSilver, 13000);
+  assert.equal(isTankOwned('challenger2'), false);
+
+  setSilver(12900);
+  const failedChallenger = purchaseTank('challenger2');
+  assert.equal(failedChallenger.ok, false);
+  assert.equal(failedChallenger.reason, 'insufficient');
+  assert.equal(isTankOwned('challenger2'), false);
+
+  addSilver(200); // 13100 silver
+  const boughtChallenger = purchaseTank('challenger2');
+  assert.equal(boughtChallenger.ok, true);
+  assert.equal(boughtChallenger.balance, 100);
+  assert.equal(isTankOwned('challenger2'), true);
+  assert.equal(setSelectedTankId('challenger2'), 'challenger2');
+  assert.equal(getSelectedTankId(), 'challenger2');
+
   setSelectedTankId('t55');
   setSilver(0);
   assert.equal(getSilver(), 0);

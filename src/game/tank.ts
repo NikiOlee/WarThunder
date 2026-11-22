@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getTankSpec, type TankSpec } from './tanks';
 import { createMgState, startMgReload, stepMgState, tryFireMg, type MachineGunState } from './machineGun';
+import { createApsState, stepApsState, type TrophyApsState } from './aps';
 import {
   buildTankTracks,
   updateTrackSuspensionAndFlex,
@@ -125,7 +126,9 @@ function camoTexture(
     | 'russianModern'
     | 'natoGerman'
     | 'usModern'
-    | 'chineseModern' = 'soviet',
+    | 'chineseModern'
+    | 'idfSinai'
+    | 'britishOlive' = 'soviet',
 ): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -143,7 +146,11 @@ function camoTexture(
               ? '#4b4e33'
               : variant === 'chineseModern'
                 ? '#48522e'
-                : '#4e5b34';
+                : variant === 'idfSinai'
+                  ? '#8d8a79'
+                  : variant === 'britishOlive'
+                    ? '#4a5337'
+                    : '#4e5b34';
   g.fillRect(0, 0, 128, 128);
   const cols =
     variant === 'american'
@@ -158,7 +165,11 @@ function camoTexture(
               ? ['#34381f', '#616344', '#272a17', '#565a3a']
               : variant === 'chineseModern'
                 ? ['#2b3419', '#5c6836', '#202714', '#4b5730']
-                : ['#384324', '#6b6f3f', '#2d371c', '#5e653a'];
+                : variant === 'idfSinai'
+                  ? ['#7b7867', '#9b9886', '#6e6c5c', '#84826f']
+                  : variant === 'britishOlive'
+                    ? ['#373f28', '#5e6646', '#2d3321', '#525a3c']
+                    : ['#384324', '#6b6f3f', '#2d371c', '#5e653a'];
   for (let i = 0; i < 28; i++) {
     g.fillStyle = cols[i % cols.length];
     g.beginPath();
@@ -251,6 +262,7 @@ export class Tank {
   reloadTimer = 0;
   recoil = 0;
   mgState: MachineGunState;
+  apsState: TrophyApsState | null = null;
 
   root: THREE.Group;
   hullMat!: THREE.MeshStandardMaterial;
@@ -273,6 +285,7 @@ export class Tank {
     this.spec = getTankSpec(opts.specId || 't55');
     this.stats = this.spec;
     this.mgState = createMgState(this.spec.mg);
+    this.apsState = this.spec.aps ? createApsState() : null;
     this.name = opts.name || this.spec.name;
     this.tint = opts.tint || [1, 1, 1];
     this.hp = this.spec.maxHp;
@@ -317,6 +330,8 @@ export class Tank {
     const isM1A1 = this.spec.id === 'm1a1';
     const isZtz96a = this.spec.id === 'ztz96a';
     const isT90M = this.spec.id === 't90m';
+    const isMerkava4 = this.spec.id === 'merkava4';
+    const isChallenger2 = this.spec.id === 'challenger2';
     const hullTex = isMaus
       ? dunkelgrauTexture()
       : camoTexture(
@@ -332,7 +347,11 @@ export class Tank {
                     ? 'usModern'
                     : isZtz96a
                       ? 'chineseModern'
-                      : 'soviet',
+                      : isMerkava4
+                        ? 'idfSinai'
+                        : isChallenger2
+                          ? 'britishOlive'
+                          : 'soviet',
         );
     const hullMat = new THREE.MeshStandardMaterial({
       map: hullTex,
@@ -340,43 +359,55 @@ export class Tank {
         ? 0.62
         : isM60
           ? 0.82
-          : isLeopard2A4
-            ? 0.66
-            : isT72B3 || isT90M
-              ? 0.68
-              : isT62M
-                ? 0.74
-                : isM1A1 || isZtz96a
-                  ? 0.7
-                  : 0.78,
+          : isMerkava4
+            ? 0.78
+            : isChallenger2
+              ? 0.74
+              : isLeopard2A4
+                ? 0.66
+                : isT72B3 || isT90M
+                  ? 0.68
+                  : isT62M
+                    ? 0.74
+                    : isM1A1 || isZtz96a
+                      ? 0.7
+                      : 0.78,
       metalness: isMaus
         ? 0.38
-        : isLeopard2A4
-          ? 0.3
-          : isT72B3 || isT90M
-            ? 0.28
-            : isT62M
-              ? 0.24
-              : isM1A1 || isZtz96a
-                ? 0.26
-                : 0.2,
+        : isMerkava4
+          ? 0.22
+          : isChallenger2
+            ? 0.24
+            : isLeopard2A4
+              ? 0.3
+              : isT72B3 || isT90M
+                ? 0.28
+                : isT62M
+                  ? 0.24
+                  : isM1A1 || isZtz96a
+                    ? 0.26
+                    : 0.2,
       flatShading: true,
     });
     hullMat.color.setRGB(this.tint[0], this.tint[1], this.tint[2]);
     this.hullMat = hullMat;
 
     const darkMat = new THREE.MeshStandardMaterial({
-      color: isMaus ? 0x222529 : 0x262820,
+      color: isMaus ? 0x222529 : isMerkava4 ? 0x35342d : 0x262820,
       roughness: 0.9,
       metalness: isMaus ? 0.34 : 0.25,
       flatShading: true,
     });
     const metalMat = new THREE.MeshStandardMaterial({
-      color: isMaus ? 0x373a40 : 0x3b3e37,
-      roughness: isMaus ? 0.42 : 0.42,
+      color: isMaus ? 0x373a40 : isMerkava4 ? 0x56544b : 0x3b3e37,
+      roughness: 0.42,
       metalness: isMaus ? 0.76 : 0.72,
     });
-    const fuelMat = new THREE.MeshStandardMaterial({ color: isM60 ? 0x4d4b31 : 0x45522d, roughness: 0.52, metalness: 0.38 });
+    const fuelMat = new THREE.MeshStandardMaterial({
+      color: isMerkava4 ? 0x747161 : isChallenger2 ? 0x434b31 : isM60 ? 0x4d4b31 : 0x45522d,
+      roughness: 0.52,
+      metalness: 0.38,
+    });
     fuelMat.color.setRGB(fuelMat.color.r * this.tint[0], fuelMat.color.g * this.tint[1], fuelMat.color.b * this.tint[2]);
 
     this.hullGroup = new THREE.Group();
@@ -1864,6 +1895,392 @@ export class Tank {
       this.binocObj = new THREE.Object3D();
       this.binocObj.position.set(0, 1.88, -0.38);
       tg.add(this.binocObj);
+    } else if (isMerkava4) {
+      // Merkava Mk.4: front-engine sloped hull, armored upper-track skirts, rear-shifted "flying saucer" wedge turret,
+      // rear ball-and-chain curtains, Trophy APS radar arrays & launchers, and 120mm MG253 smoothbore
+      const hull = new THREE.Mesh(
+        prism(
+          [
+            [-3.68, 0.5],
+            [3.35, 0.5],
+            [3.92, 0.98],
+            [2.35, 1.66],
+            [-3.5, 1.66],
+            [-3.68, 1.24],
+          ],
+          3.04,
+        ),
+        hullMat,
+      );
+      this.hullGroup.add(hull);
+
+      // Front-mounted engine deck bulge, cooling louvers, driver hood & headlights
+      add(new THREE.BoxGeometry(1.42, 0.08, 1.48), hullMat, -0.58, 1.7, 1.48);
+      for (let li = 0; li < 5; li++) {
+        add(new THREE.BoxGeometry(0.72, 0.04, 0.14), darkMat, -0.82, 1.76, 1.98 - li * 0.24);
+      }
+      add(new THREE.BoxGeometry(0.62, 0.11, 0.52), darkMat, 0.72, 1.71, 1.76);
+      add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, 1.16, 1.38, 3.45);
+      add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, -1.16, 1.38, 3.45);
+      // Heavy front tow shackles & glacis spare link bar
+      add(new THREE.BoxGeometry(2.1, 0.09, 0.14), darkMat, 0, 1.12, 3.68);
+      // Rear troop/ammo hatch & rear fuel cell bays (weakspot)
+      add(new THREE.BoxGeometry(0.96, 0.68, 0.1), darkMat, 0, 1.12, -3.72);
+      add(new THREE.BoxGeometry(1.78, 0.28, 0.14), fuelMat, 0, 1.5, -3.74);
+
+      // Upper-track armored side skirts (IDF Baz/Mk.4) strictly clear of ±1.52 hull and 2.15 outer track
+      for (const sx of [-1, 1]) {
+        add(new THREE.BoxGeometry(0.58, 0.07, 6.95), hullMat, sx * 1.86, 1.21, 0.04);
+        add(new THREE.BoxGeometry(0.06, 0.5, 6.85), darkMat, sx * 2.2, 0.94, 0.02);
+        for (let bi = 0; bi < 7; bi++) {
+          add(new THREE.BoxGeometry(0.11, 0.46, 0.88), hullMat, sx * 2.3, 0.96, 2.68 - bi * 0.92);
+        }
+        // Rear fender fuel cells (vulnerable weakspot)
+        add(new THREE.BoxGeometry(0.32, 0.34, 1.58), fuelMat, sx * 1.68, 1.42, -2.6);
+      }
+
+      // Continuous Merkava Mk.4 tracks + 6 road wheels + return rollers + idlers + toothed sprockets
+      const merkavaTracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.86,
+          trackWidth: 0.58,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.88, -1.88, -0.88, 0.12, 1.12, 2.38],
+          idlerZ: 3.38,
+          idlerY: 0.74,
+          idlerR: 0.28,
+          sprocketZ: -3.44,
+          sprocketY: 0.71,
+          sprocketR: 0.3,
+          returnRollersZ: [-2.35, -0.45, 1.55],
+          returnRollerR: 0.11,
+          sprocketTeeth: 12,
+          fenderY: 1.21,
+          mudguardFrontZ: 3.74,
+          mudguardRearZ: -3.7,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...merkavaTracks.tracks);
+      this.wheels.push(...merkavaTracks.wheels);
+
+      // Rear-shifted low-profile "flying saucer" wedge turret
+      this.turretGroup = new THREE.Group();
+      this.turretGroup.position.set(0, 1.68, -0.62);
+      this.hullGroup.add(this.turretGroup);
+      const tg = this.turretGroup;
+      add(new THREE.CylinderGeometry(1.36, 1.4, 0.07, 20), darkMat, 0, 0.035, 0, tg);
+
+      const saucerBody = new THREE.Mesh(
+        prism(
+          [
+            [-2.35, 0.28],
+            [-1.3, 0.08],
+            [1.1, 0.08],
+            [1.65, 0.42],
+            [1.05, 0.78],
+            [-1.95, 0.82],
+            [-2.55, 0.56],
+          ],
+          3.05,
+        ),
+        hullMat,
+      );
+      tg.add(saucerBody);
+
+      // Sharp arrowhead saucer cheek wedges + flared lateral spaced armor pods
+      const wedgeCheekGeo = prism(
+        [
+          [-0.7, 0.06],
+          [0.95, 0.24],
+          [-0.55, 0.64],
+        ],
+        0.92,
+      );
+      for (const sx of [-1, 1]) {
+        const prow = new THREE.Mesh(wedgeCheekGeo, hullMat);
+        prow.position.set(sx * 0.9, 0.06, 1.38);
+        prow.rotation.y = -sx * 0.44;
+        tg.add(prow);
+
+        const flankPod = new THREE.Mesh(
+          prism(
+            [
+              [-1.15, 0.12],
+              [0.75, 0.06],
+              [1.05, 0.36],
+              [0.65, 0.62],
+              [-1.05, 0.62],
+            ],
+            0.34,
+          ),
+          hullMat,
+        );
+        flankPod.position.set(sx * 1.66, 0.08, -0.05);
+        flankPod.rotation.z = -sx * 0.22;
+        tg.add(flankPod);
+      }
+
+      // Hanging metal ball-and-chain curtains beneath rear turret bustle overhang
+      const chainRodGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.34, 6);
+      const chainBallGeo = new THREE.SphereGeometry(0.056, 8, 6);
+      for (let ci = -5; ci <= 5; ci++) {
+        const cx = ci * 0.25;
+        add(chainRodGeo, metalMat, cx, 0.16, -2.44, tg);
+        add(chainBallGeo, metalMat, cx, -0.02, -2.44, tg);
+      }
+
+      // КАЗ «Trophy» (Ветровка): side radar arrays and dual intercept launchers
+      for (const sx of [-1, 1]) {
+        const frontRadar = add(new THREE.BoxGeometry(0.14, 0.26, 0.38), darkMat, sx * 1.72, 0.5, 0.48, tg);
+        frontRadar.rotation.y = sx * 0.34;
+        const rearRadar = add(new THREE.BoxGeometry(0.14, 0.26, 0.38), darkMat, sx * 1.7, 0.52, -1.08, tg);
+        rearRadar.rotation.y = -sx * 0.32;
+
+        // Swiveling Trophy launcher pod with twin intercept tubes
+        const launcherPod = new THREE.Group();
+        launcherPod.position.set(sx * 1.74, 0.72, -0.32);
+        launcherPod.rotation.y = sx * 0.18;
+        add(new THREE.BoxGeometry(0.24, 0.22, 0.34), hullMat, 0, 0, 0, launcherPod);
+        const tubeGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.34, 8);
+        tubeGeo.rotateZ(Math.PI / 2);
+        add(tubeGeo, metalMat, sx * 0.08, 0.05, 0.09, launcherPod);
+        add(tubeGeo, metalMat, sx * 0.08, 0.05, -0.09, launcherPod);
+        tg.add(launcherPod);
+      }
+
+      // Roof hatches, panoramic sight & antenna
+      add(new THREE.BoxGeometry(0.76, 0.48, 0.44), hullMat, 0, 0.42, 1.56, tg);
+      add(new THREE.BoxGeometry(0.36, 0.26, 0.42), darkMat, 0.56, 0.86, 0.36, tg);
+      add(new THREE.CylinderGeometry(0.34, 0.38, 0.18, 12), hullMat, -0.56, 0.88, -0.26, tg);
+      add(new THREE.CylinderGeometry(0.28, 0.32, 0.12, 12), hullMat, 0.54, 0.86, -0.32, tg);
+      add(new THREE.BoxGeometry(0.07, 0.07, 0.86), metalMat, -0.56, 1.04, 0.08, tg);
+      add(new THREE.CylinderGeometry(0.025, 0.025, 2.9, 4), metalMat, -1.12, 1.75, -1.75, tg);
+
+      // 120mm MG253 smoothbore with thermal sleeve & bore evacuator
+      this.gunPivot = new THREE.Group();
+      this.gunPivot.position.set(0, 0.42, 1.72);
+      tg.add(this.gunPivot);
+      this.barrelGroup = new THREE.Group();
+      this.gunPivot.add(this.barrelGroup);
+
+      const barrelGeo = new THREE.CylinderGeometry(0.094, 0.114, 5.35, 12);
+      barrelGeo.rotateX(Math.PI / 2);
+      add(barrelGeo, hullMat, 0, 0, 2.75, this.barrelGroup);
+
+      const sleeve = new THREE.CylinderGeometry(0.16, 0.16, 1.15, 12);
+      sleeve.rotateX(Math.PI / 2);
+      add(sleeve, darkMat, 0, 0, 0.56, this.barrelGroup);
+
+      const evac = new THREE.CylinderGeometry(0.166, 0.166, 0.82, 12);
+      evac.rotateX(Math.PI / 2);
+      add(evac, metalMat, 0, 0, 2.48, this.barrelGroup);
+
+      const shroud2 = new THREE.CylinderGeometry(0.136, 0.136, 1.85, 12);
+      shroud2.rotateX(Math.PI / 2);
+      add(shroud2, hullMat, 0, 0, 4.02, this.barrelGroup);
+
+      const mtip = new THREE.CylinderGeometry(0.118, 0.106, 0.24, 12);
+      mtip.rotateX(Math.PI / 2);
+      add(mtip, metalMat, 0, 0, 5.36, this.barrelGroup);
+
+      // Coaxial 7.62mm MAG
+      const mgPipe = new THREE.CylinderGeometry(0.026, 0.032, 0.94, 8);
+      mgPipe.rotateX(Math.PI / 2);
+      add(mgPipe, metalMat, 0.34, 0.02, 0.64, this.gunPivot);
+
+      this.mgMuzzle = new THREE.Object3D();
+      this.mgMuzzle.position.set(0.34, 0.02, 1.18);
+      this.gunPivot.add(this.mgMuzzle);
+
+      this.muzzle = new THREE.Object3D();
+      this.muzzle.position.set(0, 0, 5.55);
+      this.barrelGroup.add(this.muzzle);
+
+      this.sightObj = new THREE.Object3D();
+      this.sightObj.position.set(0, 0.96, 0.95);
+      tg.add(this.sightObj);
+      this.binocObj = new THREE.Object3D();
+      this.binocObj.position.set(0, 1.78, -0.35);
+      tg.add(this.binocObj);
+    } else if (isChallenger2) {
+      // Challenger 2: massive long British hull, ballistic skirts, large angular Chobham turret, TOGS II sight, 120mm L30A1 rifled gun
+      const hull = new THREE.Mesh(
+        prism(
+          [
+            [-3.78, 0.5],
+            [3.46, 0.5],
+            [3.86, 0.96],
+            [2.42, 1.66],
+            [-3.58, 1.68],
+            [-3.82, 1.32],
+          ],
+          3.06,
+        ),
+        hullMat,
+      );
+      this.hullGroup.add(hull);
+
+      // Lower Dorchester glacis block, driver hood, headlights & long rear engine deck louvers
+      const noseArmor = add(new THREE.BoxGeometry(2.68, 0.26, 0.82), hullMat, 0, 0.92, 3.44);
+      noseArmor.rotation.x = 0.55;
+      add(new THREE.BoxGeometry(0.62, 0.12, 0.5), darkMat, 0, 1.68, 2.08);
+      add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, 1.14, 1.36, 3.45);
+      add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, -1.14, 1.36, 3.45);
+      add(new THREE.BoxGeometry(2.34, 0.08, 2.04), darkMat, 0, 1.7, -2.26);
+
+      // Side fenders, British ballistic Chobham side skirts & rear fender fuel cells
+      for (const sx of [-1, 1]) {
+        add(new THREE.BoxGeometry(0.58, 0.07, 7.15), hullMat, sx * 1.88, 1.21, 0.01);
+        add(new THREE.BoxGeometry(0.08, 0.48, 6.95), hullMat, sx * 2.22, 0.9, 0.0);
+        for (let bi = 0; bi < 6; bi++) {
+          add(new THREE.BoxGeometry(0.05, 0.44, 0.96), darkMat, sx * 2.29, 0.9, 2.48 - bi * 1.02);
+        }
+        // Rear-side fuel cells (vulnerable weakspot)
+        add(new THREE.BoxGeometry(0.32, 0.38, 1.85), fuelMat, sx * 1.68, 1.4, -2.52);
+      }
+      // Dual rear external cylindrical fuel drums (signature Challenger 2 silhouette & weakspot)
+      const drumGeo = new THREE.CylinderGeometry(0.27, 0.27, 1.18, 12);
+      drumGeo.rotateZ(Math.PI / 2);
+      for (const sx of [-1, 1]) {
+        add(drumGeo, fuelMat, sx * 0.76, 1.24, -3.94);
+      }
+
+      // Continuous Challenger 2 tracks + 6 road wheels + return rollers + idlers + toothed sprockets
+      const challyTracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.88,
+          trackWidth: 0.58,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-2.96, -1.94, -0.92, 0.1, 1.12, 2.52],
+          idlerZ: 3.46,
+          idlerY: 0.74,
+          idlerR: 0.28,
+          sprocketZ: -3.52,
+          sprocketY: 0.71,
+          sprocketR: 0.3,
+          returnRollersZ: [-2.4, -0.45, 1.55],
+          returnRollerR: 0.11,
+          sprocketTeeth: 12,
+          fenderY: 1.21,
+          mudguardFrontZ: 3.8,
+          mudguardRearZ: -3.78,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...challyTracks.tracks);
+      this.wheels.push(...challyTracks.wheels);
+
+      // Large angular Chobham turret
+      this.turretGroup = new THREE.Group();
+      this.turretGroup.position.set(0, 1.69, 0.12);
+      this.hullGroup.add(this.turretGroup);
+      const tg = this.turretGroup;
+      add(new THREE.CylinderGeometry(1.42, 1.46, 0.07, 20), darkMat, 0, 0.035, -0.05, tg);
+
+      const challyTurret = new THREE.Mesh(
+        prism(
+          [
+            [-2.55, 0.1],
+            [-1.35, 0.07],
+            [1.12, 0.07],
+            [1.46, 0.54],
+            [1.06, 1.06],
+            [-2.12, 1.1],
+            [-2.68, 0.62],
+          ],
+          2.96,
+        ),
+        hullMat,
+      );
+      tg.add(challyTurret);
+
+      // Characteristic steep Chobham cheek & side armor blocks
+      const cheekGeo = prism(
+        [
+          [-0.55, 0.06],
+          [0.9, 0.34],
+          [-0.4, 0.86],
+        ],
+        0.92,
+      );
+      for (const sx of [-1, 1]) {
+        const cheek = new THREE.Mesh(cheekGeo, hullMat);
+        cheek.position.set(sx * 0.96, 0.09, 1.26);
+        cheek.rotation.y = -sx * 0.32;
+        tg.add(cheek);
+
+        // Thick side turret Chobham slabs cleanly outside ±1.48 turret walls
+        add(new THREE.BoxGeometry(0.18, 0.78, 1.85), hullMat, sx * 1.59, 0.56, 0.12, tg);
+        // Smoke dischargers
+        const smoke = add(new THREE.BoxGeometry(0.2, 0.24, 0.42), darkMat, sx * 1.72, 0.58, 0.94, tg);
+        smoke.rotation.y = -sx * 0.18;
+      }
+
+      // TOGS II armored thermal sight box, mantlet, rear bustle stowage bin, hatches & antennas
+      add(new THREE.BoxGeometry(0.88, 0.6, 0.52), hullMat, 0, 0.5, 1.56, tg);
+      add(new THREE.BoxGeometry(0.48, 0.26, 0.44), darkMat, 0, 0.96, 1.32, tg);
+      add(new THREE.BoxGeometry(2.05, 0.56, 0.62), darkMat, 0, 0.58, -2.44, tg);
+      add(new THREE.CylinderGeometry(0.38, 0.42, 0.22, 12), hullMat, 0.56, 1.14, -0.25, tg);
+      add(new THREE.CylinderGeometry(0.3, 0.34, 0.14, 12), hullMat, -0.54, 1.1, -0.25, tg);
+      add(new THREE.BoxGeometry(0.08, 0.08, 0.9), metalMat, -0.54, 1.28, 0.08, tg);
+      add(new THREE.CylinderGeometry(0.025, 0.025, 3.0, 4), metalMat, 1.0, 1.98, -1.65, tg);
+      add(new THREE.CylinderGeometry(0.025, 0.025, 2.8, 4), metalMat, -1.0, 1.94, -1.65, tg);
+
+      // Long 120mm L30A1 rifled gun with thermal shroud, bore evacuator & MRS muzzle reference sensor
+      this.gunPivot = new THREE.Group();
+      this.gunPivot.position.set(0, 0.5, 1.66);
+      tg.add(this.gunPivot);
+      this.barrelGroup = new THREE.Group();
+      this.gunPivot.add(this.barrelGroup);
+
+      const barrelGeo = new THREE.CylinderGeometry(0.092, 0.114, 5.55, 12);
+      barrelGeo.rotateX(Math.PI / 2);
+      add(barrelGeo, hullMat, 0, 0, 2.82, this.barrelGroup);
+
+      const sleeve = new THREE.CylinderGeometry(0.162, 0.162, 1.12, 12);
+      sleeve.rotateX(Math.PI / 2);
+      add(sleeve, darkMat, 0, 0, 0.56, this.barrelGroup);
+
+      const evac = new THREE.CylinderGeometry(0.172, 0.172, 0.86, 12);
+      evac.rotateX(Math.PI / 2);
+      add(evac, hullMat, 0, 0, 2.38, this.barrelGroup);
+
+      const shroudFwd = new THREE.CylinderGeometry(0.142, 0.142, 2.15, 12);
+      shroudFwd.rotateX(Math.PI / 2);
+      add(shroudFwd, darkMat, 0, 0, 4.18, this.barrelGroup);
+
+      const mtip = new THREE.CylinderGeometry(0.118, 0.106, 0.24, 12);
+      mtip.rotateX(Math.PI / 2);
+      add(mtip, metalMat, 0, 0, 5.5, this.barrelGroup);
+      // Muzzle Reference Sensor (MRS) mast
+      add(new THREE.CylinderGeometry(0.022, 0.022, 0.22, 6), metalMat, 0, 0.16, 5.45, this.barrelGroup);
+
+      // Coaxial 7.62mm L94A1 chain gun
+      const mgPipe = new THREE.CylinderGeometry(0.026, 0.032, 0.94, 8);
+      mgPipe.rotateX(Math.PI / 2);
+      add(mgPipe, metalMat, 0.35, 0.02, 0.64, this.gunPivot);
+
+      this.mgMuzzle = new THREE.Object3D();
+      this.mgMuzzle.position.set(0.35, 0.02, 1.18);
+      this.gunPivot.add(this.mgMuzzle);
+
+      this.muzzle = new THREE.Object3D();
+      this.muzzle.position.set(0, 0, 5.65);
+      this.barrelGroup.add(this.muzzle);
+
+      this.sightObj = new THREE.Object3D();
+      this.sightObj.position.set(0, 1.14, 1.05);
+      tg.add(this.sightObj);
+      this.binocObj = new THREE.Object3D();
+      this.binocObj.position.set(0, 1.98, -0.35);
+      tg.add(this.binocObj);
     } else {
       // Classic T-55 low-profile hull with sharply sloped frontal glacis
       const hull = new THREE.Mesh(
@@ -2025,21 +2442,27 @@ export class Tank {
     const isM1A1 = this.spec.id === 'm1a1';
     const isZtz96a = this.spec.id === 'ztz96a';
     const isT90M = this.spec.id === 't90m';
+    const isMerkava4 = this.spec.id === 'merkava4';
+    const isChallenger2 = this.spec.id === 'challenger2';
     const L = isMaus
       ? 4.4
-      : isLeopard2A4
-        ? 3.55
-        : isT62M
-          ? 3.5
-          : isT72B3
-            ? 3.4
-            : isM1A1
-              ? 3.6
-              : isZtz96a
-                ? 3.5
-                : isT90M
-                  ? 3.45
-                  : 3.2;
+      : isChallenger2
+        ? 3.7
+        : isMerkava4
+          ? 3.62
+          : isLeopard2A4
+            ? 3.55
+            : isT62M
+              ? 3.5
+              : isT72B3
+                ? 3.4
+                : isM1A1
+                  ? 3.6
+                  : isZtz96a
+                    ? 3.5
+                    : isT90M
+                      ? 3.45
+                      : 3.2;
     const W = isMaus ? 1.95 : 1.8;
     const pose = computeHullGroundPose(x, z, this.heading, L, W, this.world.heightAt);
     this.slope = pose.slope;
@@ -2074,13 +2497,17 @@ export class Tank {
                     ? 1.6
                     : this.spec.id === 't90m'
                       ? 1.66
-                      : 1.69;
+                      : this.spec.id === 'merkava4'
+                        ? 1.68
+                        : this.spec.id === 'challenger2'
+                          ? 1.69
+                          : 1.69;
     this.root.rotation.set(-this._pitchUp, this.heading, this._rollLeftUp);
     this.hullGroup.rotation.x = this._springX;
     this.turretGroup.rotation.y = this.turretYaw;
     this.turretGroup.position.y = baseTurretY + this._turretLift;
     this.turretGroup.rotation.z = this._wreckTilt;
-    this.gunPivot.rotation.x = -this.gunElev;
+    this.gunPivot.rotation.x = -this.gunElev - (this.stats.stabilized ? this._springX : 0);
     this.barrelGroup.position.z = -0.55 * this.recoil * this.recoil;
   }
 
@@ -2102,21 +2529,23 @@ export class Tank {
     let a = 0;
     let fric = false;
 
-    // Scale engine thrust proportionally for higher-top-speed tanks (e.g. T-72B3 at 60 km/h)
+    // Scale engine thrust proportionally for higher-top-speed & quick-start tanks
     const speedScale = Math.max(1, st.maxSpeed / (50 / 3.6));
+    const accelBoost = st.accelBoost ?? 1;
+    const pivotBoost = st.pivotBoost ?? 1;
     if (thr > 0) {
       if (v < -0.5) {
-        a = 10;
+        a = 10 * accelBoost;
         fric = true;
       } else {
-        a = 4.6 * speedScale * speedScale * Math.max(0, 1 - Math.pow(Math.max(v, 0) / (st.maxSpeed * 1.07), 2));
+        a = 4.6 * speedScale * speedScale * accelBoost * Math.max(0, 1 - Math.pow(Math.max(v, 0) / (st.maxSpeed * 1.07), 2));
       }
     } else if (thr < 0) {
       if (v > 0.5) {
-        a = -10;
+        a = -10 * accelBoost;
         fric = true;
       } else {
-        a = -2.8 * Math.max(0, 1 - Math.pow(Math.max(-v, 0) / (st.maxReverse * 1.05), 2));
+        a = -2.8 * accelBoost * Math.max(0, 1 - Math.pow(Math.max(-v, 0) / (st.maxReverse * 1.05), 2));
       }
     } else {
       a = -Math.sign(v) * 1.8;
@@ -2137,10 +2566,11 @@ export class Tank {
     this.speed = nv;
 
     const sAbs = Math.abs(this.speed);
-    const maxRate = (38 - 16 * Math.min(1, sAbs / st.maxSpeed)) * DEG;
+    const speedNorm = Math.min(1, sAbs / st.maxSpeed);
+    const maxRate = (38 * pivotBoost - (38 * pivotBoost - 22) * speedNorm) * DEG;
     const dirSign = sAbs < 1 ? 1 : Math.sign(this.speed);
     const target = ctrl.steer * maxRate * dirSign * (ctrl.brake ? 0.5 : 1);
-    this.yawRate += (target - this.yawRate) * Math.min(1, dt * 3.8);
+    this.yawRate += (target - this.yawRate) * Math.min(1, dt * 3.8 * pivotBoost);
     this.heading += this.yawRate * dt;
     this.speed *= 1 - Math.min(0.35, Math.abs(ctrl.steer) * 0.12) * dt;
 
@@ -2199,7 +2629,10 @@ export class Tank {
     this._springX += this._springV * dt;
 
     if (this.reloadTimer > 0) this.reloadTimer = Math.max(0, this.reloadTimer - dt);
-    if (this.alive) stepMgState(this.mgState, st.mg, dt);
+    if (this.alive) {
+      stepMgState(this.mgState, st.mg, dt);
+      if (this.apsState) stepApsState(this.apsState, dt);
+    }
     this.recoil = Math.max(0, this.recoil - dt * 2.2);
 
     const hw = isMaus ? 1.9 : 1.75;
@@ -2329,6 +2762,7 @@ export class Tank {
     this.reloadTimer = 0;
     this.recoil = 0;
     this.mgState = createMgState(this.stats.mg);
+    this.apsState = this.stats.aps ? createApsState() : null;
     this._springX = 0;
     this._springV = 0;
     this._trackPhase = 0;

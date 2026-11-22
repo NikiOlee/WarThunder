@@ -366,6 +366,8 @@ export function createUI(h: UIHandlers) {
     if (specHint) specHint.textContent = t('hudSpecHint');
 
     // Touch HUD static labels
+    const apsBadgeLbl = $('apsBadgeLbl');
+    if (apsBadgeLbl) apsBadgeLbl.textContent = t('hudApsName');
     const tBtnScore = $('tBtnScore');
     if (tBtnScore) tBtnScore.textContent = t('tBtnScore');
     const tBtnPause = $('tBtnPause');
@@ -784,6 +786,10 @@ export function createUI(h: UIHandlers) {
     const priceText =
       spec.priceSilver === 0 ? t('hstatPriceBase') : t('hstatPriceSilver', { n: spec.priceSilver });
 
+    const apsRow = spec.aps
+      ? `<div class="hstat hstat-aps"><span>${t('hstatAps')}</span><b>${t('hstatApsVal')}</b></div>`
+      : '';
+
     $('hangarStats').innerHTML = `
       <div class="hstat"><span>${t('hstatDamage')}</span><b>${t('unitDamage', { dmg: spec.gunDamage })}</b></div>
       <div class="hstat"><span>${t('hstatMaxSpeed')}</span><b>${t('unitSpeedKmh', { spd: spec.maxSpeedKmh })}</b></div>
@@ -795,6 +801,7 @@ export function createUI(h: UIHandlers) {
       <div class="hstat"><span>${t('hstatFrontArmor')}</span><b>${frontArmorLabel}</b></div>
       <div class="hstat"><span>${t('hstatFrontDmg')}</span><b>${frontDmgLabel}</b></div>
       <div class="hstat"><span>${t('hstatSideRearDmg')}</span><b>${sideRearDmgLabel}</b></div>
+      ${apsRow}
       <div class="hstat hstat-warn"><span>${t('hstatWeakspot')}</span><b>${t('hstatWeakspotVal')}</b></div>
       <div class="hstat"><span>${t('hstatPrice')}</span><b>${priceText}</b></div>
     `;

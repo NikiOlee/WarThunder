@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import {
+  computeFallTargetTilt,
+  resetTreeStates,
+  stepFallingTrees,
+  triggerTreeKnockdown,
+  type TreeInstanceState,
+} from './envCollision';
 
 export const WORLD_SIZE = 1000;
 export const WORLD_LIMIT = 480;
@@ -15,6 +22,10 @@ export interface ObstacleBox {
   min: THREE.Vector3;
   max: THREE.Vector3;
   mesh?: THREE.Mesh;
+  kind?: 'structure' | 'rock';
+  rockX?: number;
+  rockZ?: number;
+  rockRadius?: number;
   _s?: number;
 }
 
@@ -25,6 +36,13 @@ export interface WorldHit {
   obstacle: ObstacleBox | null;
   t: number;
   dist?: number;
+}
+
+export interface KnockedTreeEvent {
+  x: number;
+  y: number;
+  z: number;
+  sy: number;
 }
 
 export interface GameWorld {
@@ -38,6 +56,9 @@ export interface GameWorld {
   segmentHit: (a: THREE.Vector3, b: THREE.Vector3, step?: number) => WorldHit | null;
   raycast: (origin: THREE.Vector3, dir: THREE.Vector3, maxDist?: number) => WorldHit | null;
   nearby: (x: number, z: number, r: number) => ObstacleBox[];
+  knockTreesAt?: (x: number, z: number, radius: number, vx: number, vz: number, speed: number) => KnockedTreeEvent[];
+  resetTrees?: () => void;
+  getTreeStates?: () => ReadonlyArray<TreeInstanceState>;
   update: (camPos: THREE.Vector3, focus: THREE.Vector3, dt?: number) => void;
   sun: THREE.DirectionalLight;
   terrain: THREE.Mesh;
@@ -198,6 +219,112 @@ function boardTexture(label: string): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+export function createTreeAnimator(
+  trees: TreeInstanceState[],
+  meshes: THREE.InstancedMesh[],
+  hFn: (x: number, z: number) => number,
+) {
+  const CELL = 24;
+  const grid = new Map<number, number[]>();
+  const key = (cx: number, cz: number) => (cx + 512) * 1024 + (cz + 512);
+  for (let i = 0; i < trees.length; i++) {
+    const tr = trees[i];
+    const k = key(Math.floor(tr.x / CELL), Math.floor(tr.z / CELL));
+    let bucket = grid.get(k);
+    if (!bucket) grid.set(k, (bucket = []));
+    bucket.push(i);
+  }
+
+  const _m = new THREE.Matrix4();
+  const _p = new THREE.Vector3();
+  const _s = new THREE.Vector3();
+  const _qYaw = new THREE.Quaternion();
+  const _qFall = new THREE.Quaternion();
+  const _q = new THREE.Quaternion();
+  const _up = new THREE.Vector3(0, 1, 0);
+  const _axis = new THREE.Vector3();
+  const _changed: number[] = [];
+
+  function writeMatrix(idx: number): void {
+    const tr = trees[idx];
+    _p.set(tr.x, tr.y, tr.z);
+    _s.set(tr.sx, tr.sy, tr.sz);
+    _qYaw.setFromAxisAngle(_up, tr.baseYaw);
+    if (tr.tiltAngle > 1e-4) {
+      _axis.set(tr.fallDirZ, 0, -tr.fallDirX).normalize();
+      _qFall.setFromAxisAngle(_axis, tr.tiltAngle);
+      _q.multiplyQuaternions(_qFall, _qYaw);
+    } else {
+      _q.copy(_qYaw);
+    }
+    _m.compose(_p, _q, _s);
+    for (let j = 0; j < meshes.length; j++) {
+      meshes[j].setMatrixAt(idx, _m);
+    }
+  }
+
+  function knockTreesAt(
+    x: number,
+    z: number,
+    radius: number,
+    vx: number,
+    vz: number,
+    speed: number,
+  ): KnockedTreeEvent[] {
+    const knocked: KnockedTreeEvent[] = [];
+    if (Math.abs(speed) < 0.2 && Math.hypot(vx, vz) < 0.2) return knocked;
+    const rScan = radius + 2.0;
+    const cx0 = Math.floor((x - rScan) / CELL);
+    const cx1 = Math.floor((x + rScan) / CELL);
+    const cz0 = Math.floor((z - rScan) / CELL);
+    const cz1 = Math.floor((z + rScan) / CELL);
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cz = cz0; cz <= cz1; cz++) {
+        const bucket = grid.get(key(cx, cz));
+        if (!bucket) continue;
+        for (let b = 0; b < bucket.length; b++) {
+          const idx = bucket[b];
+          const tr = trees[idx];
+          if (tr.state !== 'standing') continue;
+          const reach = radius + tr.trunkRadius;
+          const dx = tr.x - x;
+          const dz = tr.z - z;
+          if (dx * dx + dz * dz > reach * reach) continue;
+          if (triggerTreeKnockdown(tr, x, z, vx, vz)) {
+            const aheadY = hFn(tr.x + tr.fallDirX * 5.0, tr.z + tr.fallDirZ * 5.0);
+            tr.targetTilt = computeFallTargetTilt(tr.y, aheadY, 5.0);
+            knocked.push({ x: tr.x, y: tr.y, z: tr.z, sy: tr.sy });
+          }
+        }
+      }
+    }
+    return knocked;
+  }
+
+  function step(dt: number): void {
+    stepFallingTrees(trees, dt, _changed);
+    if (_changed.length === 0) return;
+    for (let i = 0; i < _changed.length; i++) {
+      writeMatrix(_changed[i]);
+    }
+    for (let j = 0; j < meshes.length; j++) {
+      meshes[j].instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  function reset(): void {
+    resetTreeStates(trees);
+    for (let i = 0; i < trees.length; i++) {
+      writeMatrix(i);
+    }
+    for (let j = 0; j < meshes.length; j++) {
+      meshes[j].instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  return { knockTreesAt, step, reset, trees };
 }
 
 export function makeQueries(
@@ -639,6 +766,8 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     if (o.mesh) o.mesh.userData.range = dist;
   }
 
+  const treeStates: TreeInstanceState[] = [];
+  let treeAnimator: ReturnType<typeof createTreeAnimator> | null = null;
   {
     const crownGeo = new THREE.ConeGeometry(2.1, 7.5, 7);
     crownGeo.translate(0, 5.2, 0);
@@ -667,18 +796,39 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       if (n.y < 0.9) continue;
       if (fbm(x * 0.012 + 5, z * 0.012 + 2, 3) < 0.42) continue;
       const sc2 = 0.8 + rand() * 0.9;
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand() * 6.28);
-      m.compose(p.set(x, h - 0.2, z), q, s.set(sc2, sc2 * (0.9 + rand() * 0.4), sc2));
+      const sy = sc2 * (0.9 + rand() * 0.4);
+      const yaw = rand() * 6.28;
+      const ty = h - 0.2;
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      m.compose(p.set(x, ty, z), q, s.set(sc2, sy, sc2));
       crowns.setMatrixAt(count, m);
       trunks.setMatrixAt(count, m);
       col.setHSL(0.27 + rand() * 0.05, 0.45, 0.2 + rand() * 0.08);
       crowns.setColorAt(count, col);
+      treeStates.push({
+        index: count,
+        x,
+        y: ty,
+        z,
+        baseYaw: yaw,
+        sx: sc2,
+        sy,
+        sz: sc2,
+        trunkRadius: 0.55 * sc2,
+        state: 'standing',
+        fallProgress: 0,
+        fallDirX: 0,
+        fallDirZ: 1,
+        tiltAngle: 0,
+        targetTilt: 1.46,
+      });
       count++;
     }
     crowns.count = trunks.count = count;
     crowns.computeBoundingSphere();
     trunks.computeBoundingSphere();
     root.add(crowns, trunks);
+    treeAnimator = createTreeAnimator(treeStates, [crowns, trunks], heightAt);
   }
 
   const timeU = { value: 0 };
@@ -766,11 +916,23 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       const x = (rand() - 0.5) * 900;
       const z = (rand() - 0.5) * 900;
       if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 60 || Math.abs(x) < 8 || Math.hypot(x - TOWN.x, z - TOWN.z) < 90) continue;
+      if (Math.abs(z + 432) < 18 && Math.abs(x) < 145) continue;
+      if (Math.abs(z - 330) < 18 && Math.abs(x) < 200) continue;
       const s0 = 0.8 + rand() * rand() * 4.5;
+      const ry = heightAt(x, z) + s0 * 0.25;
       q.setFromEuler(new THREE.Euler(rand() * 3, rand() * 6, rand() * 3));
-      m.compose(p.set(x, heightAt(x, z) + s0 * 0.25, z), q, sc3.set(s0 * 1.3, s0 * 0.8, s0));
+      m.compose(p.set(x, ry, z), q, sc3.set(s0 * 1.3, s0 * 0.8, s0));
       rocks.setMatrixAt(rc, m);
       rocks.setColorAt(rc, col.setHSL(0.1, 0.06, 0.38 + rand() * 0.18));
+      const rockR = Math.max(0.9, s0 * 1.02);
+      obstacles.push({
+        min: new THREE.Vector3(x - rockR, ry - s0 * 0.8, z - rockR),
+        max: new THREE.Vector3(x + rockR, ry + s0 * 0.8, z + rockR),
+        kind: 'rock',
+        rockX: x,
+        rockZ: z,
+        rockRadius: rockR,
+      });
       rc++;
     }
     rocks.count = rc;
@@ -793,6 +955,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
   function update(camPos: THREE.Vector3, focus: THREE.Vector3, dt = 0.016) {
     sky.position.copy(camPos);
     timeU.value += dt;
+    treeAnimator?.step(dt);
     for (const c of clouds) {
       c.position.x += 3 * dt;
       if (c.position.x > 1700) c.position.x = -1700;
@@ -836,6 +999,9 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     segmentHit: q.segmentHit,
     raycast: q.raycast,
     nearby: q.nearby,
+    knockTreesAt: treeAnimator?.knockTreesAt,
+    resetTrees: treeAnimator?.reset,
+    getTreeStates: () => treeStates,
     update,
     sun,
     terrain,

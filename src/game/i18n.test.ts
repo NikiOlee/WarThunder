@@ -93,6 +93,11 @@ test('t() translates strings and handles parameter interpolation', () => {
   assert.equal(t('skyEaster', undefined, 'ru'), 'Ты что дуралей!? Богов не трогай!');
   assert.equal(t('skyEaster', undefined, 'sr'), 'Šta ti je, budalo!? Ne diraj bogove!');
   assert.equal(t('skyEaster', undefined, 'en'), "What are you, a fool!? Don't mess with the gods!");
+
+  // Rock impact translations
+  assert.equal(t('msgRockImpact', { dmg: 5 }, 'ru'), 'УДАР О КАМЕНЬ: -5 ХП');
+  assert.equal(t('msgRockImpact', { dmg: 5 }, 'sr'), 'UDARAC U KAMEN: -5 HP');
+  assert.equal(t('msgRockImpact', { dmg: 5 }, 'en'), 'ROCK IMPACT: -5 HP');
 });
 
 test('getLanguage() and setLanguage() manage active language and chosen state', () => {

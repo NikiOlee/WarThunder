@@ -75,9 +75,20 @@ export class Minimap {
     }
 
     // Static obstacles / buildings / rocks
-    g.fillStyle = world.id === 'city' ? 'rgba(145, 148, 152, 0.65)' : 'rgba(130, 126, 108, 0.65)';
+    const structColor = world.id === 'city' ? 'rgba(145, 148, 152, 0.65)' : 'rgba(130, 126, 108, 0.65)';
+    const rockColor = world.id === 'city' ? 'rgba(115, 114, 110, 0.42)' : 'rgba(112, 108, 96, 0.48)';
     for (let i = 0; i < world.obstacles.length; i++) {
       const ob = world.obstacles[i];
+      if (ob.kind === 'rock') {
+        const pr = worldToMinimap(ob.rockX ?? (ob.min.x + ob.max.x) * 0.5, ob.rockZ ?? (ob.min.z + ob.max.z) * 0.5, this.limit, S);
+        const rad = Math.max(1.2, ((ob.rockRadius ?? 1.2) / (2 * this.limit)) * S);
+        g.fillStyle = rockColor;
+        g.beginPath();
+        g.arc(pr.x, pr.y, rad, 0, Math.PI * 2);
+        g.fill();
+        continue;
+      }
+      g.fillStyle = structColor;
       // worldToMinimap flips both X and Z relative to +X/+Z, so min->max reverses
       const pMax = worldToMinimap(ob.min.x, ob.min.z, this.limit, S);
       const pMin = worldToMinimap(ob.max.x, ob.max.z, this.limit, S);

@@ -326,6 +326,21 @@ class AudioSys {
         this._burst(dst, t + 0.02, 0.06, 0.65, 'highpass', 3600, 3600);
         break;
       }
+      case 'rockhit': {
+        // Heavy stone/hull thud + scrape
+        this._tone(dst, 'sine', 110, 36, t, 0.22, 0.78);
+        this._tone(dst, 'triangle', 240, 82, t, 0.12, 0.36);
+        this._burst(dst, t, 0.16, 0.55, 'lowpass', 950, 180, 0.6);
+        break;
+      }
+      case 'treefall': {
+        // Timber snap + foliage rustle swoosh
+        const j = 0.9 + Math.random() * 0.2;
+        this._tone(dst, 'sawtooth', 190 * j, 68, t, 0.09, 0.34);
+        this._burst(dst, t, 0.06, 0.42, 'bandpass', 1400 * j, 620, 0.9);
+        this._burst(dst, t + 0.05, 0.38, 0.28, 'bandpass', 900, 260, 0.5);
+        break;
+      }
       default:
         break;
     }

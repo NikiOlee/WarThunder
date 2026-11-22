@@ -8,8 +8,9 @@ import {
   type TrackScrollRef,
   type TrackWheelRef,
 } from './trackAssembly';
-import type { GameWorld } from './world';
+import type { GameWorld, KnockedTreeEvent } from './world';
 import type { Particles } from './ballistics';
+import { ROCK_MIN_IMPACT_SPEED, resolveRockCircleCollision } from './envCollision';
 
 const DEG = Math.PI / 180;
 const wrapPi = (a: number) => {
@@ -263,6 +264,8 @@ export class Tank {
   recoil = 0;
   mgState: MachineGunState;
   apsState: TrophyApsState | null = null;
+  private _pendingRockImpact: { x: number; y: number; z: number; closingSpeed: number } | null = null;
+  private _pendingTreeHits: KnockedTreeEvent[] = [];
 
   root: THREE.Group;
   hullMat!: THREE.MeshStandardMaterial;
@@ -2591,9 +2594,44 @@ export class Tank {
 
     const isMaus = this.spec.id === 'maus';
     const R = isMaus ? 4.1 : 3.3;
-    const near = this.world.nearby ? this.world.nearby(p.x, p.z, R + 1) : this.world.obstacles;
+    const Rrock = isMaus ? 3.8 : 2.9;
+    const near = this.world.nearby ? this.world.nearby(p.x, p.z, R + 2) : this.world.obstacles;
     for (const o of near) {
       if (o.max.y < p.y + 0.4 || o.min.y > p.y + 3.3) continue;
+      if (o.kind === 'rock') {
+        const rockX = o.rockX ?? (o.min.x + o.max.x) * 0.5;
+        const rockZ = o.rockZ ?? (o.min.z + o.max.z) * 0.5;
+        const rockRadius = o.rockRadius ?? Math.max(0.85, (o.max.x - o.min.x) * 0.5);
+        const prevSpeed = this.speed;
+        const res = resolveRockCircleCollision({
+          tankX: p.x,
+          tankZ: p.z,
+          tankRadius: Rrock,
+          tankVx: fx_ * this.speed,
+          tankVz: fz_ * this.speed,
+          tankSpeed: this.speed,
+          rockX,
+          rockZ,
+          rockRadius,
+        });
+        if (res.collided) {
+          p.x = res.x;
+          p.z = res.z;
+          this.speed = res.newSpeed;
+          if (res.closingSpeed >= ROCK_MIN_IMPACT_SPEED) {
+            this._springV -= Math.sign(prevSpeed || 1) * 0.42;
+            if (!this._pendingRockImpact || res.closingSpeed > this._pendingRockImpact.closingSpeed) {
+              this._pendingRockImpact = {
+                x: res.contactX,
+                y: p.y + 0.9,
+                z: res.contactZ,
+                closingSpeed: res.closingSpeed,
+              };
+            }
+          }
+        }
+        continue;
+      }
       if (p.x < o.min.x - R || p.x > o.max.x + R || p.z < o.min.z - R || p.z > o.max.z + R) continue;
       const cx = clamp(p.x, o.min.x, o.max.x);
       const cz = clamp(p.z, o.min.z, o.max.z);
@@ -2618,6 +2656,14 @@ export class Tank {
           else p.z = o.max.z + R;
         }
         this.speed *= Math.max(0, 1 - 4 * dt);
+      }
+    }
+
+    if (this.alive && this.world.knockTreesAt) {
+      const treeR = isMaus ? 3.2 : 2.35;
+      const knocked = this.world.knockTreesAt(p.x, p.z, treeR, fx_ * this.speed, fz_ * this.speed, this.speed);
+      for (let i = 0; i < knocked.length; i++) {
+        this._pendingTreeHits.push(knocked[i]);
       }
     }
 
@@ -2763,6 +2809,8 @@ export class Tank {
     this.recoil = 0;
     this.mgState = createMgState(this.stats.mg);
     this.apsState = this.stats.aps ? createApsState() : null;
+    this._pendingRockImpact = null;
+    this._pendingTreeHits.length = 0;
     this._springX = 0;
     this._springV = 0;
     this._trackPhase = 0;
@@ -2931,6 +2979,17 @@ export class Tank {
   binocWorld(out: THREE.Vector3): THREE.Vector3 {
     this.binocObj.updateWorldMatrix(true, false);
     return this.binocObj.getWorldPosition(out);
+  }
+  consumeRockImpact(): { x: number; y: number; z: number; closingSpeed: number } | null {
+    const imp = this._pendingRockImpact;
+    this._pendingRockImpact = null;
+    return imp;
+  }
+  consumeTreeHits(): KnockedTreeEvent[] {
+    if (this._pendingTreeHits.length === 0) return [];
+    const copy = this._pendingTreeHits.slice();
+    this._pendingTreeHits.length = 0;
+    return copy;
   }
   get turretWorldYaw(): number {
     return this.heading + this.turretYaw;

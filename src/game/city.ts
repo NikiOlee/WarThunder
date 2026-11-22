@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeQueries, hash2, fbm, smooth, mulberry32, makeCanvas, type GameWorld, type ObstacleBox } from './world';
+import {
+  createTreeAnimator,
+  makeQueries,
+  hash2,
+  fbm,
+  smooth,
+  mulberry32,
+  makeCanvas,
+  type GameWorld,
+  type ObstacleBox,
+} from './world';
+import type { TreeInstanceState } from './envCollision';
 
 const SIZE = 1000;
 const LIMIT = 480;
@@ -442,14 +453,33 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
     const p = new THREE.Vector3();
     const s = new THREE.Vector3();
     const col = new THREE.Color();
+    let placedRocks = 0;
     for (let i = 0; i < N; i++) {
       const [x, z] = rubblePts[i];
-      const sz = 0.35 + rand() * rand() * 1.5;
+      const nearSpawn =
+        (Math.abs(z + 442) < 26 && Math.abs(x) < 120) ||
+        (Math.abs(z - 446) < 26 && Math.abs(x) < 200) ||
+        (Math.abs(x) < 8 && z < -360);
+      const sz = i >= rubblePts.length - 45 && !nearSpawn ? 1.05 + rand() * 1.15 : 0.35 + rand() * rand() * 1.5;
+      const ry = heightAt(x, z) + sz * 0.2;
       q.setFromEuler(new THREE.Euler(rand() * 3, rand() * 6, rand() * 3));
-      m.compose(p.set(x, heightAt(x, z) + sz * 0.2, z), q, s.set(sz * 1.4, sz * 0.7, sz));
-      rocks.setMatrixAt(i, m);
-      rocks.setColorAt(i, col.setHSL(0.09, 0.04, 0.22 + rand() * 0.2));
+      m.compose(p.set(x, ry, z), q, s.set(sz * 1.4, sz * 0.7, sz));
+      rocks.setMatrixAt(placedRocks, m);
+      rocks.setColorAt(placedRocks, col.setHSL(0.09, 0.04, 0.22 + rand() * 0.2));
+      if (sz >= 0.75 && !nearSpawn) {
+        const rockR = Math.max(0.85, sz * 1.04);
+        obstacles.push({
+          min: new THREE.Vector3(x - rockR, ry - sz * 0.7, z - rockR),
+          max: new THREE.Vector3(x + rockR, ry + sz * 0.7, z + rockR),
+          kind: 'rock',
+          rockX: x,
+          rockZ: z,
+          rockRadius: rockR,
+        });
+      }
+      placedRocks++;
     }
+    rocks.count = placedRocks;
     rocks.computeBoundingSphere();
     root.add(rocks);
   }
@@ -476,6 +506,8 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
       obstacles.push({ min: new THREE.Vector3(x - w / 2, h, z - d / 2), max: new THREE.Vector3(x + w / 2, h + 1.7, z + d / 2) });
     }
   }
+  const treeStates: TreeInstanceState[] = [];
+  let treeAnimator: ReturnType<typeof createTreeAnimator> | null = null;
   {
     const N = 90;
     const lamp = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.16, 8, 6).translate(0, 4, 0), new THREE.MeshStandardMaterial({ color: 0x2a2a28, roughness: 0.8, metalness: 0.4 }), N);
@@ -505,13 +537,35 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
       const x = (rand() - 0.5) * 880;
       const z = (rand() - 0.5) * 880;
       if (roadDist(x, z) < ROAD_HALF + 4 || Math.abs(Math.abs(z) - 440) < 14) continue;
-      q.setFromEuler(new THREE.Euler((rand() - 0.5) * 0.3, rand() * 6, (rand() - 0.5) * 0.3));
-      m.compose(p.set(x, heightAt(x, z) - 0.1, z), q, s.set(1, 0.7 + rand() * 0.8, 1));
-      tree.setMatrixAt(tn++, m);
+      const ty = heightAt(x, z) - 0.1;
+      const sy = 0.7 + rand() * 0.8;
+      const yaw = rand() * 6.28;
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      m.compose(p.set(x, ty, z), q, s.set(1, sy, 1));
+      tree.setMatrixAt(tn, m);
+      treeStates.push({
+        index: tn,
+        x,
+        y: ty,
+        z,
+        baseYaw: yaw,
+        sx: 1,
+        sy,
+        sz: 1,
+        trunkRadius: 0.5,
+        state: 'standing',
+        fallProgress: 0,
+        fallDirX: 0,
+        fallDirZ: 1,
+        tiltAngle: 0,
+        targetTilt: 1.46,
+      });
+      tn++;
     }
     tree.count = tn;
     tree.computeBoundingSphere();
     root.add(lamp, tree);
+    treeAnimator = createTreeAnimator(treeStates, [tree], heightAt);
   }
 
   const plumes: Array<{ sp: THREE.Sprite; x: number; z: number; h: number; phase: number; speed: number; drift: number }> = [];
@@ -542,6 +596,7 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
     sun.position.copy(focus).addScaledVector(sunDir, 220);
     sun.target.updateMatrixWorld();
     time += dt;
+    treeAnimator?.step(dt);
     for (const c of clouds) {
       c.position.x += 2.5 * dt;
       if (c.position.x > 1700) c.position.x = -1700;
@@ -583,6 +638,9 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
     segmentHit: q.segmentHit,
     raycast: q.raycast,
     nearby: q.nearby,
+    knockTreesAt: treeAnimator?.knockTreesAt,
+    resetTrees: treeAnimator?.reset,
+    getTreeStates: () => treeStates,
     update,
     sun,
     terrain,

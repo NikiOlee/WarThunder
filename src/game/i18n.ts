@@ -328,6 +328,7 @@ const DICT_RU: TranslationDict = {
   msgYouWereHit: 'ПО ВАМ ПОПАЛИ: {res}',
   msgRamDealt: 'ТАРАН! -{dmg} ХП',
   msgRamTaken: 'ТАРАН ПО ВАМ: -{dmg} ХП',
+  msgRockImpact: 'УДАР О КАМЕНЬ: -{dmg} ХП',
   msgMausCrushed: 'МАУС РАЗДАВИЛ ВАС!',
   msgMausBurned: 'МАУС СЖЁГ ВАС ОГНЕМЁТОМ!',
   msgMgOutToast: 'ПАТРОНЫ ПУЛЕМЁТА КОНЧИЛИСЬ',
@@ -339,6 +340,7 @@ const DICT_RU: TranslationDict = {
   msgRoundToast: 'РАУНД {round}',
   suffixFuel: ' [БЕНЗОБАК]',
   suffixRam: ' [ТАРАН]',
+  suffixRock: ' [КАМЕНЬ]',
   suffixFlame: ' [ОГНЕМЁТ]',
   suffixMg: ' [ПУЛЕМЁТ]',
 
@@ -643,6 +645,7 @@ const DICT_SR: TranslationDict = {
   msgYouWereHit: 'POGOĐENI STE: {res}',
   msgRamDealt: 'UDARAC! -{dmg} HP',
   msgRamTaken: 'UDARAC PO VAMA: -{dmg} HP',
+  msgRockImpact: 'UDARAC U KAMEN: -{dmg} HP',
   msgMausCrushed: 'MAUS VAS JE PREGAZIO!',
   msgMausBurned: 'MAUS VAS JE SPALIO BACAČEM PLAMENA!',
   msgMgOutToast: 'NESTAO JE METAKA ZA MITRALJEZ',
@@ -654,6 +657,7 @@ const DICT_SR: TranslationDict = {
   msgRoundToast: 'RUNDA {round}',
   suffixFuel: ' [REZERVOAR]',
   suffixRam: ' [UDARAC]',
+  suffixRock: ' [KAMEN]',
   suffixFlame: ' [BACAČ PLAMENA]',
   suffixMg: ' [MITRALJEZ]',
 
@@ -958,6 +962,7 @@ const DICT_EN: TranslationDict = {
   msgYouWereHit: 'YOU WERE HIT: {res}',
   msgRamDealt: 'RAMMING! -{dmg} HP',
   msgRamTaken: 'RAMMED: -{dmg} HP',
+  msgRockImpact: 'ROCK IMPACT: -{dmg} HP',
   msgMausCrushed: 'THE MAUS CRUSHED YOU!',
   msgMausBurned: 'THE MAUS INCINERATED YOU WITH FLAMETHROWER!',
   msgMgOutToast: 'MACHINE GUN IS OUT OF AMMO',
@@ -969,6 +974,7 @@ const DICT_EN: TranslationDict = {
   msgRoundToast: 'ROUND {round}',
   suffixFuel: ' [FUEL TANK]',
   suffixRam: ' [RAM]',
+  suffixRock: ' [ROCK]',
   suffixFlame: ' [FLAMETHROWER]',
   suffixMg: ' [MACHINE GUN]',
 

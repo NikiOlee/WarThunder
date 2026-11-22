@@ -27,6 +27,7 @@ import {
   type ScoreboardRow,
 } from './modes';
 import { resolveTankCollisionPair } from './collision';
+import { shouldApplyRockDamage } from './envCollision';
 import { isShotIntoSky, SKY_EASTER_MSG } from './damage';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { recordMatchHistory } from './matchHistory';
@@ -273,6 +274,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   let spectateTarget: Tank | null = null;
   let simTime = 0;
   const ramCooldowns = new Map<string, number>();
+  const rockCooldowns = new Map<string, number>();
   let matchSilverEarned = 0;
   let scoreboardOpen = false;
   let mode: 'third' | 'sniper' | 'binoc' = 'third';
@@ -480,6 +482,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     const chosenTankId = getSelectedTankId();
     ballistics.clear();
     ramCooldowns.clear();
+    rockCooldowns.clear();
+    if (isFirstRound) world.resetTrees?.();
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, chosenTankId);
     tank.name = t('sbPlayerSelf', { name: tank.spec.name });
     if (isFirstRound) {
@@ -2033,7 +2037,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (scoreboardOpen) renderScoreboard();
 
       if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0 && target === tank) {
-        feed(`${owner ? owner.name : '?'}  >  ${target.name}${suffix}`, 'ally');
+        const line = owner ? `${owner.name}  >  ${target.name}${suffix}` : `${target.name}${suffix}`;
+        feed(line, 'ally');
         finishMatch('B', 0);
         return;
       }
@@ -2045,7 +2050,8 @@ export function initGame(mountEl: HTMLElement): () => void {
         }
       }
     }
-    feed(`${owner ? owner.name : '?'}  >  ${target.name}${suffix}`, target.team === 'A' ? 'ally' : 'enemy');
+    const line = owner ? `${owner.name}  >  ${target.name}${suffix}` : `${target.name}${suffix}`;
+    feed(line, target.team === 'A' ? 'ally' : 'enemy');
   }
 
   const collisionById = new Map<string, Tank>();
@@ -2172,6 +2178,76 @@ export function initGame(mountEl: HTMLElement): () => void {
         showMsg(t('msgMausCrushed'), '#ff4c2a');
       }
       handleTankDestroyed(v, boss.tank, t('suffixRam'));
+    }
+  }
+
+  function resolveEnvironmentImpacts() {
+    for (let i = 0; i < allTanksList.length; i++) {
+      const tk = allTanksList[i];
+      const treeHits = tk.consumeTreeHits();
+      for (let tIdx = 0; tIdx < treeHits.length; tIdx++) {
+        const tr = treeHits[tIdx];
+        const pos = tk.root.position;
+        audio.play('treefall', pos, 0.75, tk === tank);
+        for (let k = 0; k < 7; k++) {
+          ballistics.fx.emit({
+            x: tr.x + (Math.random() - 0.5) * 1.4,
+            y: tr.y + 1.2 + Math.random() * 2.2 * tr.sy,
+            z: tr.z + (Math.random() - 0.5) * 1.4,
+            vx: (Math.random() - 0.5) * 5.5,
+            vy: 1.5 + Math.random() * 4.2,
+            vz: (Math.random() - 0.5) * 5.5,
+            life: 0.75 + Math.random() * 0.4,
+            s0: 0.55,
+            s1: 0.25,
+            r: 0.24 + Math.random() * 0.1,
+            g: 0.36 + Math.random() * 0.14,
+            b: 0.16,
+            a: 0.85,
+            grav: -9,
+          });
+        }
+      }
+
+      const rockImp = tk.consumeRockImpact();
+      if (!rockImp || !tk.alive) continue;
+      const dmg = shouldApplyRockDamage(getTankId(tk), rockImp.closingSpeed, simTime, rockCooldowns);
+      if (dmg <= 0) continue;
+
+      if (!tk.god) {
+        tk.hp -= dmg;
+      }
+      audio.play('rockhit', tk.root.position, 0.9, tk === tank);
+      for (let k = 0; k < 9; k++) {
+        ballistics.fx.emit({
+          additive: k < 4,
+          x: rockImp.x + (Math.random() - 0.5) * 0.8,
+          y: rockImp.y + Math.random() * 0.6,
+          z: rockImp.z + (Math.random() - 0.5) * 0.8,
+          vx: (Math.random() - 0.5) * 8,
+          vy: 2 + Math.random() * 5,
+          vz: (Math.random() - 0.5) * 8,
+          life: 0.45 + Math.random() * 0.25,
+          s0: k < 4 ? 0.32 : 0.7,
+          s1: k < 4 ? 0.08 : 1.9,
+          r: k < 4 ? 1 : 0.55,
+          g: k < 4 ? 0.76 : 0.52,
+          b: k < 4 ? 0.38 : 0.46,
+          a: k < 4 ? 1 : 0.6,
+          grav: -12,
+        });
+      }
+      if (tk === tank) {
+        shake = Math.max(shake, 0.42);
+        if (!tk.god) {
+          showMsg(t('msgRockImpact', { dmg }), '#ffb86a');
+        }
+      }
+      if (tk.hp <= 0 && tk.alive) {
+        tk.destroy(false);
+        audio.play('bigexplosion', tk.root.position);
+        handleTankDestroyed(tk, null, t('suffixRock'));
+      }
     }
   }
 
@@ -2341,6 +2417,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     resolveTankCollisions();
     resolveBossRam();
+    resolveEnvironmentImpacts();
 
     if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0 && !matchEnded) {
       survivalRemaining = Math.max(0, survivalRemaining - dt);

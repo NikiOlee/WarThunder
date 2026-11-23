@@ -21,6 +21,7 @@ import {
 import type { GameWorld, KnockedTreeEvent } from './world';
 import type { Particles } from './ballistics';
 import { ROCK_MIN_IMPACT_SPEED, resolveRockCircleCollision } from './envCollision';
+import type { TankLodTier } from './visibility';
 
 const DEG = Math.PI / 180;
 const wrapPi = (a: number) => {
@@ -304,6 +305,15 @@ export class Tank {
   tracks: TrackScrollRef[] = [];
   wheels: TrackWheelRef[] = [];
   private _galixPods: Array<{ mesh: THREE.Mesh; baseX: number; baseY: number; baseZ: number; sx: number }> = [];
+  private _lodProxy!: THREE.Group;
+  private _lodTurret!: THREE.Group;
+  private _lodGun!: THREE.Group;
+  private _lodMat!: THREE.MeshLambertMaterial;
+  private _lodBaseHex = 0x4e5b34;
+  private _fineDetails: THREE.Object3D[] = [];
+  private _shadowMeshes: THREE.Mesh[] = [];
+  private _lodTier: TankLodTier = 'high';
+  private _castShadows = true;
   _gd?: THREE.Vector3;
 
   constructor(scene: THREE.Scene, world: GameWorld, opts: TankOptions = {}) {
@@ -332,21 +342,27 @@ export class Tank {
   }
 
   private _disposeHull(): void {
-    if (!this.hullGroup) return;
-    this.hullGroup.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh) {
-        mesh.geometry?.dispose();
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const m of mats) {
-          if (m && 'map' in m && (m as THREE.MeshStandardMaterial).map) {
-            (m as THREE.MeshStandardMaterial).map?.dispose();
+    const disposeGroup = (grp: THREE.Object3D | undefined) => {
+      if (!grp) return;
+      grp.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.geometry?.dispose();
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const m of mats) {
+            if (m && 'map' in m && (m as THREE.MeshStandardMaterial).map) {
+              (m as THREE.MeshStandardMaterial).map?.dispose();
+            }
+            m?.dispose();
           }
-          m?.dispose();
         }
-      }
-    });
-    this.root.remove(this.hullGroup);
+      });
+      this.root.remove(grp);
+    };
+    disposeGroup(this.hullGroup);
+    disposeGroup(this._lodProxy);
+    this._fineDetails = [];
+    this._shadowMeshes = [];
   }
 
   private _build(): void {
@@ -2802,9 +2818,119 @@ export class Tank {
       tg.add(this.binocObj);
     }
 
-    this.root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    this._fineDetails = [];
+    this._shadowMeshes = [];
+    const wheelSet = new Set<THREE.Object3D>(this.wheels.map((w) => w.mesh));
+    const trackGeoSet = new Set<THREE.BufferGeometry>(this.tracks.flatMap((t) => (t.anim ? [t.anim.geometry] : [])));
+    const sizeTmp = new THREE.Vector3();
+
+    this.hullGroup.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = true;
+      this._shadowMeshes.push(mesh);
+      if (wheelSet.has(mesh)) {
+        this._fineDetails.push(mesh);
+        return;
+      }
+      if ((mesh.geometry && trackGeoSet.has(mesh.geometry)) || mesh.parent === this.barrelGroup) return;
+      if (mesh.geometry) {
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        if (mesh.geometry.boundingBox) {
+          mesh.geometry.boundingBox.getSize(sizeTmp);
+          const smallCube = sizeTmp.x < 0.85 && sizeTmp.y < 0.85 && sizeTmp.z < 0.85;
+          const thinPole = sizeTmp.x < 0.11 && sizeTmp.z < 0.11;
+          if (smallCube || thinPole) {
+            this._fineDetails.push(mesh);
+          }
+        }
+      }
     });
+
+    // Lightweight 3-part low-poly LOD proxy for distant tanks (>= 190m effective distance)
+    this._lodBaseHex = isMaus
+      ? 0x484c52
+      : isMerkava4
+        ? 0x8d8a79
+        : isChallenger2
+          ? 0x4a5337
+          : isLeclerc
+            ? 0x3c4d2b
+            : isLeopard2A7V
+              ? 0x35452a
+              : isLeopard2A4
+                ? 0x435032
+                : isM60 || isM1A1
+                  ? 0x585c3a
+                  : 0x46542e;
+    this._lodMat = new THREE.MeshLambertMaterial({ color: this._lodBaseHex });
+    this._lodMat.color.r *= this.tint[0];
+    this._lodMat.color.g *= this.tint[1];
+    this._lodMat.color.b *= this.tint[2];
+    this._lodProxy = new THREE.Group();
+    const hullW = isMaus ? 3.7 : 3.35;
+    const hullH = isMaus ? 1.7 : 1.25;
+    const hullL = isMaus ? 8.8 : 6.9;
+    const lodHull = new THREE.Mesh(new THREE.BoxGeometry(hullW, hullH, hullL), this._lodMat);
+    lodHull.position.set(0, hullH * 0.5 + 0.38, 0);
+    this._lodProxy.add(lodHull);
+
+    this._lodTurret = new THREE.Group();
+    this._lodTurret.position.set(0, isMaus ? 2.23 : 1.66, isMerkava4 ? -0.45 : 0.05);
+    const lodTurBox = new THREE.Mesh(
+      new THREE.BoxGeometry(isMaus ? 2.8 : 2.55, isMaus ? 1.1 : 0.78, isMaus ? 3.8 : 3.1),
+      this._lodMat,
+    );
+    lodTurBox.position.set(0, 0.42, -0.15);
+    this._lodTurret.add(lodTurBox);
+
+    this._lodGun = new THREE.Group();
+    this._lodGun.position.set(0, 0.44, 1.3);
+    const lodBarrelGeo = new THREE.CylinderGeometry(0.11, 0.13, isMaus ? 5.2 : 4.7, 6);
+    lodBarrelGeo.rotateX(Math.PI / 2);
+    const lodBarrel = new THREE.Mesh(lodBarrelGeo, this._lodMat);
+    lodBarrel.position.set(0, 0, isMaus ? 2.5 : 2.25);
+    this._lodGun.add(lodBarrel);
+    this._lodTurret.add(this._lodGun);
+
+    this._lodProxy.add(this._lodTurret);
+    this._lodProxy.visible = false;
+    this.root.add(this._lodProxy);
+    this._lodTier = 'high';
+    this._castShadows = true;
+  }
+
+  get lodTier(): TankLodTier {
+    return this._lodTier;
+  }
+
+  setDetailLevel(tier: TankLodTier, castShadows: boolean): void {
+    if (this._lodTier === tier && this._castShadows === castShadows) return;
+    this._lodTier = tier;
+    if (tier === 'culled') {
+      this.root.visible = false;
+      return;
+    }
+    this.root.visible = true;
+    const isLow = tier === 'low';
+    this.hullGroup.visible = !isLow;
+    this._lodProxy.visible = isLow;
+    if (!isLow) {
+      const showFine = tier === 'high';
+      for (let i = 0; i < this._fineDetails.length; i++) {
+        this._fineDetails[i].visible = showFine;
+      }
+      if (this._castShadows !== castShadows) {
+        this._castShadows = castShadows;
+        for (let i = 0; i < this._shadowMeshes.length; i++) {
+          this._shadowMeshes[i].castShadow = castShadows;
+        }
+      }
+    }
+    if (isLow) {
+      this._lodTurret.rotation.y = this.turretYaw;
+      this._lodGun.rotation.x = -this.gunElev;
+    }
   }
 
   private _sampleGround(dt: number, snap: boolean): void {
@@ -2894,6 +3020,12 @@ export class Tank {
     this.turretGroup.rotation.z = this._wreckTilt;
     this.gunPivot.rotation.x = -this.gunElev - (this.stats.stabilized ? this._springX : 0);
     this.barrelGroup.position.z = -0.55 * this.recoil * this.recoil;
+    if (this._lodProxy && this._lodProxy.visible) {
+      this._lodTurret.rotation.y = this.turretYaw;
+      this._lodTurret.position.y = baseTurretY + this._turretLift;
+      this._lodTurret.rotation.z = this._wreckTilt;
+      this._lodGun.rotation.x = -this.gunElev;
+    }
   }
 
   update(dt: number, input: TankInput | null, fx: Particles | null): void {
@@ -3071,21 +3203,25 @@ export class Tank {
     const vl = this.speed - this.yawRate * hw;
     const vr = this.speed + this.yawRate * hw;
     this._trackPhase += (Math.abs(this.speed) + Math.abs(this.yawRate) * hw) * dt * 1.35;
-    for (const t of this.tracks) {
-      const vt = t.sign > 0 ? vl : vr;
-      t.tex.offset.x += (vt * dt * t.tex.repeat.x) / t.perimeter;
+    if (this.root.visible && this._lodTier !== 'low') {
+      for (const t of this.tracks) {
+        const vt = t.sign > 0 ? vl : vr;
+        t.tex.offset.x += (vt * dt * t.tex.repeat.x) / t.perimeter;
+      }
+      if (this._lodTier === 'high') {
+        for (const w of this.wheels) {
+          w.mesh.rotation.x += ((w.side > 0 ? vl : vr) * dt) / w.radius;
+        }
+        updateTrackSuspensionAndFlex(this.tracks, this.wheels, {
+          phase: this._trackPhase,
+          speed: this.speed,
+          accel: this.accel,
+          yawRate: this.yawRate,
+          crestFlex: this._crestFlex,
+          alive: this.alive,
+        });
+      }
     }
-    for (const w of this.wheels) {
-      w.mesh.rotation.x += ((w.side > 0 ? vl : vr) * dt) / w.radius;
-    }
-    updateTrackSuspensionAndFlex(this.tracks, this.wheels, {
-      phase: this._trackPhase,
-      speed: this.speed,
-      accel: this.accel,
-      yawRate: this.yawRate,
-      crestFlex: this._crestFlex,
-      alive: this.alive,
-    });
 
     if (this._galixAnimT > 0) {
       this._galixAnimT = Math.max(0, this._galixAnimT - dt);
@@ -3107,7 +3243,7 @@ export class Tank {
       }
     }
 
-    if (fx && overdrive.active && this.alive) {
+    if (fx && overdrive.active && this.alive && this.root.visible && this._lodTier !== 'low') {
       this._overdriveEmitAcc += dt;
       while (this._overdriveEmitAcc >= 0.045) {
         this._overdriveEmitAcc -= 0.045;
@@ -3157,7 +3293,7 @@ export class Tank {
       this._overdriveEmitAcc = 0;
     }
 
-    if (fx) {
+    if (fx && this.root.visible && this._lodTier !== 'low') {
       const dustRate = overdrive.active ? 26 : 16;
       this._dust += Math.min(1.4, (sAbs + Math.abs(this.yawRate) * 8) / 10) * dustRate * dt;
       while (this._dust >= 1) {
@@ -3224,6 +3360,7 @@ export class Tank {
     this.hp = 0;
     this._burn = 26;
     this.hullMat.color.setRGB(0.12, 0.11, 0.1);
+    if (this._lodMat) this._lodMat.color.setRGB(0.12, 0.11, 0.1);
     this._turretVel = crit ? 15.5 : 4;
     this._wreckTilt = crit ? 0.42 : 0.08;
   }
@@ -3259,6 +3396,12 @@ export class Tank {
     this._galixAnimT = 0;
     this._overdriveEmitAcc = 0;
     this.hullMat.color.setRGB(this.tint[0], this.tint[1], this.tint[2]);
+    if (this._lodMat) {
+      this._lodMat.color.setHex(this._lodBaseHex);
+      this._lodMat.color.r *= this.tint[0];
+      this._lodMat.color.g *= this.tint[1];
+      this._lodMat.color.b *= this.tint[2];
+    }
     this.heading = heading;
     this.speed = 0;
     this.yawRate = 0;
@@ -3303,7 +3446,7 @@ export class Tank {
         this._turretVel = 0;
       }
     }
-    if (!fx) return;
+    if (!fx || !this.root.visible) return;
     this._burn = Math.max(0, this._burn - dt);
     this._smokeAcc += dt * (this._burn > 0 ? 22 : 6);
     const p = this.root.position;

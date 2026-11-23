@@ -6,6 +6,12 @@ import {
   triggerTreeKnockdown,
   type TreeInstanceState,
 } from './envCollision';
+import {
+  resolveBuildingLod,
+  resolveTreeLod,
+  sectorIndexFor,
+  type VisibilityController,
+} from './visibility';
 
 export const WORLD_SIZE = 1000;
 export const WORLD_LIMIT = 480;
@@ -59,7 +65,7 @@ export interface GameWorld {
   knockTreesAt?: (x: number, z: number, radius: number, vx: number, vz: number, speed: number) => KnockedTreeEvent[];
   resetTrees?: () => void;
   getTreeStates?: () => ReadonlyArray<TreeInstanceState>;
-  update: (camPos: THREE.Vector3, focus: THREE.Vector3, dt?: number) => void;
+  update: (camPos: THREE.Vector3, focus: THREE.Vector3, dt?: number, vis?: VisibilityController) => void;
   sun: THREE.DirectionalLight;
   terrain: THREE.Mesh;
   createEnvironment: (renderer: THREE.WebGLRenderer) => void;
@@ -221,10 +227,17 @@ function boardTexture(label: string): THREE.CanvasTexture {
   return t;
 }
 
+export interface TreeSectorRouting {
+  sectorOfTree: Uint8Array;
+  localIdxOfTree: Uint16Array;
+  sectorMeshes: THREE.InstancedMesh[][];
+}
+
 export function createTreeAnimator(
   trees: TreeInstanceState[],
   meshes: THREE.InstancedMesh[],
   hFn: (x: number, z: number) => number,
+  sectorRouting?: TreeSectorRouting,
 ) {
   const CELL = 24;
   const grid = new Map<number, number[]>();
@@ -260,8 +273,18 @@ export function createTreeAnimator(
       _q.copy(_qYaw);
     }
     _m.compose(_p, _q, _s);
-    for (let j = 0; j < meshes.length; j++) {
-      meshes[j].setMatrixAt(idx, _m);
+    if (sectorRouting) {
+      const s = sectorRouting.sectorOfTree[idx];
+      const localIdx = sectorRouting.localIdxOfTree[idx];
+      const targets = sectorRouting.sectorMeshes[s];
+      for (let j = 0; j < targets.length; j++) {
+        targets[j].setMatrixAt(localIdx, _m);
+        targets[j].instanceMatrix.needsUpdate = true;
+      }
+    } else {
+      for (let j = 0; j < meshes.length; j++) {
+        meshes[j].setMatrixAt(idx, _m);
+      }
     }
   }
 
@@ -309,8 +332,10 @@ export function createTreeAnimator(
     for (let i = 0; i < _changed.length; i++) {
       writeMatrix(_changed[i]);
     }
-    for (let j = 0; j < meshes.length; j++) {
-      meshes[j].instanceMatrix.needsUpdate = true;
+    if (!sectorRouting) {
+      for (let j = 0; j < meshes.length; j++) {
+        meshes[j].instanceMatrix.needsUpdate = true;
+      }
     }
   }
 
@@ -319,8 +344,10 @@ export function createTreeAnimator(
     for (let i = 0; i < trees.length; i++) {
       writeMatrix(i);
     }
-    for (let j = 0; j < meshes.length; j++) {
-      meshes[j].instanceMatrix.needsUpdate = true;
+    if (!sectorRouting) {
+      for (let j = 0; j < meshes.length; j++) {
+        meshes[j].instanceMatrix.needsUpdate = true;
+      }
     }
   }
 
@@ -687,6 +714,15 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     return o;
   }
 
+  interface HouseLodItem {
+    wall: THREE.Mesh;
+    roof: THREE.Mesh;
+    lowProxy: THREE.Mesh;
+    box: THREE.Box3;
+  }
+  const houseItems: HouseLodItem[] = [];
+  const lowProxyGeo = new THREE.BoxGeometry(1, 1, 1);
+
   const wallColors = [0xcdbd96, 0xb8b4a6, 0xd9d2bd, 0xa89a7c, 0xc2a88a];
   const roofMat = new THREE.MeshStandardMaterial({ color: 0x8a3b2a, roughness: 0.9, flatShading: true });
   const roofGeo = new THREE.ConeGeometry(1, 1, 4);
@@ -712,21 +748,42 @@ export function createWorld(scene: THREE.Scene): GameWorld {
         lo = Math.min(lo, hh);
         hi = Math.max(hi, hh);
       }
+      const wallColHex = wallColors[Math.floor(rand() * wallColors.length)];
       const mat = new THREE.MeshStandardMaterial({
-        color: wallColors[Math.floor(rand() * wallColors.length)],
+        color: wallColHex,
         roughness: 0.95,
         flatShading: true,
       });
       const top = hi + hgt;
-      addBox(cx - w / 2, lo - 1.5, cz - d / 2, cx + w / 2, top, cz + d / 2, mat);
+      const wallBox = addBox(cx - w / 2, lo - 1.5, cz - d / 2, cx + w / 2, top, cz + d / 2, mat);
       const roof = new THREE.Mesh(roofGeo, roofMat);
       roof.scale.set(w * 0.78, 3.2, d * 0.78);
       roof.position.set(cx, top + 1.6, cz);
       roof.castShadow = true;
       root.add(roof);
+
+      const lowColor = new THREE.Color(wallColHex).lerp(new THREE.Color(0x8a3b2a), 0.22);
+      const lowProxy = new THREE.Mesh(lowProxyGeo, new THREE.MeshLambertMaterial({ color: lowColor }));
+      const totalH = top + 2.4 - (lo - 1.5);
+      lowProxy.scale.set(w, totalH, d);
+      lowProxy.position.set(cx, (lo - 1.5 + top + 2.4) * 0.5, cz);
+      lowProxy.visible = false;
+      root.add(lowProxy);
+      if (wallBox.mesh) {
+        houseItems.push({
+          wall: wallBox.mesh,
+          roof,
+          lowProxy,
+          box: new THREE.Box3(
+            new THREE.Vector3(cx - w / 2, lo - 1.5, cz - d / 2),
+            new THREE.Vector3(cx + w / 2, top + 3.2, cz + d / 2),
+          ),
+        });
+      }
     }
   }
 
+  const barrierItems: Array<{ mesh: THREE.Mesh; box: THREE.Box3 }> = [];
   const concrete = new THREE.MeshStandardMaterial({ color: 0x8d8c86, roughness: 1, flatShading: true });
   let placed = 0;
   let tries = 0;
@@ -745,11 +802,19 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       heightAt(x - w / 2, z + d / 2),
       heightAt(x + w / 2, z - d / 2),
     );
-    addBox(x - w / 2, hh - 2, z - d / 2, x + w / 2, hh + hgt, z + d / 2, concrete);
+    const b = addBox(x - w / 2, hh - 2, z - d / 2, x + w / 2, hh + hgt, z + d / 2, concrete);
+    if (b.mesh) {
+      barrierItems.push({
+        mesh: b.mesh,
+        box: new THREE.Box3(b.min.clone(), b.max.clone()),
+      });
+    }
     placed++;
   }
 
+  const rangeBoardItems: Array<{ board: THREE.Mesh; posts: THREE.Mesh[]; box: THREE.Box3 }> = [];
   const postMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 1 });
+  const postGeo = new THREE.CylinderGeometry(0.15, 0.15, 5, 6);
   for (const dist of [150, 300, 400, 500]) {
     const z = SPAWN.z + dist;
     const x = 0;
@@ -758,32 +823,67 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     const plain = new THREE.MeshStandardMaterial({ color: 0xdedbcd, roughness: 0.9 });
     const mats = [plain, plain, plain, plain, faceMat, faceMat];
     const o = addBox(x - 3, hh + 1.2, z - 0.2, x + 3, hh + 4.4, z + 0.2, mats);
+    const posts: THREE.Mesh[] = [];
     for (const px of [-2.2, 2.2]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 5, 6), postMat);
+      const post = new THREE.Mesh(postGeo, postMat);
       post.position.set(px, hh + 0.8, z);
       post.castShadow = true;
       root.add(post);
+      posts.push(post);
     }
-    if (o.mesh) o.mesh.userData.range = dist;
+    if (o.mesh) {
+      o.mesh.userData.range = dist;
+      rangeBoardItems.push({
+        board: o.mesh,
+        posts,
+        box: new THREE.Box3(new THREE.Vector3(x - 3.2, hh - 2, z - 0.8), new THREE.Vector3(x + 3.2, hh + 4.6, z + 0.8)),
+      });
+    }
   }
 
+  const SECTOR_GRID = 4;
+  const SECTOR_COUNT = SECTOR_GRID * SECTOR_GRID;
+  const SECTOR_SPAN = WORLD_SIZE / SECTOR_GRID;
+  const sectorBoxes: THREE.Box3[] = [];
+  for (let gz = 0; gz < SECTOR_GRID; gz++) {
+    for (let gx = 0; gx < SECTOR_GRID; gx++) {
+      const x0 = -WORLD_SIZE / 2 + gx * SECTOR_SPAN;
+      const z0 = -WORLD_SIZE / 2 + gz * SECTOR_SPAN;
+      sectorBoxes.push(new THREE.Box3(new THREE.Vector3(x0, -25, z0), new THREE.Vector3(x0 + SECTOR_SPAN, 95, z0 + SECTOR_SPAN)));
+    }
+  }
+
+  interface TreeSectorChunk {
+    crowns: THREE.InstancedMesh;
+    trunks: THREE.InstancedMesh;
+    lowCrowns: THREE.InstancedMesh;
+    box: THREE.Box3;
+    count: number;
+  }
   const treeStates: TreeInstanceState[] = [];
+  const treeSectors: TreeSectorChunk[] = [];
   let treeAnimator: ReturnType<typeof createTreeAnimator> | null = null;
   {
     const crownGeo = new THREE.ConeGeometry(2.1, 7.5, 7);
     crownGeo.translate(0, 5.2, 0);
+    const lowCrownGeo = new THREE.ConeGeometry(2.1, 7.5, 4);
+    lowCrownGeo.translate(0, 5.2, 0);
     const trunkGeo = new THREE.CylinderGeometry(0.3, 0.4, 2.2, 5);
     trunkGeo.translate(0, 1.1, 0);
+    const crownMat = new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true });
+    const lowCrownMat = new THREE.MeshLambertMaterial({ flatShading: true });
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4f3a26, roughness: 1 });
+
     const N = 520;
-    const crowns = new THREE.InstancedMesh(crownGeo, new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), N);
-    const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x4f3a26, roughness: 1 }), N);
-    crowns.castShadow = trunks.castShadow = true;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
     const col = new THREE.Color();
     const n = new THREE.Vector3();
+
+    const treeData: Array<{ matrix: THREE.Matrix4; color: THREE.Color; sector: number }> = [];
     let count = 0;
     let att = 0;
     while (count < N && att++ < 6000) {
@@ -800,12 +900,11 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       const sy = sc2 * (0.9 + rand() * 0.4);
       const yaw = rand() * 6.28;
       const ty = h - 0.2;
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      q.setFromAxisAngle(up, yaw);
       m.compose(p.set(x, ty, z), q, s.set(sc2, sy, sc2));
-      crowns.setMatrixAt(count, m);
-      trunks.setMatrixAt(count, m);
       col.setHSL(0.27 + rand() * 0.05, 0.45, 0.2 + rand() * 0.08);
-      crowns.setColorAt(count, col);
+      const sector = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
+      treeData.push({ matrix: m.clone(), color: col.clone(), sector });
       treeStates.push({
         index: count,
         x,
@@ -825,16 +924,70 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       });
       count++;
     }
-    crowns.count = trunks.count = count;
-    crowns.computeBoundingSphere();
-    trunks.computeBoundingSphere();
-    root.add(crowns, trunks);
-    treeAnimator = createTreeAnimator(treeStates, [crowns, trunks], heightAt);
+
+    const sectorBuckets: number[][] = Array.from({ length: SECTOR_COUNT }, () => []);
+    for (let i = 0; i < count; i++) sectorBuckets[treeData[i].sector].push(i);
+    const sectorOfTree = new Uint8Array(count);
+    const localIdxOfTree = new Uint16Array(count);
+    const sectorMeshes: THREE.InstancedMesh[][] = [];
+
+    for (let sec = 0; sec < SECTOR_COUNT; sec++) {
+      const bucket = sectorBuckets[sec];
+      const scCount = bucket.length;
+      const box = new THREE.Box3();
+      const crowns = new THREE.InstancedMesh(crownGeo, crownMat, Math.max(1, scCount));
+      const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, Math.max(1, scCount));
+      const lowCrowns = new THREE.InstancedMesh(lowCrownGeo, lowCrownMat, Math.max(1, scCount));
+      crowns.castShadow = trunks.castShadow = true;
+      crowns.count = trunks.count = lowCrowns.count = scCount;
+      lowCrowns.visible = false;
+
+      if (scCount > 0) {
+        for (let li = 0; li < scCount; li++) {
+          const gi = bucket[li];
+          const tr = treeStates[gi];
+          const td = treeData[gi];
+          sectorOfTree[gi] = sec;
+          localIdxOfTree[gi] = li;
+          crowns.setMatrixAt(li, td.matrix);
+          trunks.setMatrixAt(li, td.matrix);
+          lowCrowns.setMatrixAt(li, td.matrix);
+          crowns.setColorAt(li, td.color);
+          lowCrowns.setColorAt(li, td.color);
+          box.expandByPoint(p.set(tr.x - 5.5, tr.y - 1, tr.z - 5.5));
+          box.expandByPoint(p.set(tr.x + 5.5, tr.y + 10.5 * tr.sy, tr.z + 5.5));
+        }
+        crowns.computeBoundingSphere();
+        trunks.computeBoundingSphere();
+        lowCrowns.computeBoundingSphere();
+        root.add(crowns, trunks, lowCrowns);
+      } else {
+        crowns.visible = trunks.visible = lowCrowns.visible = false;
+      }
+      sectorMeshes.push([crowns, trunks, lowCrowns]);
+      treeSectors.push({ crowns, trunks, lowCrowns, box, count: scCount });
+    }
+    treeAnimator = createTreeAnimator(treeStates, [], heightAt, {
+      sectorOfTree,
+      localIdxOfTree,
+      sectorMeshes,
+    });
   }
 
   const timeU = { value: 0 };
-  let grassRef: THREE.InstancedMesh | null = null;
-  let grassTotal = 0;
+  interface GrassSectorChunk {
+    mesh: THREE.InstancedMesh;
+    baseCount: number;
+    box: THREE.Box3;
+  }
+  const grassSectors: GrassSectorChunk[] = [];
+  let grassDensity = 1;
+  interface RockSectorChunk {
+    mesh: THREE.InstancedMesh;
+    box: THREE.Box3;
+    count: number;
+  }
+  const rockSectors: RockSectorChunk[] = [];
   {
     const blade = new THREE.BufferGeometry();
     const P: number[] = [];
@@ -874,7 +1027,6 @@ export function createWorld(scene: THREE.Scene): GameWorld {
         );
     };
     const N = 26000;
-    const grassMesh = new THREE.InstancedMesh(blade, gm, N);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const p = new THREE.Vector3();
@@ -882,6 +1034,11 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     const up = new THREE.Vector3(0, 1, 0);
     const col = new THREE.Color();
     const n = new THREE.Vector3();
+
+    const grassBuckets: Array<Array<{ m: THREE.Matrix4; c: THREE.Color; x: number; y: number; z: number }>> = Array.from(
+      { length: SECTOR_COUNT },
+      () => [],
+    );
     let count = 0;
     let att = 0;
     while (count < N && att++ < 90000) {
@@ -895,22 +1052,35 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       const hs = 0.7 + rand() * 0.9;
       q.setFromAxisAngle(up, rand() * 6.28);
       m.compose(p.set(x, h - 0.05, z), q, sc3.set(hs * 1.3, hs, hs * 1.3));
-      grassMesh.setMatrixAt(count, m);
       col.setHSL(0.22 + rand() * 0.07, 0.5, 0.42 + rand() * 0.18);
-      grassMesh.setColorAt(count, col);
+      const sec = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
+      grassBuckets[sec].push({ m: m.clone(), c: col.clone(), x, y: h, z });
       count++;
     }
-    grassMesh.count = count;
-    grassMesh.computeBoundingSphere();
-    grassRef = grassMesh;
-    grassTotal = count;
-    root.add(grassMesh);
+    for (let sec = 0; sec < SECTOR_COUNT; sec++) {
+      const b = grassBuckets[sec];
+      if (b.length === 0) continue;
+      const mesh = new THREE.InstancedMesh(blade, gm, b.length);
+      const box = new THREE.Box3();
+      for (let i = 0; i < b.length; i++) {
+        mesh.setMatrixAt(i, b[i].m);
+        mesh.setColorAt(i, b[i].c);
+        box.expandByPoint(p.set(b[i].x, b[i].y - 0.2, b[i].z));
+        box.expandByPoint(p.set(b[i].x, b[i].y + 1.8, b[i].z));
+      }
+      mesh.count = b.length;
+      mesh.computeBoundingSphere();
+      root.add(mesh);
+      grassSectors.push({ mesh, baseCount: b.length, box });
+    }
 
     const rockGeo = new THREE.IcosahedronGeometry(1, 0);
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a867c, roughness: 1, flatShading: true });
     const R = 140;
-    const rocks = new THREE.InstancedMesh(rockGeo, new THREE.MeshStandardMaterial({ color: 0x8a867c, roughness: 1, flatShading: true }), R);
-    rocks.castShadow = true;
-    rocks.receiveShadow = true;
+    const rockBuckets: Array<Array<{ m: THREE.Matrix4; c: THREE.Color; x: number; y: number; z: number; r: number }>> = Array.from(
+      { length: SECTOR_COUNT },
+      () => [],
+    );
     let rc = 0;
     att = 0;
     while (rc < R && att++ < 5000) {
@@ -923,8 +1093,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       const ry = heightAt(x, z) + s0 * 0.25;
       q.setFromEuler(new THREE.Euler(rand() * 3, rand() * 6, rand() * 3));
       m.compose(p.set(x, ry, z), q, sc3.set(s0 * 1.3, s0 * 0.8, s0));
-      rocks.setMatrixAt(rc, m);
-      rocks.setColorAt(rc, col.setHSL(0.1, 0.06, 0.38 + rand() * 0.18));
+      col.setHSL(0.1, 0.06, 0.38 + rand() * 0.18);
       const rockR = Math.max(0.9, s0 * 1.02);
       obstacles.push({
         min: new THREE.Vector3(x - rockR, ry - s0 * 0.8, z - rockR),
@@ -934,11 +1103,28 @@ export function createWorld(scene: THREE.Scene): GameWorld {
         rockZ: z,
         rockRadius: rockR,
       });
+      const sec = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
+      rockBuckets[sec].push({ m: m.clone(), c: col.clone(), x, y: ry, z, r: rockR });
       rc++;
     }
-    rocks.count = rc;
-    rocks.computeBoundingSphere();
-    root.add(rocks);
+    for (let sec = 0; sec < SECTOR_COUNT; sec++) {
+      const b = rockBuckets[sec];
+      if (b.length === 0) continue;
+      const mesh = new THREE.InstancedMesh(rockGeo, rockMat, b.length);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      const box = new THREE.Box3();
+      for (let i = 0; i < b.length; i++) {
+        mesh.setMatrixAt(i, b[i].m);
+        mesh.setColorAt(i, b[i].c);
+        box.expandByPoint(p.set(b[i].x - b[i].r, b[i].y - b[i].r, b[i].z - b[i].r));
+        box.expandByPoint(p.set(b[i].x + b[i].r, b[i].y + b[i].r, b[i].z + b[i].r));
+      }
+      mesh.count = b.length;
+      mesh.computeBoundingSphere();
+      root.add(mesh);
+      rockSectors.push({ mesh, box, count: b.length });
+    }
   }
 
   // Freeze static terrain, buildings, trees, grass, and rocks matrices so Three.js skips recomputing them each frame
@@ -953,23 +1139,125 @@ export function createWorld(scene: THREE.Scene): GameWorld {
 
   const q = makeQueries(obstacles, heightAt, normalAt);
 
-  function update(camPos: THREE.Vector3, focus: THREE.Vector3, dt = 0.016) {
+  function update(camPos: THREE.Vector3, focus: THREE.Vector3, dt = 0.016, vis?: VisibilityController) {
     sky.position.copy(camPos);
     timeU.value += dt;
     treeAnimator?.step(dt);
     for (const c of clouds) {
       c.position.x += 3 * dt;
       if (c.position.x > 1700) c.position.x = -1700;
+      c.visible = vis ? vis.isSphereVisible(c.position.x, c.position.y, c.position.z, 260) : true;
     }
     sun.target.position.copy(focus);
     sun.position.copy(focus).addScaledVector(sunDir, 220);
     sun.target.updateMatrixWorld();
+
+    if (!vis) return;
+
+    for (let s = 0; s < SECTOR_COUNT; s++) {
+      const secBox = sectorBoxes[s];
+      if (vis.isBoxVisible(secBox) && vis.boxEffectiveDistance(secBox) < 980) {
+        vis.stats.visibleSectors++;
+      } else {
+        vis.stats.culledSectors++;
+      }
+    }
+
+    for (let i = 0; i < grassSectors.length; i++) {
+      const gs = grassSectors[i];
+      if (grassDensity <= 0 || gs.mesh.count <= 0) {
+        gs.mesh.visible = false;
+        continue;
+      }
+      const visible = vis.isBoxVisible(gs.box) && vis.boxEffectiveDistance(gs.box) <= 165;
+      gs.mesh.visible = visible;
+    }
+
+    for (let i = 0; i < treeSectors.length; i++) {
+      const ts = treeSectors[i];
+      if (ts.count <= 0) continue;
+      const inFrustum = vis.isBoxVisible(ts.box);
+      const effDist = vis.boxEffectiveDistance(ts.box);
+      const tier = resolveTreeLod(inFrustum, effDist);
+      if (tier === 'high') {
+        ts.crowns.visible = true;
+        ts.trunks.visible = true;
+        ts.lowCrowns.visible = false;
+        const sh = effDist < 130;
+        ts.crowns.castShadow = sh;
+        ts.trunks.castShadow = sh;
+      } else if (tier === 'low') {
+        ts.crowns.visible = false;
+        ts.trunks.visible = false;
+        ts.lowCrowns.visible = true;
+      } else {
+        ts.crowns.visible = false;
+        ts.trunks.visible = false;
+        ts.lowCrowns.visible = false;
+      }
+    }
+
+    for (let i = 0; i < rockSectors.length; i++) {
+      const rs = rockSectors[i];
+      const inFrustum = vis.isBoxVisible(rs.box);
+      const effDist = vis.boxEffectiveDistance(rs.box);
+      rs.mesh.visible = inFrustum && effDist <= 560;
+      if (rs.mesh.visible) rs.mesh.castShadow = effDist < 120;
+    }
+
+    for (let i = 0; i < houseItems.length; i++) {
+      const h = houseItems[i];
+      const inFrustum = vis.isBoxVisible(h.box);
+      const effDist = vis.boxEffectiveDistance(h.box);
+      const tier = resolveBuildingLod(inFrustum, effDist);
+      if (tier === 'high') {
+        h.wall.visible = true;
+        h.roof.visible = true;
+        h.lowProxy.visible = false;
+        const sh = effDist < 125;
+        h.wall.castShadow = sh;
+        h.roof.castShadow = sh;
+      } else if (tier === 'low') {
+        h.wall.visible = false;
+        h.roof.visible = false;
+        h.lowProxy.visible = true;
+      } else {
+        h.wall.visible = false;
+        h.roof.visible = false;
+        h.lowProxy.visible = false;
+      }
+    }
+
+    for (let i = 0; i < barrierItems.length; i++) {
+      const b = barrierItems[i];
+      const inFrustum = vis.isBoxVisible(b.box);
+      const effDist = vis.boxEffectiveDistance(b.box);
+      b.mesh.visible = inFrustum && effDist <= 520;
+      if (b.mesh.visible) b.mesh.castShadow = effDist < 120;
+    }
+
+    for (let i = 0; i < rangeBoardItems.length; i++) {
+      const rb = rangeBoardItems[i];
+      const inFrustum = vis.isBoxVisible(rb.box);
+      const effDist = vis.boxEffectiveDistance(rb.box);
+      const showBoard = inFrustum && effDist <= 650;
+      rb.board.visible = showBoard;
+      if (showBoard) rb.board.castShadow = effDist < 120;
+      const showPosts = showBoard && effDist <= 180;
+      for (let pIdx = 0; pIdx < rb.posts.length; pIdx++) {
+        rb.posts[pIdx].visible = showPosts;
+        if (showPosts) rb.posts[pIdx].castShadow = effDist < 100;
+      }
+    }
   }
 
   function setGrass(density: number) {
-    if (!grassRef) return;
-    grassRef.visible = density > 0;
-    grassRef.count = Math.floor(grassTotal * density);
+    grassDensity = density;
+    for (let i = 0; i < grassSectors.length; i++) {
+      const gs = grassSectors[i];
+      gs.mesh.count = Math.floor(gs.baseCount * density);
+      gs.mesh.visible = density > 0 && gs.mesh.count > 0;
+    }
   }
 
   function dispose() {

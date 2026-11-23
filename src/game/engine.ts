@@ -39,6 +39,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { VisibilityController, resolveTankLod } from './visibility';
 
 const DEG = Math.PI / 180;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -121,6 +122,43 @@ export function initGame(mountEl: HTMLElement): () => void {
     heading: 0,
     specId: getSelectedTankId(),
   });
+  previewTank.setDetailLevel('high', !isSoftwareGl);
+  const vis = new VisibilityController();
+
+  function updateTankVisibilityAndLod() {
+    vis.updateFromCamera(camera);
+    if (hangarOpen) {
+      previewTank.setDetailLevel('high', !isSoftwareGl);
+      return;
+    }
+    const playerInSniper = state === 'play' && !spectating && mode === 'sniper';
+    for (let i = 0; i < allTanksList.length; i++) {
+      const tk = allTanksList[i];
+      if (tk === tank && !spectating) {
+        if (playerInSniper) {
+          tk.setDetailLevel('culled', false);
+          vis.stats.culledTanks++;
+        } else {
+          tk.setDetailLevel('high', true);
+          vis.stats.visibleTanks++;
+        }
+        continue;
+      }
+      const p = tk.root.position;
+      const rad = tk.isBoss ? 6.6 : 5.2;
+      const inFrustum = vis.isSphereVisible(p.x, p.y + 1.5, p.z, rad);
+      const effDist = vis.effectiveDistanceTo(p.x, p.y + 1.5, p.z);
+      const tier = resolveTankLod(inFrustum, effDist, 1250);
+      tk.setDetailLevel(tier, effDist < 115);
+      if (tier === 'culled') {
+        vis.stats.culledTanks++;
+      } else {
+        vis.stats.visibleTanks++;
+        if (tier === 'low') vis.stats.lowLodTanks++;
+        else if (tier === 'medium') vis.stats.medLodTanks++;
+      }
+    }
+  }
 
   const bots: Bot[] = [];
   let boss: JuggernautBoss | null = null;
@@ -755,6 +793,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
     if (engineReady) {
       updateCamera(0);
+      updateTankVisibilityAndLod();
+      world.update(camera.position, tank.root.position, 0, vis);
       updateHud(0);
       render();
     }
@@ -872,6 +912,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     },
     onSelectTank: (tankId: string) => {
       previewTank.reset(0, 0, 0, tankId);
+      previewTank.setDetailLevel('high', !isSoftwareGl);
       previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
       previewTank.root.updateMatrixWorld(true);
       if (!battleStarted) {
@@ -885,6 +926,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     },
     onPreviewTank: (tankId: string) => {
       previewTank.reset(0, 0, 0, tankId);
+      previewTank.setDetailLevel('high', !isSoftwareGl);
       previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
       previewTank.root.updateMatrixWorld(true);
       if (engineReady && hangarOpen) {
@@ -895,8 +937,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     onHangarToggle: (open: boolean) => {
       hangarOpen = open;
       if (open) {
-        menuAngle = 0.58;
+        menuAngle = 0.52;
         previewTank.reset(0, 0, 0, getSelectedTankId());
+        previewTank.setDetailLevel('high', !isSoftwareGl);
         previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
         previewTank.root.updateMatrixWorld(true);
         renderer.toneMappingExposure = hangarShowcase.world.exposure;
@@ -905,7 +948,7 @@ export function initGame(mountEl: HTMLElement): () => void {
           gradePass.uniforms.tint.value.set(...hangarShowcase.world.grade.tint);
         }
         if (engineReady) {
-          camera.fov = 44;
+          camera.fov = 52;
           menuCamera(0);
           render();
         }
@@ -918,6 +961,8 @@ export function initGame(mountEl: HTMLElement): () => void {
         if (engineReady && state === 'menu') {
           camera.fov = 50;
           menuCamera(0);
+          updateTankVisibilityAndLod();
+          world.update(camera.position, tank.root.position, 0, vis);
           render();
         }
       }
@@ -1337,13 +1382,21 @@ export function initGame(mountEl: HTMLElement): () => void {
     menuAngle += dt * (hangarOpen ? 0.24 : 0.12);
     const focusTank = hangarOpen ? previewTank : tank;
     const p = focusTank.root.position;
-    const dist = hangarOpen ? 11.6 : 17;
-    const height = hangarOpen ? 3.5 : 5.5 + Math.sin(menuAngle * 0.7) * 1.2;
-    const targetFov = hangarOpen ? 44 : 50;
+    const dist = hangarOpen ? 11.2 : 17;
+    const height = hangarOpen ? 2.35 + Math.sin(menuAngle * 0.5) * 0.28 : 5.5 + Math.sin(menuAngle * 0.7) * 1.2;
+    const targetFov = hangarOpen ? 52 : 50;
     camera.fov += (targetFov - camera.fov) * 0.1;
     camera.updateProjectionMatrix();
-    camera.position.set(p.x + Math.sin(menuAngle) * dist, p.y + height, p.z + Math.cos(menuAngle) * dist);
-    camera.lookAt(p.x, p.y + (hangarOpen ? 1.5 : 2.2), p.z);
+    let cx = p.x + Math.sin(menuAngle) * dist;
+    let cy = p.y + height;
+    let cz = p.z + Math.cos(menuAngle) * dist;
+    if (hangarOpen) {
+      cx = clamp(cx, -13.4, 13.4);
+      cy = clamp(cy, 1.5, 7.2);
+      cz = clamp(cz, -17.0, 17.0);
+    }
+    camera.position.set(cx, cy, cz);
+    camera.lookAt(p.x, p.y + (hangarOpen ? 2.0 : 2.2), p.z);
     focusTank.root.visible = true;
   }
 
@@ -2637,12 +2690,14 @@ export function initGame(mountEl: HTMLElement): () => void {
         previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
         previewTank.root.updateMatrixWorld(true);
         menuCamera(dt);
+        vis.updateFromCamera(camera);
       } else {
         if (!battleStarted) {
           tank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
         }
         menuCamera(dt);
-        world.update(camera.position, tank.root.position, dt);
+        updateTankVisibilityAndLod();
+        world.update(camera.position, tank.root.position, dt, vis);
       }
       ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
       render();
@@ -2978,7 +3033,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     ballistics.update(dt);
     updateCamera(dt);
     const focusPos = spectating && spectateTarget ? spectateTarget.root.position : tank.root.position;
-    world.update(camera.position, focusPos, dt);
+    updateTankVisibilityAndLod();
+    world.update(camera.position, focusPos, dt, vis);
     ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
     audio.engineUpdate(Math.abs(tank.speed) / tank.stats.maxSpeed, input.throttle, tank.alive && !spectating);
     updateHud(dt);
@@ -3013,6 +3069,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     aim,
     game,
     settings,
+    visibility: vis,
   };
 
   return () => {

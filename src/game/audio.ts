@@ -299,6 +299,18 @@ class AudioSys {
         this._burst(dst, t, 0.34, 0.5, 'bandpass', 540, 260, 0.6);
         this._burst(dst, t, 0.28, 0.28, 'lowpass', 1400, 480);
         break;
+      case 'galix':
+        // Pneumatic GALIX grenade thump + turbine overdrive spool + dense smoke hiss
+        this._tone(dst, 'sine', 165, 58, t, 0.14, 0.65);
+        this._burst(dst, t, 0.09, 0.7, 'bandpass', 1450, 480, 1.1);
+        this._burst(dst, t + 0.05, 0.75, 0.45, 'highpass', 1900, 900);
+        this._tone(dst, 'sawtooth', 190, 420, t + 0.04, 0.45, 0.22);
+        break;
+      case 'dm63':
+        // High-energy sabot prime / hyper-velocity crack
+        this._tone(dst, 'triangle', 980, 1620, t, 0.09, 0.28);
+        this._burst(dst, t, 0.045, 0.5, 'bandpass', 2800, 1200, 1.4);
+        break;
       case 'mg': {
         const j = 0.94 + Math.random() * 0.12;
         // Dry low-end mechanical punch (no hollow triangle sweep)

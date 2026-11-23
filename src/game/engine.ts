@@ -29,6 +29,7 @@ import {
 import { resolveTankCollisionPair } from './collision';
 import { shouldApplyRockDamage } from './envCollision';
 import { isShotIntoSky, SKY_EASTER_MSG } from './damage';
+import { createSmokeRing, pruneSmokeClouds, type SmokeCloud } from './abilities';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { recordMatchHistory } from './matchHistory';
 import { applyDocumentLanguage, getLanguage, getMapText, getModeText, t } from './i18n';
@@ -225,7 +226,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   let gradePass: ShaderPass | null = null;
   if (!isSoftwareGl) {
     try {
-      const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 2 });
+      const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType });
       composer = new EffectComposer(renderer, rt);
       composer.addPass(new RenderPass(scene, camera));
       bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 1.0);
@@ -234,7 +235,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         uniforms: { tDiffuse: { value: null }, sat: { value: 1 }, tint: { value: new THREE.Vector3(1, 1, 1) } },
         vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader:
-          'uniform sampler2D tDiffuse; uniform float sat; uniform vec3 tint; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722)); gl_FragColor = vec4(mix(vec3(l), c.rgb, sat) * tint, c.a); }',
+          'uniform sampler2D tDiffuse; uniform float sat; uniform vec3 tint; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c.rgb)) || any(isinf(c.rgb))) c.rgb = vec3(0.0); c.rgb = clamp(c.rgb, vec3(0.0), vec3(8.0)); float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722)); gl_FragColor = vec4(mix(vec3(l), c.rgb, sat) * tint, c.a); }',
       });
       composer.addPass(gradePass);
       composer.addPass(new OutputPass());
@@ -273,6 +274,8 @@ export function initGame(mountEl: HTMLElement): () => void {
   let spectateIdx = 0;
   let spectateTarget: Tank | null = null;
   let simTime = 0;
+  const smokeClouds: SmokeCloud[] = [];
+  let smokeEmitAcc = 0;
   const ramCooldowns = new Map<string, number>();
   const rockCooldowns = new Map<string, number>();
   let matchSilverEarned = 0;
@@ -287,6 +290,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   let locked = false;
   let fallback = false;
   let mouseDown = false;
+  let fireQueued = false;
   let kills = 0;
   let playerDeadT = 0;
   let msgT = 0;
@@ -342,17 +346,17 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (lang === 'sr') {
       $('help').innerHTML =
         `<b>${n(K.forward)}/${n(K.back)}</b> gas/rikverc &nbsp; <b>${n(K.left)}/${n(K.right)}</b> skretanje &nbsp; <b>${n(K.brake)}</b> kočnica<br>` +
-        `<b>MIŠ</b> nišan &nbsp; <b>LKM</b> top &nbsp; <b>${n(K.mg)}</b> mitraljez &nbsp; <b>R</b> pojas<br>` +
+        `<b>MIŠ</b> nišan &nbsp; <b>LKM</b> top &nbsp; <b>${n(K.mg)}</b> mitraljez &nbsp; <b>R</b> pojas &nbsp; <b>${n(K.ability)}</b> sposobnost<br>` +
         `<b>${n(K.sniper)}</b> nišan &nbsp; <b>${n(K.binoc)}</b> dvogled &nbsp; <b>${n(K.comp)}</b> računar &nbsp; <b>TAB</b> rezultat &nbsp; <b>ESC</b> pauza`;
     } else if (lang === 'en') {
       $('help').innerHTML =
         `<b>${n(K.forward)}/${n(K.back)}</b> throttle/reverse &nbsp; <b>${n(K.left)}/${n(K.right)}</b> steer &nbsp; <b>${n(K.brake)}</b> brake<br>` +
-        `<b>MOUSE</b> aim &nbsp; <b>LMB</b> cannon &nbsp; <b>${n(K.mg)}</b> machine gun &nbsp; <b>R</b> reload MG<br>` +
+        `<b>MOUSE</b> aim &nbsp; <b>LMB</b> cannon &nbsp; <b>${n(K.mg)}</b> machine gun &nbsp; <b>R</b> reload MG &nbsp; <b>${n(K.ability)}</b> ability<br>` +
         `<b>${n(K.sniper)}</b> scope &nbsp; <b>${n(K.binoc)}</b> binoculars &nbsp; <b>${n(K.comp)}</b> ballistic comp &nbsp; <b>TAB</b> scoreboard &nbsp; <b>ESC</b> pause`;
     } else {
       $('help').innerHTML =
         `<b>${n(K.forward)}/${n(K.back)}</b> газ/реверс &nbsp; <b>${n(K.left)}/${n(K.right)}</b> поворот &nbsp; <b>${n(K.brake)}</b> тормоз<br>` +
-        `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> орудие &nbsp; <b>${n(K.mg)}</b> пулемёт &nbsp; <b>R</b> лента<br>` +
+        `<b>МЫШЬ</b> прицел &nbsp; <b>ЛКМ</b> орудие &nbsp; <b>${n(K.mg)}</b> пулемёт &nbsp; <b>R</b> лента &nbsp; <b>${n(K.ability)}</b> способность<br>` +
         `<b>${n(K.sniper)}</b> прицел &nbsp; <b>${n(K.binoc)}</b> бинокль &nbsp; <b>${n(K.comp)}</b> вычисл. &nbsp; <b>TAB</b> счёт &nbsp; <b>ESC</b> пауза`;
     }
   }
@@ -413,6 +417,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     old.dispose();
     applyMapLook();
     applyGraphics();
+    smokeClouds.length = 0;
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
     for (const b of bots) b.respawn();
     if (boss) boss.respawn();
@@ -481,6 +486,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     const activeMode = getModeDef(currentModeId);
     const chosenTankId = getSelectedTankId();
     ballistics.clear();
+    smokeClouds.length = 0;
+    smokeEmitAcc = 0;
     ramCooldowns.clear();
     rockCooldowns.clear();
     if (isFirstRound) world.resetTrees?.();
@@ -650,6 +657,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (open) {
         for (const k in keys) keys[k] = false;
         mouseDown = false;
+        fireQueued = false;
         if (document.pointerLockElement) document.exitPointerLock();
       } else if (state === 'play') {
         tryLock();
@@ -712,6 +720,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     state = 'pause';
     setScoreboardOpen(false);
     mouseDown = false;
+    fireQueued = false;
     touchCtl?.reset();
     locked = false;
     for (const k in keys) keys[k] = false;
@@ -756,8 +765,9 @@ export function initGame(mountEl: HTMLElement): () => void {
       $('msg').textContent = '';
       hitcam.hide();
       ballistics.clear();
+      smokeClouds.length = 0;
       tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
-      tank.name = `ВЫ (${tank.spec.name})`;
+      tank.name = t('sbPlayerSelf', { name: tank.spec.name });
       const activeMode = getModeDef(currentModeId);
       for (const b of bots) {
         b.respawn({ randomTank: !!(activeMode.randomEnemyTanks && b.team === 'B') });
@@ -775,6 +785,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     document.body.className = 'menu';
     document.body.dataset.state = 'title';
     mouseDown = false;
+    fireQueued = false;
     touchCtl?.reset();
     if (document.pointerLockElement) document.exitPointerLock();
     fallback = false;
@@ -896,6 +907,68 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('specTargetHp').textContent = `(${Math.max(0, Math.round(spectateTarget.hp))}/${spectateTarget.maxHp} ${t('hudHpUnit')})`;
   }
 
+  function triggerPlayerAbility() {
+    if (state !== 'play' || !tank.alive || spectating || matchEnded || consoleOpen || scoreboardOpen) return;
+    const res = tank.activateAbility();
+    if (!res.activated) return;
+    if (res.spawnSmoke) {
+      const ab = tank.stats.ability;
+      const ring = createSmokeRing(
+        tank.root.position.x,
+        tank.root.position.y,
+        tank.root.position.z,
+        tank.heading,
+        simTime,
+        ab?.smokeDuration ?? 4.6,
+        ab?.smokeRadius ?? 6.2,
+      );
+      smokeClouds.push(...ring);
+      audio.play('galix', tank.root.position, 0.9, true);
+      showMsg(t('msgGalixActivated'), '#78f0ff');
+      for (let i = 0; i < ring.length; i++) {
+        const c = ring[i];
+        for (let p = 0; p < 4; p++) {
+          ballistics.fx.emit({
+            x: c.x + (Math.random() - 0.5) * 1.6,
+            y: c.y + Math.random() * 1.2,
+            z: c.z + (Math.random() - 0.5) * 1.6,
+            vx: (Math.random() - 0.5) * 3.8,
+            vy: 1.9 + Math.random() * 2.2,
+            vz: (Math.random() - 0.5) * 3.8,
+            life: 2.3 + Math.random() * 1.1,
+            s0: 4.4,
+            s1: 11.5,
+            r: 0.87,
+            g: 0.89,
+            b: 0.91,
+            a: 0.78,
+          });
+        }
+        if (i > 0) {
+          ballistics.fx.emit({
+            additive: true,
+            x: c.x,
+            y: c.y + 0.5,
+            z: c.z,
+            vx: (Math.random() - 0.5) * 6,
+            vy: 2 + Math.random() * 4,
+            vz: (Math.random() - 0.5) * 6,
+            life: 0.28,
+            s0: 1.1,
+            s1: 0.3,
+            r: 0.8,
+            g: 0.95,
+            b: 1,
+            a: 0.95,
+          });
+        }
+      }
+    } else if (res.primed) {
+      audio.play('dm63', tank.root.position, 0.65, true);
+      showMsg(t('msgDm63Primed'), '#ffd27a');
+    }
+  }
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (ui.rebinding) return;
     const K = settings.keys;
@@ -933,6 +1006,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     else if (e.code === K.binoc) setMode(mode === 'binoc' ? 'third' : 'binoc');
     else if (e.code === K.comp) ballComp = !ballComp;
     else if (e.code === K.post) setSetting('post', !settings.post);
+    else if (e.code === K.ability && mode !== 'binoc') triggerPlayerAbility();
     else if (e.code === 'KeyR' && mode !== 'binoc') tank.reloadMg();
     else if (e.code === K.mg && mode !== 'binoc' && isMgExhausted(tank.mgState)) {
       showMsg(t('msgMgOutToast'), '#ff6a4a');
@@ -945,6 +1019,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   const onBlur = () => {
     for (const k in keys) keys[k] = false;
     mouseDown = false;
+    fireQueued = false;
     setScoreboardOpen(false);
   };
   const onMouseMove = (e: MouseEvent) => {
@@ -971,6 +1046,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       return;
     }
     mouseDown = true;
+    fireQueued = true;
   };
   const onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) mouseDown = false;
@@ -1027,6 +1103,10 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (spectating || scoreboardOpen || mode === 'binoc') return;
       tank.reloadMg();
     },
+    onActivateAbility: () => {
+      if (spectating || scoreboardOpen || mode === 'binoc') return;
+      triggerPlayerAbility();
+    },
     onPause: () => {
       openPause();
     },
@@ -1070,8 +1150,14 @@ export function initGame(mountEl: HTMLElement): () => void {
     const cp = Math.cos(pitch);
     return out.set(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp);
   }
+  function activePlayerMuzzleVelocity(): number {
+    if (tank.abilityState?.primed && tank.stats.ability?.type === 'dm63_apfsds') {
+      return Math.max(tank.stats.muzzleVelocity, tank.stats.ability.velocityBoost ?? 1160);
+    }
+    return tank.stats.muzzleVelocity;
+  }
   function dropAngle(range: number) {
-    const t = range / (tank.stats.muzzleVelocity * 0.97);
+    const t = range / (activePlayerMuzzleVelocity() * 0.97);
     return Math.atan2(0.5 * G * t * t, range);
   }
 
@@ -1300,12 +1386,16 @@ export function initGame(mountEl: HTMLElement): () => void {
     apsBadge: $('apsBadge'),
     apsBadgeLbl: $('apsBadgeLbl'),
     apsBadgeState: $('apsBadgeState'),
+    abilityBadge: $('abilityBadge'),
+    abilityBadgeLbl: $('abilityBadgeLbl'),
+    abilityBadgeState: $('abilityBadgeState'),
     tBtnFire: $('tBtnFire'),
     tFireReloadTxt: $('tFireReloadTxt'),
     tBtnMg: $('tBtnMg'),
     tMgAmmoTxt: $('tMgAmmoTxt'),
     tBtnSniper: $('tBtnSniper'),
     tBtnBinoc: $('tBtnBinoc'),
+    tBtnAbility: $('tBtnAbility'),
     tBtnZoom: $('tBtnZoom'),
   };
   el.mv.textContent = String(tank.stats.muzzleVelocity);
@@ -1362,6 +1452,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     apsReady: true,
     apsLbl: '',
     apsTxt: '',
+    abilityVisible: false,
+    abilityMode: '',
+    abilityLbl: '',
+    abilityTxt: '',
+    mv: '',
     survivalTimer: '',
     survivalUrgent: false,
     survivalKills: '',
@@ -1373,6 +1468,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     tMgEmpty: false,
     tSniperActive: false,
     tBinocActive: false,
+    tAbilityVisible: false,
+    tAbilityMode: '',
+    tAbilityTxt: '',
     tZoomVisible: false,
     tZoomTxt: '',
   };
@@ -1382,7 +1480,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   const _ip2 = new THREE.Vector3();
   function predictImpact(): THREE.Vector3 {
     _ip.copy(_gm);
-    _iv.copy(_gd).multiplyScalar(tank.stats.muzzleVelocity);
+    _iv.copy(_gd).multiplyScalar(activePlayerMuzzleVelocity());
     const h = SUBSTEP;
     let dist = 0;
     const maxR = tank.stats.maxRange;
@@ -1413,7 +1511,19 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
 
     const gearTxt =
-      tank.speed < -0.4 || (v < 0.4 && thr < 0) ? 'R' : v < 0.4 && thr === 0 ? 'N' : v < 3.5 ? '1' : v < 7 ? '2' : v < 10.5 ? '3' : '4';
+      tank.speed < -0.4 || (v < 0.4 && thr < 0)
+        ? 'R'
+        : v < 0.4 && thr === 0
+          ? 'N'
+          : v < 3.5
+            ? '1'
+            : v < 7
+              ? '2'
+              : v < 11
+                ? '3'
+                : v < 17
+                  ? '4'
+                  : '5';
     if (gearTxt !== hudCache.gear) {
       hudCache.gear = gearTxt;
       el.gear.textContent = gearTxt;
@@ -1447,6 +1557,12 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (compTxt !== hudCache.comp) {
       hudCache.comp = compTxt;
       el.comp.textContent = compTxt;
+    }
+
+    const mvTxt = String(Math.round(activePlayerMuzzleVelocity()));
+    if (mvTxt !== hudCache.mv) {
+      hudCache.mv = mvTxt;
+      el.mv.textContent = mvTxt;
     }
 
     const modeTxt =
@@ -1562,6 +1678,47 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (apsTxt !== hudCache.apsTxt) {
         hudCache.apsTxt = apsTxt;
         el.apsBadgeState.textContent = apsTxt;
+      }
+    }
+
+    const abSpec = tank.spec.ability;
+    const abSt = tank.abilityState;
+    const abilityVisible = !!(abSpec && abSt && !spectating && tank.alive);
+    if (abilityVisible !== hudCache.abilityVisible) {
+      hudCache.abilityVisible = abilityVisible;
+      el.abilityBadge.classList.toggle('hidden', !abilityVisible);
+    }
+    let abMode = 'ready';
+    let abStateShort = t('hudAbilityReady');
+    if (abSpec && abSt) {
+      if (abSpec.type === 'galix_overdrive' && abSt.activeRemaining > 0.01) {
+        abMode = 'active';
+        abStateShort = t('hudAbilityActive', { t: abSt.activeRemaining.toFixed(1) });
+      } else if (abSpec.type === 'dm63_apfsds' && abSt.primed) {
+        abMode = 'primed';
+        abStateShort = t('hudAbilityPrimed');
+      } else if (abSt.cooldownRemaining > 0.01) {
+        abMode = 'cooling';
+        abStateShort = t('hudAbilityCooldown', { t: abSt.cooldownRemaining.toFixed(1) });
+      }
+    }
+    if (abilityVisible && abSpec && abSt) {
+      const abKeyStr = keyName(settings.keys.ability).toUpperCase();
+      const abLbl = abSpec.type === 'galix_overdrive' ? t('hudAbilityGalix', { key: abKeyStr }) : t('hudAbilityDm63', { key: abKeyStr });
+      if (abLbl !== hudCache.abilityLbl) {
+        hudCache.abilityLbl = abLbl;
+        el.abilityBadgeLbl.textContent = abLbl;
+      }
+      if (abMode !== hudCache.abilityMode) {
+        hudCache.abilityMode = abMode;
+        el.abilityBadge.classList.toggle('ready', abMode === 'ready');
+        el.abilityBadge.classList.toggle('active', abMode === 'active');
+        el.abilityBadge.classList.toggle('primed', abMode === 'primed');
+        el.abilityBadge.classList.toggle('cooling', abMode === 'cooling');
+      }
+      if (abStateShort !== hudCache.abilityTxt) {
+        hudCache.abilityTxt = abStateShort;
+        el.abilityBadgeState.textContent = abStateShort;
       }
     }
 
@@ -1685,6 +1842,26 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (binocActive !== hudCache.tBinocActive) {
         hudCache.tBinocActive = binocActive;
         el.tBtnBinoc.classList.toggle('active', binocActive);
+      }
+      if (abilityVisible !== hudCache.tAbilityVisible) {
+        hudCache.tAbilityVisible = abilityVisible;
+        el.tBtnAbility.classList.toggle('hidden', !abilityVisible);
+      }
+      if (abilityVisible && abSpec) {
+        if (abMode !== hudCache.tAbilityMode) {
+          hudCache.tAbilityMode = abMode;
+          el.tBtnAbility.classList.toggle('ready', abMode === 'ready');
+          el.tBtnAbility.classList.toggle('active', abMode === 'active');
+          el.tBtnAbility.classList.toggle('primed', abMode === 'primed');
+          el.tBtnAbility.classList.toggle('cooling', abMode === 'cooling');
+        }
+        const tAbTxt = abSpec.type === 'galix_overdrive'
+          ? t('tBtnAbilityGalix', { state: abStateShort })
+          : t('tBtnAbilityDm63', { state: abStateShort });
+        if (tAbTxt !== hudCache.tAbilityTxt) {
+          hudCache.tAbilityTxt = tAbTxt;
+          el.tBtnAbility.textContent = tAbTxt;
+        }
       }
       const zoomVisible = !spectating && mode !== 'third';
       if (zoomVisible !== hudCache.tZoomVisible) {
@@ -1884,6 +2061,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     showRoundBanner(null);
     setScoreboardOpen(false);
     mouseDown = false;
+    fireQueued = false;
     touchCtl?.reset();
     locked = false;
     for (const k in keys) keys[k] = false;
@@ -1954,6 +2132,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     showSilverToast(reward, t('meMausToast'), true);
     recordCurrentMatch(true, t('meMausHistory', { kills }));
     mouseDown = false;
+    fireQueued = false;
     touchCtl?.reset();
     setScoreboardOpen(false);
     spectating = false;
@@ -2260,6 +2439,8 @@ export function initGame(mountEl: HTMLElement): () => void {
         showMsg(t('msgFuelDestroyed'), '#ff4c2a');
       } else if (e.destroyed) {
         showMsg(t('msgTargetDestroyed'), '#ff6a4a');
+      } else if (!e.isMg && e.damage >= 450) {
+        showMsg(t('msgDm63Hit', { dmg: Math.round(e.damage) }), '#78f0ff');
       } else if (!e.isMg) {
         showMsg(getCombatResultText(e.result), RESULT_COL[e.result] || '#ffd27a');
       }
@@ -2371,6 +2552,31 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     dt *= flags.timeScale;
     simTime += dt;
+    pruneSmokeClouds(smokeClouds, simTime);
+    if (smokeClouds.length > 0) {
+      smokeEmitAcc += dt;
+      if (smokeEmitAcc >= 0.12) {
+        smokeEmitAcc = 0;
+        for (let i = 0; i < smokeClouds.length; i++) {
+          const c = smokeClouds[i];
+          ballistics.fx.emit({
+            x: c.x + (Math.random() - 0.5) * 2.4,
+            y: c.y + Math.random() * 1.4,
+            z: c.z + (Math.random() - 0.5) * 2.4,
+            vx: (Math.random() - 0.5) * 1.6,
+            vy: 0.9 + Math.random() * 1.5,
+            vz: (Math.random() - 0.5) * 1.6,
+            life: 1.5 + Math.random() * 0.7,
+            s0: 4.2,
+            s1: 10.2,
+            r: 0.85,
+            g: 0.87,
+            b: 0.89,
+            a: 0.68,
+          });
+        }
+      }
+    }
     const K = settings.keys;
     const touchActive = settings.controlMode === 'touch' && !!touchCtl;
     const input = {
@@ -2397,6 +2603,8 @@ export function initGame(mountEl: HTMLElement): () => void {
           allies: b.team === 'A' ? teamATanks : teamBTanks,
           rushBoss: !!activeMode.boss,
           huntPlayer: !!activeMode.huntPlayer && b.team === 'B',
+          smokeClouds,
+          simTime,
         });
       } else {
         b.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
@@ -2404,13 +2612,20 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
 
     if (boss && flags.ai) {
-      boss.update(dt, teamATanks, ballistics.fx, (victim) => {
-        if (victim === tank) {
-          shake = Math.max(shake, 1.1);
-          showMsg(t('msgMausBurned'), '#ff6a4a');
-        }
-        handleTankDestroyed(victim, boss!.tank, t('suffixFlame'));
-      });
+      boss.update(
+        dt,
+        teamATanks,
+        ballistics.fx,
+        (victim) => {
+          if (victim === tank) {
+            shake = Math.max(shake, 1.1);
+            showMsg(t('msgMausBurned'), '#ff6a4a');
+          }
+          handleTankDestroyed(victim, boss!.tank, t('suffixFlame'));
+        },
+        smokeClouds,
+        simTime,
+      );
     } else if (boss) {
       boss.tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
     }
@@ -2469,6 +2684,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     if (!tank.alive) {
       mouseDown = false;
+      fireQueued = false;
       if (activeMode.respawns) {
         playerDeadT += dt;
         deadEl.style.display = 'flex';
@@ -2532,12 +2748,16 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (msgT < 0.4) msgEl.style.opacity = String(Math.max(0, msgT / 0.4));
     }
 
-    const firingPrimary = mouseDown || (touchActive && touchCtl!.state.fireHeld);
+    const firingPrimary = mouseDown || fireQueued || (touchActive && touchCtl!.state.fireHeld);
+    fireQueued = false;
     if (!spectating && firingPrimary && (locked || touchActive) && mode !== 'binoc' && !consoleOpen && !scoreboardOpen) {
       const shot = tank.fire();
       if (shot) {
         recordPlayerShot();
         ballistics.fire({ ...shot, owner: tank });
+        if (shot.type === 'DM63') {
+          showMsg(t('msgDm63Fired'), '#78f0ff');
+        }
         kick += mode === 'third' ? 0.018 : 0.0035;
         shake = mode === 'third' ? 0.18 : 0;
         if (shot.dir.y > 0.08 && isShotIntoSky(shot.dir.y, aim.range, !!world.raycast(shot.pos, shot.dir, 650))) {

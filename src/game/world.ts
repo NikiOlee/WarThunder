@@ -502,10 +502,11 @@ export function createWorld(scene: THREE.Scene): GameWorld {
         vec3 horizon = vec3(0.80, 0.86, 0.91), mid = vec3(0.42, 0.62, 0.86), top = vec3(0.16, 0.38, 0.74);
         vec3 col = mix(horizon, mid, smoothstep(0.0, 0.25, h));
         col = mix(col, top, smoothstep(0.2, 0.9, h));
-        float s = max(dot(d, normalize(sunDir)), 0.0);
+        float s = max(dot(d, normalize(sunDir)), 1e-4);
         col += vec3(1.0, 0.82, 0.55) * (pow(s, 6.0) * 0.28 + pow(s, 64.0) * 0.5);
         col += vec3(1.0, 0.95, 0.8) * pow(s, 1800.0) * 14.0;
         col = mix(col, vec3(0.62, 0.66, 0.6), smoothstep(0.0, -0.15, d.y) * 0.9);
+        col = clamp(col, vec3(0.0), vec3(6.0));
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -859,7 +860,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     blade.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
     blade.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
     blade.computeVertexNormals();
-    const gm = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1 });
+    const gm = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1, metalness: 0, envMapIntensity: 0 });
     gm.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = timeU;
       sh.vertexShader = sh.vertexShader

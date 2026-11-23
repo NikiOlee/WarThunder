@@ -18,6 +18,7 @@ import {
   type TargetCandidate,
 } from './botTactics';
 import type { GameWorld } from './world';
+import { isLineBlockedBySmoke, isTankConcealedBySmoke, type SmokeCloud } from './abilities';
 
 const wrapPi = (a: number) => {
   a = (a + Math.PI) % (Math.PI * 2);
@@ -108,6 +109,8 @@ export interface BotUpdateOptions {
   allies?: Tank[];
   rushBoss?: boolean;
   huntPlayer?: boolean;
+  smokeClouds?: readonly SmokeCloud[];
+  simTime?: number;
 }
 
 export class Bot {
@@ -212,7 +215,24 @@ export class Bot {
     return !!hit && (hit.kind === 'obstacle' || hit.normal.y < 0.68);
   }
 
-  private _hasLineOfSight(e: Tank): boolean {
+  private _hasLineOfSight(e: Tank, smokeClouds?: readonly SmokeCloud[], simTime = 0): boolean {
+    if (smokeClouds && smokeClouds.length > 0) {
+      if (isTankConcealedBySmoke(smokeClouds, e.root.position.x, e.root.position.z, simTime)) {
+        return false;
+      }
+      if (
+        isLineBlockedBySmoke(
+          smokeClouds,
+          this.tank.root.position.x,
+          this.tank.root.position.z,
+          e.root.position.x,
+          e.root.position.z,
+          simTime,
+        )
+      ) {
+        return false;
+      }
+    }
     const t = this.tank;
     this._a.set(t.root.position.x, t.root.position.y + 2.5, t.root.position.z);
     this._b.set(e.root.position.x, e.root.position.y + 1.65, e.root.position.z);
@@ -223,7 +243,14 @@ export class Bot {
     return !this.world.raycast(this._a, this._d, Math.max(0.5, dist - 3.5));
   }
 
-  private _pickTarget(enemies: Tank[], allies: Tank[], rushBoss: boolean, huntPlayer: boolean): void {
+  private _pickTarget(
+    enemies: Tank[],
+    allies: Tank[],
+    rushBoss: boolean,
+    huntPlayer: boolean,
+    smokeClouds?: readonly SmokeCloud[],
+    simTime = 0,
+  ): void {
     const t = this.tank;
     const pos = t.root.position;
     const candidates = this._candidates;
@@ -237,7 +264,7 @@ export class Bot {
       const dz = e.root.position.z - pos.z;
       const range = Math.hypot(dx, dz);
       if (range > maxSight) continue;
-      const los = this._hasLineOfSight(e);
+      const los = this._hasLineOfSight(e, smokeClouds, simTime);
       candidates.push({
         id: e.name,
         x: e.root.position.x,
@@ -361,10 +388,12 @@ export class Bot {
     const allies = options.allies || [];
     const rushBoss = !!options.rushBoss;
     const huntPlayer = !!options.huntPlayer;
+    const smokeClouds = options.smokeClouds;
+    const simTime = options.simTime ?? 0;
     this.thinkT -= dt;
     if (this.thinkT <= 0) {
       this.thinkT = rushBoss || huntPlayer ? 0.25 : rnd(0.28, 0.48);
-      this._pickTarget(enemies, allies, rushBoss, huntPlayer);
+      this._pickTarget(enemies, allies, rushBoss, huntPlayer, smokeClouds, simTime);
     }
 
     this.noiseT -= dt;
@@ -507,7 +536,7 @@ export class Bot {
       t.gunDirection(t._gd);
       const elevErr = Math.abs(Math.asin(clamp(t._gd.y, -1, 1)) - aimElev);
 
-      const hasLos = this.targetVisible && this._hasLineOfSight(tg);
+      const hasLos = this.targetVisible && this._hasLineOfSight(tg, smokeClouds, simTime);
       canShoot = computeShotGate({
         range,
         maxEffectiveRange,

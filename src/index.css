@@ -464,6 +464,64 @@ body.menu #spectatorBar {
   color: #8fe36a;
 }
 
+#abilityBadge {
+  left: 182px;
+  bottom: 168px;
+  min-width: 172px;
+  padding: 5px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: rgba(12, 16, 10, 0.85);
+  border: 1px solid rgba(143, 227, 106, 0.45);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.72);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #ffd27a;
+  z-index: 4;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+#abilityBadge.ready b {
+  color: #8fe36a;
+}
+
+#abilityBadge.active {
+  border-color: #78f0ff;
+  background: rgba(10, 26, 32, 0.9);
+}
+
+#abilityBadge.active b {
+  color: #78f0ff;
+}
+
+#abilityBadge.primed {
+  border-color: #ffd27a;
+  background: rgba(40, 28, 10, 0.9);
+}
+
+#abilityBadge.primed b {
+  color: #ffd27a;
+}
+
+#abilityBadge.cooling {
+  border-color: rgba(255, 180, 60, 0.55);
+}
+
+#abilityBadge.cooling b {
+  color: #ffb43c;
+}
+
+.hstat.hstat-ability span {
+  color: #ffd27a;
+}
+
+.hstat.hstat-ability b {
+  color: #78f0ff;
+}
+
 #dmgStat {
   left: 14px;
   bottom: 264px;
@@ -2012,7 +2070,8 @@ body.play[data-control="touch"] #dmgStat {
   font-size: 11px;
 }
 
-body.play[data-control="touch"] #apsBadge {
+body.play[data-control="touch"] #apsBadge,
+body.play[data-control="touch"] #abilityBadge {
   left: calc(max(10px, env(safe-area-inset-left)) + 104px);
   top: calc(max(10px, env(safe-area-inset-top)) + 64px);
   bottom: auto;
@@ -2227,6 +2286,28 @@ body.play[data-control="touch"] #spectatorBar {
   background: rgba(74, 88, 46, 0.88);
   border-color: #ffd27a;
   color: #ffd27a;
+}
+
+.tbtn-ability.ready {
+  border-color: rgba(143, 227, 106, 0.72);
+  color: #8fe36a;
+}
+
+.tbtn-ability.active {
+  background: rgba(16, 48, 56, 0.88);
+  border-color: #78f0ff;
+  color: #78f0ff;
+}
+
+.tbtn-ability.primed {
+  background: rgba(66, 48, 16, 0.9);
+  border-color: #ffd27a;
+  color: #ffd27a;
+}
+
+.tbtn-ability.cooling {
+  border-color: rgba(255, 180, 60, 0.55);
+  color: #ffb43c;
 }
 
 .tbtn-mg {

@@ -14,6 +14,9 @@ export interface ShellInfo {
   penetrationMm?: number;
   maxRange?: number;
   gunDamage?: number;
+  ignoreArmor?: boolean;
+  fixedDamage?: number;
+  ignoreAps?: boolean;
 }
 
 export type HitPart = 'hull' | 'turret' | 'trackL' | 'trackR' | 'barrel' | 'fuel';
@@ -81,14 +84,31 @@ export function resolveHit(
   if (part === 'fuel' || zone === 'fuel') {
     const cos = clamp(-(vdir.x * n.x + vdir.y * n.y + vdir.z * n.z), 0, 1);
     const angle = Math.acos(cos);
+    const dmg = shell.ignoreArmor ? Math.max(spec.damage.fuel, Math.round(shell.fixedDamage ?? 525)) : spec.damage.fuel;
     return {
       result: 'fuel',
-      damage: spec.damage.fuel,
+      damage: dmg,
       base: spec.armor.hullRear,
       effective: spec.armor.hullRear,
       pen,
       angleDeg: angle / DEG,
       zone: 'fuel',
+    };
+  }
+
+  // Armor-ignoring special kinetic sabot (e.g. Leopard 2A7V DM63/DM73): bypasses slope, ricochet & frontal cap
+  if (shell.ignoreArmor) {
+    const cos = clamp(-(vdir.x * n.x + vdir.y * n.y + vdir.z * n.z), 0, 1);
+    const angle = Math.acos(cos);
+    const dmg = Math.round(shell.fixedDamage ?? shell.gunDamage ?? 525);
+    return {
+      result: 'crit',
+      damage: dmg,
+      base: spec.armor.turretFront,
+      effective: 0,
+      pen: Math.max(pen, 9999),
+      angleDeg: angle / DEG,
+      zone: part === 'barrel' || part === 'trackL' || part === 'trackR' ? part : 'dm63',
     };
   }
 

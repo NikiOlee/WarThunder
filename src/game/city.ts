@@ -193,9 +193,10 @@ export function createCityWorld(scene: THREE.Scene): GameWorld {
         vec3 d = normalize(vP); float h = max(d.y, 0.0);
         vec3 horizon = vec3(0.47, 0.48, 0.47), top = vec3(0.30, 0.32, 0.35);
         vec3 col = mix(horizon, top, smoothstep(0.0, 0.7, h));
-        float s = max(dot(d, normalize(sunDir)), 0.0);
+        float s = max(dot(d, normalize(sunDir)), 1e-4);
         col += vec3(0.9, 0.85, 0.75) * pow(s, 8.0) * 0.16;
         col = mix(col, vec3(0.34, 0.35, 0.34), smoothstep(0.0, -0.12, d.y));
+        col = clamp(col, vec3(0.0), vec3(6.0));
         gl_FragColor = vec4(col, 1.0);
       }`,
   });

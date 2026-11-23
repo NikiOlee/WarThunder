@@ -58,6 +58,7 @@ export interface TouchControllerHooks {
   onToggleBinoc: () => void;
   onCycleZoom: () => void;
   onReloadMg: () => void;
+  onActivateAbility?: () => void;
   onPause: () => void;
   onToggleScoreboard: () => void;
 }
@@ -80,6 +81,7 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   const btnMg = document.getElementById('tBtnMg');
   const mgKnob = document.getElementById('tMgJoyKnob');
   const btnMgReload = document.getElementById('tBtnMgReload');
+  const btnAbility = document.getElementById('tBtnAbility');
   const btnSniper = document.getElementById('tBtnSniper');
   const btnBinoc = document.getElementById('tBtnBinoc');
   const btnZoom = document.getElementById('tBtnZoom');
@@ -313,6 +315,7 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   const unbindBinoc = bindTapButton(btnBinoc, hooks.onToggleBinoc);
   const unbindZoom = bindTapButton(btnZoom, hooks.onCycleZoom);
   const unbindMgReload = bindTapButton(btnMgReload, hooks.onReloadMg);
+  const unbindAbility = bindTapButton(btnAbility, () => hooks.onActivateAbility?.());
   const unbindPause = bindTapButton(btnPause, hooks.onPause);
   const unbindScore = bindTapButton(btnScore, hooks.onToggleScoreboard);
 
@@ -344,6 +347,7 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
       unbindBinoc();
       unbindZoom();
       unbindMgReload();
+      unbindAbility();
       unbindPause();
       unbindScore();
 

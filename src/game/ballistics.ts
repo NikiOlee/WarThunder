@@ -20,15 +20,23 @@ uniform float uScale; varying vec4 vColor;
 void main(){
   vColor = aColor;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = aSize * uScale / max(0.001, -mv.z);
+  if (aSize <= 0.0001 || aColor.a <= 0.001 || mv.z > -0.05) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+    return;
+  }
+  gl_PointSize = clamp(aSize * uScale / max(0.05, -mv.z), 0.0, 512.0);
   gl_Position = projectionMatrix * mv;
 }`;
 const FRAG = `
 precision mediump float; varying vec4 vColor; uniform float uBoost;
 void main(){
+  if (vColor.a <= 0.002) discard;
   float d = length(gl_PointCoord - 0.5);
   float a = smoothstep(0.5, 0.12, d);
-  gl_FragColor = vec4(vColor.rgb * uBoost, vColor.a * a);
+  if (a <= 0.002) discard;
+  vec3 rgb = min(vColor.rgb * uBoost, vec3(6.0));
+  gl_FragColor = vec4(rgb, vColor.a * a);
 }`;
 
 interface ParticleEmitOptions {
@@ -282,6 +290,24 @@ const CHALLENGER2_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.86, 0.96, -3.65), max: new THREE.Vector3(-0.96, 1.64, -1.48) },
   { part: 'fuel', min: new THREE.Vector3(-1.38, 0.96, -4.24), max: new THREE.Vector3(1.38, 1.66, -3.2) },
 ];
+const LECLERC_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.5, 0.05, -3.48), max: new THREE.Vector3(1.5, 1.58, 3.65) },
+  { part: 'trackL', min: new THREE.Vector3(1.51, 0.03, -3.55), max: new THREE.Vector3(2.15, 1.08, 3.58) },
+  { part: 'trackR', min: new THREE.Vector3(-2.15, 0.03, -3.55), max: new THREE.Vector3(-1.51, 1.08, 3.58) },
+  // AMX-56 Leclerc rear fender & rear fuel cells (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.95, 0.92, -3.48), max: new THREE.Vector3(1.74, 1.52, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.74, 0.92, -3.48), max: new THREE.Vector3(-0.95, 1.52, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.3, 0.96, -3.65), max: new THREE.Vector3(1.3, 1.56, -2.9) },
+];
+const LEOPARD2A7V_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.54, 0.05, -3.86), max: new THREE.Vector3(1.54, 1.7, 4.02) },
+  { part: 'trackL', min: new THREE.Vector3(1.55, 0.03, -3.8), max: new THREE.Vector3(2.22, 1.12, 3.82) },
+  { part: 'trackR', min: new THREE.Vector3(-2.22, 0.03, -3.8), max: new THREE.Vector3(-1.55, 1.12, 3.82) },
+  // Leopard 2A7V rear fender & rear fuel cells (vulnerable oneshot weakspot)
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.94, -3.72), max: new THREE.Vector3(1.84, 1.64, -1.55) },
+  { part: 'fuel', min: new THREE.Vector3(-1.84, 0.94, -3.72), max: new THREE.Vector3(-0.96, 1.64, -1.55) },
+  { part: 'fuel', min: new THREE.Vector3(-1.35, 0.96, -3.96), max: new THREE.Vector3(1.35, 1.64, -3.15) },
+];
 const MAUS_HULL_BOXES: HitBox[] = [
   { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
   { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
@@ -298,6 +324,8 @@ const ZTZ96A_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.5,
 const T90M_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.53, 0.0, -2.6), max: new THREE.Vector3(1.53, 1.12, 1.8) };
 const MERKAVA4_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.78, 0.0, -2.58), max: new THREE.Vector3(1.78, 0.96, 1.82) };
 const CHALLENGER2_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.68, 0.0, -2.75), max: new THREE.Vector3(1.68, 1.18, 1.85) };
+const LECLERC_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 0.98, 1.72) };
+const LEOPARD2A7V_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.66, 0.0, -2.9), max: new THREE.Vector3(1.66, 1.1, 2.38) };
 const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
@@ -386,7 +414,18 @@ export interface ImpactEvent {
   velocity: THREE.Vector3;
   speed: number;
   distance: number;
-  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; gunDamage?: number; mgDamage?: number };
+  shell: {
+    type: string;
+    caliber: number;
+    muzzleVelocity: number;
+    penetrationMm: number;
+    maxRange: number;
+    gunDamage?: number;
+    mgDamage?: number;
+    ignoreArmor?: boolean;
+    fixedDamage?: number;
+    ignoreAps?: boolean;
+  };
 }
 
 interface Projectile {
@@ -400,7 +439,18 @@ interface Projectile {
   group: THREE.Group;
   trail: THREE.Line;
   trailPos: Float32Array;
-  shell: { type: string; caliber: number; muzzleVelocity: number; penetrationMm: number; maxRange: number; gunDamage?: number; mgDamage?: number };
+  shell: {
+    type: string;
+    caliber: number;
+    muzzleVelocity: number;
+    penetrationMm: number;
+    maxRange: number;
+    gunDamage?: number;
+    mgDamage?: number;
+    ignoreArmor?: boolean;
+    fixedDamage?: number;
+    ignoreAps?: boolean;
+  };
   owner: Tank | null;
 }
 
@@ -603,7 +653,11 @@ export class BallisticsSystem {
                         ? MERKAVA4_HULL_BOXES
                         : t.spec.id === 'challenger2'
                           ? CHALLENGER2_HULL_BOXES
-                          : HULL_BOXES;
+                          : t.spec.id === 'leclerc'
+                            ? LECLERC_HULL_BOXES
+                            : t.spec.id === 'leopard2a7v'
+                              ? LEOPARD2A7V_HULL_BOXES
+                              : HULL_BOXES;
       const turretBox = isMaus
         ? MAUS_TURRET_BOX
         : t.spec.id === 'm60a3'
@@ -624,7 +678,11 @@ export class BallisticsSystem {
                         ? MERKAVA4_TURRET_BOX
                         : t.spec.id === 'challenger2'
                           ? CHALLENGER2_TURRET_BOX
-                          : TURRET_BOX;
+                          : t.spec.id === 'leclerc'
+                            ? LECLERC_TURRET_BOX
+                            : t.spec.id === 'leopard2a7v'
+                              ? LEOPARD2A7V_TURRET_BOX
+                              : TURRET_BOX;
 
       _la.copy(a).applyMatrix4(inv);
       _lb.copy(b).applyMatrix4(inv);
@@ -718,7 +776,7 @@ export class BallisticsSystem {
       if (p.owner && p.owner.isBoss) {
         // Смертельная пушка Мауса: любое попадание — мгновенный взрыв, броня игнорируется.
         r = { ...r, result: 'crit', damage: 999999 };
-      } else if (t.isBoss) {
+      } else if (t.isBoss && !p.shell.ignoreArmor) {
         // Босс: 50 ХП за выстрел × коэффициент орудия атакующего, броня Мауса не учитывается.
         if (r.result !== 'ricochet') {
           const coef = p.owner ? p.owner.spec.bossDamageCoef : 1;
@@ -937,6 +995,9 @@ export class BallisticsSystem {
     type = 'AP',
     gunDamage,
     mgDamage,
+    ignoreArmor,
+    fixedDamage,
+    ignoreAps,
     owner = null,
   }: {
     pos: THREE.Vector3;
@@ -948,11 +1009,15 @@ export class BallisticsSystem {
     type?: string;
     gunDamage?: number;
     mgDamage?: number;
+    ignoreArmor?: boolean;
+    fixedDamage?: number;
+    ignoreAps?: boolean;
     owner?: Tank | null;
   }): void {
     const isMg = type === 'MG';
+    const isDm63 = type === 'DM63';
     const d = this._v.copy(dir);
-    if (!isMg) {
+    if (!isMg && !owner?.spec.stabilized) {
       d.x += rnd(-1, 1) * 0.00015;
       d.y += rnd(-1, 1) * 0.00015;
       d.z += rnd(-1, 1) * 0.00015;
@@ -965,6 +1030,11 @@ export class BallisticsSystem {
       const core = new THREE.Mesh(this.coreGeo, this.coreMat);
       core.scale.setScalar(0.38);
       group.add(streak, core);
+    } else if (isDm63) {
+      streak.scale.set(1.35, 1.35, 14.5);
+      const core = new THREE.Mesh(this.coreGeo, this.coreMat);
+      core.scale.setScalar(1.25);
+      group.add(streak, core);
     } else {
       streak.scale.z = 9;
       group.add(streak, new THREE.Mesh(this.coreGeo, this.coreMat));
@@ -972,10 +1042,10 @@ export class BallisticsSystem {
     const tp = new Float32Array(TRAIL_N * 3);
     const tc = new Float32Array(TRAIL_N * 3);
     for (let i = 0; i < TRAIL_N; i++) {
-      const f = Math.pow(1 - i / (TRAIL_N - 1), 1.6) * (isMg ? 0.55 : 1);
-      tc[i * 3] = f;
-      tc[i * 3 + 1] = f * (isMg ? 0.72 : 0.55);
-      tc[i * 3 + 2] = f * (isMg ? 0.28 : 0.18);
+      const f = Math.pow(1 - i / (TRAIL_N - 1), 1.6) * (isMg ? 0.55 : isDm63 ? 1.45 : 1);
+      tc[i * 3] = isDm63 ? f * 0.65 : f;
+      tc[i * 3 + 1] = f * (isMg ? 0.72 : isDm63 ? 0.96 : 0.55);
+      tc[i * 3 + 2] = f * (isMg ? 0.28 : isDm63 ? 1.0 : 0.18);
       tp[i * 3] = pos.x;
       tp[i * 3 + 1] = pos.y;
       tp[i * 3 + 2] = pos.z;
@@ -1000,7 +1070,18 @@ export class BallisticsSystem {
       group,
       trail,
       trailPos: tp,
-      shell: { type, caliber, muzzleVelocity: speed, penetrationMm, maxRange, gunDamage: gunDamage ?? owner?.spec.gunDamage, mgDamage },
+      shell: {
+        type,
+        caliber,
+        muzzleVelocity: speed,
+        penetrationMm,
+        maxRange,
+        gunDamage: gunDamage ?? owner?.spec.gunDamage,
+        mgDamage,
+        ignoreArmor,
+        fixedDamage,
+        ignoreAps,
+      },
       owner,
     });
     if (isMg) {
@@ -1009,6 +1090,9 @@ export class BallisticsSystem {
     } else {
       this._muzzleFlash(pos, d);
       audio.play('cannon', pos, 1, !!(owner && owner.isPlayer));
+      if (isDm63) {
+        audio.play('dm63', pos, 0.9, !!(owner && owner.isPlayer));
+      }
     }
   }
 
@@ -1316,7 +1400,7 @@ export class BallisticsSystem {
         const worldHit = this.world.segmentHit(p.prev, p.pos);
         const worldDistSq = worldHit ? p.prev.distanceToSquared(worldHit.point) : Infinity;
 
-        if (p.shell.type !== 'MG') {
+        if (p.shell.type !== 'MG' && !p.shell.ignoreAps) {
           for (const t of this.targets) {
             if (!t.spec.aps || !t.apsState) continue;
             const res = canInterceptProjectile({

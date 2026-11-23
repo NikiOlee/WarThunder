@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_CARDS,
@@ -135,6 +137,8 @@ test('Tank model names remain canonical while roles, countries, and descriptions
     'Т-90М',
     'Merkava Mk.4',
     'Challenger 2',
+    'AMX-56 Leclerc',
+    'Leopard 2A7V',
     'Маус',
   ];
   const allTanks = [...getAllTanks(), MAUS_SPEC];
@@ -297,4 +301,45 @@ test('keyName and getKeyLabels provide localized key representations and action 
   assert.equal(ruLabels.console, 'Консоль');
   assert.equal(srLabels.console, 'Konzola');
   assert.equal(enLabels.console, 'Console');
+
+  assert.ok(ruLabels.ability && srLabels.ability && enLabels.ability);
+});
+
+test('HUD units and all literal t() calls in src/ resolve in every dictionary', () => {
+  for (const lang of SUPPORTED_LANGUAGES) {
+    assert.ok(DICTIONARIES[lang].hudMetersUnit, `hudMetersUnit missing in ${lang}`);
+    assert.ok(DICTIONARIES[lang].hudSecShort, `hudSecShort missing in ${lang}`);
+    assert.ok(DICTIONARIES[lang].hudAbilityGalix, `hudAbilityGalix missing in ${lang}`);
+    assert.ok(DICTIONARIES[lang].hudAbilityDm63, `hudAbilityDm63 missing in ${lang}`);
+  }
+  assert.equal(t('hudMetersUnit', undefined, 'ru'), 'м');
+  assert.equal(t('hudMetersUnit', undefined, 'en'), 'm');
+  assert.equal(t('hudSecShort', undefined, 'ru'), 'с');
+  assert.equal(t('hudSecShort', undefined, 'en'), 's');
+
+  const srcDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const collectFiles = (dir: string): string[] => {
+    const out: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...collectFiles(full));
+      else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith('.test.ts')) out.push(full);
+    }
+    return out;
+  };
+  const usedKeys = new Set<string>();
+  const keyCallRe = /\bt\(\s*['"]([a-zA-Z0-9_]+)['"]/g;
+  for (const file of collectFiles(srcDir)) {
+    const content = fs.readFileSync(file, 'utf8');
+    let m: RegExpExecArray | null;
+    while ((m = keyCallRe.exec(content)) !== null) {
+      usedKeys.add(m[1]);
+    }
+  }
+  assert.ok(usedKeys.size > 40);
+  for (const lang of SUPPORTED_LANGUAGES) {
+    for (const key of usedKeys) {
+      assert.ok(key in DICTIONARIES[lang], `Missing i18n key "${key}" in "${lang}"`);
+    }
+  }
 });

@@ -40,6 +40,10 @@ export default function App() {
         <span id="apsBadgeLbl">КАЗ «TROPHY»</span>
         <b id="apsBadgeState">ГОТОВ</b>
       </div>
+      <div id="abilityBadge" className="hud hidden" data-testid="ability-badge">
+        <span id="abilityBadgeLbl">GALIX [E]</span>
+        <b id="abilityBadgeState">ГОТОВ</b>
+      </div>
 
       <div id="help" className="hud" />
       <div id="modeLabel" className="hud">
@@ -198,6 +202,9 @@ export default function App() {
             </button>
             <button type="button" className="tbtn tbtn-sec" id="tBtnSniper" data-touch-control="true" data-testid="touch-btn-sniper">
               ПРИЦЕЛ
+            </button>
+            <button type="button" className="tbtn tbtn-sec tbtn-ability hidden" id="tBtnAbility" data-touch-control="true" data-testid="touch-btn-ability">
+              GALIX · ГОТОВ
             </button>
             <button type="button" className="tbtn tbtn-sec tbtn-reload" id="tBtnMgReload" data-touch-control="true" data-testid="touch-btn-mg-reload">
               ЛЕНТА R

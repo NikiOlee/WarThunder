@@ -174,6 +174,30 @@ test('T-55 is free (0 silver) and owned by default, while M60A3 Patton costs 150
   assert.equal(setSelectedTankId('challenger2'), 'challenger2');
   assert.equal(getSelectedTankId(), 'challenger2');
 
+  const leclerc = getTankSpec('leclerc');
+  assert.equal(leclerc.priceSilver, 58000);
+  assert.equal(isTankOwned('leclerc'), false);
+  setSilver(57900);
+  assert.equal(purchaseTank('leclerc').ok, false);
+  addSilver(200); // 58100 silver
+  const boughtLeclerc = purchaseTank('leclerc');
+  assert.equal(boughtLeclerc.ok, true);
+  assert.equal(boughtLeclerc.balance, 100);
+  assert.equal(isTankOwned('leclerc'), true);
+
+  const leo7 = getTankSpec('leopard2a7v');
+  assert.equal(leo7.priceSilver, 75000);
+  assert.equal(isTankOwned('leopard2a7v'), false);
+  setSilver(74900);
+  assert.equal(purchaseTank('leopard2a7v').ok, false);
+  addSilver(200); // 75100 silver
+  const boughtLeo7 = purchaseTank('leopard2a7v');
+  assert.equal(boughtLeo7.ok, true);
+  assert.equal(boughtLeo7.balance, 100);
+  assert.equal(isTankOwned('leopard2a7v'), true);
+  assert.equal(setSelectedTankId('leopard2a7v'), 'leopard2a7v');
+  assert.equal(getSelectedTankId(), 'leopard2a7v');
+
   setSelectedTankId('t55');
   setSilver(0);
   assert.equal(getSilver(), 0);

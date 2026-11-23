@@ -789,6 +789,11 @@ export function createUI(h: UIHandlers) {
     const apsRow = spec.aps
       ? `<div class="hstat hstat-aps"><span>${t('hstatAps')}</span><b>${t('hstatApsVal')}</b></div>`
       : '';
+    const abilityRow = spec.ability
+      ? `<div class="hstat hstat-ability"><span>${t('hstatAbility')}</span><b>${t(
+          spec.ability.type === 'galix_overdrive' ? 'hstatAbilityLeclerc' : 'hstatAbilityLeopard',
+        )}</b></div>`
+      : '';
 
     $('hangarStats').innerHTML = `
       <div class="hstat"><span>${t('hstatDamage')}</span><b>${t('unitDamage', { dmg: spec.gunDamage })}</b></div>
@@ -802,6 +807,7 @@ export function createUI(h: UIHandlers) {
       <div class="hstat"><span>${t('hstatFrontDmg')}</span><b>${frontDmgLabel}</b></div>
       <div class="hstat"><span>${t('hstatSideRearDmg')}</span><b>${sideRearDmgLabel}</b></div>
       ${apsRow}
+      ${abilityRow}
       <div class="hstat hstat-warn"><span>${t('hstatWeakspot')}</span><b>${t('hstatWeakspotVal')}</b></div>
       <div class="hstat"><span>${t('hstatPrice')}</span><b>${priceText}</b></div>
     `;

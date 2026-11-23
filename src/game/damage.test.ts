@@ -4,9 +4,9 @@ import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, get
 import { BARREL_HITBOX_BOUNDS, SKY_EASTER_MSG, isPointInBarrelZone, isShotIntoSky, resolveHit } from './damage';
 import { computeHullGroundPose, stepTurretAngles } from './tank';
 
-test('T-55 through Challenger 2 specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
+test('T-55 through Leopard 2A7V specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
   const tanks = getAllTanks();
-  assert.equal(tanks.length, 10);
+  assert.equal(tanks.length, 12);
   assert.equal(tanks[0].id, 't55');
   assert.equal(tanks[0].name, 'Т-55');
   assert.equal(tanks[1].id, 'm60a3');
@@ -27,6 +27,10 @@ test('T-55 through Challenger 2 specs match order, speed, reload, maxRange, pric
   assert.equal(tanks[8].name, 'Merkava Mk.4');
   assert.equal(tanks[9].id, 'challenger2');
   assert.equal(tanks[9].name, 'Challenger 2');
+  assert.equal(tanks[10].id, 'leclerc');
+  assert.equal(tanks[10].name, 'AMX-56 Leclerc');
+  assert.equal(tanks[11].id, 'leopard2a7v');
+  assert.equal(tanks[11].name, 'Leopard 2A7V');
 
   const t55 = getTankSpec(DEFAULT_TANK_ID);
   assert.equal(t55.maxSpeedKmh, 50);
@@ -130,6 +134,36 @@ test('T-55 through Challenger 2 specs match order, speed, reload, maxRange, pric
   assert.equal(challenger2.maxHp, 135);
   assert.deepEqual(challenger2.frontDamageRange, [18, 25]);
   assert.ok(challenger2.damage.fuel >= challenger2.maxHp);
+
+  const leclerc = getTankSpec('leclerc');
+  assert.equal(leclerc.priceSilver, 58000);
+  assert.equal(leclerc.maxSpeedKmh, 100);
+  assert.ok(Math.abs(leclerc.maxSpeed * 3.6 - 100) < 0.01);
+  assert.equal(leclerc.reload, 2.5);
+  assert.equal(leclerc.maxRange, 780);
+  assert.equal(leclerc.gunDamage, 85);
+  assert.equal(leclerc.maxHp, 140);
+  assert.deepEqual(leclerc.frontDamageRange, [26, 36]);
+  assert.equal(leclerc.stabilized, true);
+  assert.equal(leclerc.ability?.type, 'galix_overdrive');
+  assert.equal(leclerc.ability?.cooldown, 15);
+  assert.ok(leclerc.damage.fuel >= leclerc.maxHp);
+
+  const leo7 = getTankSpec('leopard2a7v');
+  assert.equal(leo7.priceSilver, 75000);
+  assert.equal(leo7.maxSpeedKmh, 85);
+  assert.ok(Math.abs(leo7.maxSpeed * 3.6 - 85) < 0.01);
+  assert.equal(leo7.reload, 3.2);
+  assert.equal(leo7.maxRange, 820);
+  assert.equal(leo7.gunDamage, 95);
+  assert.equal(leo7.maxHp, 150);
+  assert.deepEqual(leo7.frontDamageRange, [18, 25]);
+  assert.equal(leo7.stabilized, true);
+  assert.equal(leo7.ability?.type, 'dm63_apfsds');
+  assert.equal(leo7.ability?.cooldown, 15);
+  assert.equal(leo7.ability?.damageMin, 500);
+  assert.equal(leo7.ability?.damageMax, 550);
+  assert.ok(leo7.damage.fuel >= leo7.maxHp);
 });
 
 test('Damage depends on attacker gunDamage and target armor zone (Patton and T-62M)', () => {
@@ -319,6 +353,34 @@ test('Merkava Mk.4 and Challenger 2 reduce frontal damage, take full side/rear d
     assert.equal(fuel.result, 'fuel');
     assert.ok(fuel.damage >= target.maxHp);
   }
+});
+
+test('Leopard 2A7V and AMX-56 Leclerc armor resolution & DM63 APFSDS ignoreArmor bypass', () => {
+  const leclerc = getTankSpec('leclerc');
+  const leo7 = getTankSpec('leopard2a7v');
+  const heavyShell = { muzzleVelocity: leo7.muzzleVelocity, penetrationMm: leo7.penetrationMm, gunDamage: leo7.gunDamage };
+
+  const leclercFront = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, heavyShell, 900, 'hull', leclerc);
+  assert.equal(leclercFront.result, 'pen');
+  assert.ok(leclercFront.damage >= 26 && leclercFront.damage <= 36);
+
+  const leo7Front = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, heavyShell, 900, 'turret', leo7);
+  assert.equal(leo7Front.result, 'pen');
+  assert.ok(leo7Front.damage >= 18 && leo7Front.damage <= 25);
+
+  const dm63Shell = {
+    muzzleVelocity: 1180,
+    penetrationMm: 9999,
+    gunDamage: 528,
+    fixedDamage: 528,
+    ignoreArmor: true,
+    ignoreAps: true,
+  };
+  // Even at an extreme grazing angle that would otherwise ricochet, DM63 ignores armor and deals full fixedDamage
+  const grazeDir = { x: Math.sin(1.25), y: 0, z: -Math.cos(1.25) };
+  const dm63Hit = resolveHit('turret', { x: 0, y: 0, z: 1 }, grazeDir, dm63Shell, 1100, 'turret', leo7);
+  assert.equal(dm63Hit.result, 'crit');
+  assert.equal(dm63Hit.damage, 528);
 });
 
 test('Frontal 200mm sloped armor on T-55 deals 50 damage vs T-55 gun and resists angled/long-range shots', () => {

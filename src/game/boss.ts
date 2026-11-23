@@ -15,6 +15,7 @@ import {
 } from './flamethrower';
 import { audio } from './audio';
 import type { GameWorld } from './world';
+import { isLineBlockedBySmoke, isTankConcealedBySmoke, type SmokeCloud } from './abilities';
 
 const wrapPi = (a: number) => {
   a = (a + Math.PI) % (Math.PI * 2);
@@ -158,7 +159,24 @@ export class JuggernautBoss {
     return !!hit && (hit.kind === 'obstacle' || hit.normal.y < 0.68);
   }
 
-  private _los(e: Tank): boolean {
+  private _los(e: Tank, smokeClouds?: readonly SmokeCloud[], simTime = 0): boolean {
+    if (smokeClouds && smokeClouds.length > 0) {
+      if (isTankConcealedBySmoke(smokeClouds, e.root.position.x, e.root.position.z, simTime)) {
+        return false;
+      }
+      if (
+        isLineBlockedBySmoke(
+          smokeClouds,
+          this.tank.root.position.x,
+          this.tank.root.position.z,
+          e.root.position.x,
+          e.root.position.z,
+          simTime,
+        )
+      ) {
+        return false;
+      }
+    }
     const t = this.tank;
     this._a.set(t.root.position.x, t.root.position.y + 3.1, t.root.position.z);
     this._b.set(e.root.position.x, e.root.position.y + 1.65, e.root.position.z);
@@ -174,6 +192,8 @@ export class JuggernautBoss {
     hunters: Tank[],
     fx: Parameters<Tank['update']>[2],
     onFlameKill?: (victim: Tank) => void,
+    smokeClouds?: readonly SmokeCloud[],
+    simTime = 0,
   ): void {
     const t = this.tank;
     if (!t.alive) {
@@ -269,7 +289,7 @@ export class JuggernautBoss {
       t.gunDirection(this._gd);
       const elevErr = Math.abs(Math.asin(clamp(this._gd.y, -1, 1)) - aimElev);
 
-      const hasLos = this._los(tg);
+      const hasLos = this._los(tg, smokeClouds, simTime);
       const canShoot = computeShotGate({
         range,
         maxEffectiveRange: t.stats.maxRange - 12,
@@ -295,7 +315,7 @@ export class JuggernautBoss {
           const hd = Math.hypot(h.root.position.x - this._nozzle.x, h.root.position.z - this._nozzle.z);
           if (hd <= FLAME_RANGE_M + 1.5) {
             const hYaw = Math.atan2(h.root.position.x - this._nozzle.x, h.root.position.z - this._nozzle.z);
-            if (Math.abs(wrapPi(hYaw - t.turretWorldYaw)) <= 0.78 && this._los(h)) {
+            if (Math.abs(wrapPi(hYaw - t.turretWorldYaw)) <= 0.78 && this._los(h, smokeClouds, simTime)) {
               wantFlame = true;
               break;
             }

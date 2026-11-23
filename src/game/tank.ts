@@ -263,6 +263,8 @@ export class Tank {
   private _turretVel = 0;
   private _wreckTilt = 0;
   private _smokeAcc = 0;
+  private _galixAnimT = 0;
+  private _overdriveEmitAcc = 0;
 
   stats: TankSpec;
   heading: number;
@@ -301,6 +303,7 @@ export class Tank {
   binocObj!: THREE.Object3D;
   tracks: TrackScrollRef[] = [];
   wheels: TrackWheelRef[] = [];
+  private _galixPods: Array<{ mesh: THREE.Mesh; baseX: number; baseY: number; baseZ: number; sx: number }> = [];
   _gd?: THREE.Vector3;
 
   constructor(scene: THREE.Scene, world: GameWorld, opts: TankOptions = {}) {
@@ -347,6 +350,7 @@ export class Tank {
   }
 
   private _build(): void {
+    this._galixPods = [];
     const isMaus = this.spec.id === 'maus';
     const isM60 = this.spec.id === 'm60a3';
     const isT62M = this.spec.id === 't62m';
@@ -2409,8 +2413,12 @@ export class Tank {
         for (let gi = 0; gi < 3; gi++) {
           const tube = new THREE.CylinderGeometry(0.06, 0.06, 0.34, 8);
           tube.rotateX(Math.PI / 3.2);
-          const pod = add(tube, darkMat, sx * 1.64, 0.66, -0.82 - gi * 0.16, tg);
+          const px = sx * 1.64;
+          const py = 0.66;
+          const pz = -0.82 - gi * 0.16;
+          const pod = add(tube, darkMat, px, py, pz, tg);
           pod.rotation.z = -sx * 0.25;
+          this._galixPods.push({ mesh: pod, baseX: px, baseY: py, baseZ: pz, sx });
         }
       }
 
@@ -3079,8 +3087,79 @@ export class Tank {
       alive: this.alive,
     });
 
+    if (this._galixAnimT > 0) {
+      this._galixAnimT = Math.max(0, this._galixAnimT - dt);
+      const phase = this._galixAnimT / 0.72;
+      const recoilWave = Math.sin(phase * Math.PI) * phase;
+      for (let i = 0; i < this._galixPods.length; i++) {
+        const gp = this._galixPods[i];
+        gp.mesh.position.set(
+          gp.baseX - gp.sx * 0.08 * recoilWave,
+          gp.baseY - 0.05 * recoilWave,
+          gp.baseZ - 0.09 * recoilWave,
+        );
+      }
+      if (this._galixAnimT === 0) {
+        for (let i = 0; i < this._galixPods.length; i++) {
+          const gp = this._galixPods[i];
+          gp.mesh.position.set(gp.baseX, gp.baseY, gp.baseZ);
+        }
+      }
+    }
+
+    if (fx && overdrive.active && this.alive) {
+      this._overdriveEmitAcc += dt;
+      while (this._overdriveEmitAcc >= 0.045) {
+        this._overdriveEmitAcc -= 0.045;
+        const cs = Math.cos(this.heading);
+        const sn = Math.sin(this.heading);
+        for (const sx of [-0.72, 0.72]) {
+          const ex = p.x + fx_ * -3.55 + cs * sx;
+          const ey = p.y + 1.28;
+          const ez = p.z + fz_ * -3.55 - sn * sx;
+          // Turbo exhaust flame core
+          fx.emit({
+            additive: true,
+            x: ex,
+            y: ey,
+            z: ez,
+            vx: -fx_ * 8.5 + (Math.random() - 0.5) * 1.4,
+            vy: 0.4 + Math.random() * 1.1,
+            vz: -fz_ * 8.5 + (Math.random() - 0.5) * 1.4,
+            life: 0.22 + Math.random() * 0.12,
+            s0: 0.65,
+            s1: 0.15,
+            r: 0.45,
+            g: 0.85,
+            b: 1.0,
+            a: 0.9,
+          });
+          // Boosted exhaust smoke ribbon
+          fx.emit({
+            x: ex - fx_ * 0.2,
+            y: ey + 0.05,
+            z: ez - fz_ * 0.2,
+            vx: -fx_ * 5.2 + (Math.random() - 0.5) * 1.6,
+            vy: 0.8 + Math.random() * 1.2,
+            vz: -fz_ * 5.2 + (Math.random() - 0.5) * 1.6,
+            life: 0.55 + Math.random() * 0.25,
+            s0: 0.9,
+            s1: 2.8,
+            r: 0.78,
+            g: 0.84,
+            b: 0.9,
+            a: 0.44,
+            drag: 1.5,
+          });
+        }
+      }
+    } else {
+      this._overdriveEmitAcc = 0;
+    }
+
     if (fx) {
-      this._dust += Math.min(1, (sAbs + Math.abs(this.yawRate) * 8) / 10) * 16 * dt;
+      const dustRate = overdrive.active ? 26 : 16;
+      this._dust += Math.min(1.4, (sAbs + Math.abs(this.yawRate) * 8) / 10) * dustRate * dt;
       while (this._dust >= 1) {
         this._dust -= 1;
         const back = this.speed >= 0 ? -3.0 : 3.0;
@@ -3095,12 +3174,12 @@ export class Tank {
           vy: 0.6 + Math.random() * 1.2,
           vz: (Math.random() - 0.5) * 1.5,
           life: 1.1 + Math.random() * 0.8,
-          s0: 0.8,
-          s1: 3.2,
+          s0: overdrive.active ? 1.15 : 0.8,
+          s1: overdrive.active ? 4.2 : 3.2,
           r: 0.5,
           g: 0.45,
           b: 0.34,
-          a: 0.32,
+          a: overdrive.active ? 0.42 : 0.32,
           drag: 1.0,
           grav: 0.3,
         });
@@ -3177,6 +3256,8 @@ export class Tank {
     this._turretLift = 0;
     this._turretVel = 0;
     this._wreckTilt = 0;
+    this._galixAnimT = 0;
+    this._overdriveEmitAcc = 0;
     this.hullMat.color.setRGB(this.tint[0], this.tint[1], this.tint[2]);
     this.heading = heading;
     this.speed = 0;
@@ -3281,11 +3362,25 @@ export class Tank {
     return 1 - this.reloadTimer / this.stats.reload;
   }
 
+  getGalixPodWorldOrigins(): THREE.Vector3[] {
+    this.root.updateMatrixWorld(true);
+    if (this._galixPods.length > 0) {
+      return this._galixPods.map((gp) => gp.mesh.getWorldPosition(new THREE.Vector3()));
+    }
+    const base = new THREE.Vector3(this.root.position.x, this.root.position.y + 2.2, this.root.position.z);
+    return [base];
+  }
+
   activateAbility(): AbilityActivationResult {
     if (!this.alive || !this.abilityState || !this.stats.ability) {
       return { activated: false, type: this.stats.ability?.type ?? null, spawnSmoke: false, primed: false };
     }
-    return activateAbility(this.abilityState, this.stats.ability);
+    const res = activateAbility(this.abilityState, this.stats.ability);
+    if (res.activated && res.spawnSmoke) {
+      this._galixAnimT = 0.72;
+      this._springV += 0.92;
+    }
+    return res;
   }
 
   fire() {

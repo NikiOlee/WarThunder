@@ -29,7 +29,8 @@ import {
 import { resolveTankCollisionPair } from './collision';
 import { shouldApplyRockDamage } from './envCollision';
 import { isShotIntoSky, SKY_EASTER_MSG } from './damage';
-import { createSmokeRing, pruneSmokeClouds, type SmokeCloud } from './abilities';
+import { createSmokeRing, computeGalixArcPosition, pruneSmokeClouds, type SmokeCloud } from './abilities';
+import { createHangarShowcase } from './hangarStage';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { recordMatchHistory } from './matchHistory';
 import { applyDocumentLanguage, getLanguage, getMapText, getModeText, t } from './i18n';
@@ -112,6 +113,14 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   const ballistics = new BallisticsSystem(scene, world);
   ballistics.addTarget(tank);
+
+  const hangarShowcase = createHangarShowcase(renderer, isSoftwareGl);
+  const previewTank = new Tank(hangarShowcase.scene, hangarShowcase.world, {
+    x: 0,
+    z: 0,
+    heading: 0,
+    specId: getSelectedTankId(),
+  });
 
   const bots: Bot[] = [];
   let boss: JuggernautBoss | null = null;
@@ -222,13 +231,15 @@ export function initGame(mountEl: HTMLElement): () => void {
   const tanksOf = (team: 'A' | 'B') => (team === 'A' ? teamATanks.slice() : teamBTanks.slice());
 
   let composer: EffectComposer | null = null;
+  let renderPass: RenderPass | null = null;
   let bloomPass: UnrealBloomPass | null = null;
   let gradePass: ShaderPass | null = null;
   if (!isSoftwareGl) {
     try {
       const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType });
       composer = new EffectComposer(renderer, rt);
-      composer.addPass(new RenderPass(scene, camera));
+      renderPass = new RenderPass(scene, camera);
+      composer.addPass(renderPass);
       bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 1.0);
       composer.addPass(bloomPass);
       gradePass = new ShaderPass({
@@ -241,6 +252,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       composer.addPass(new OutputPass());
     } catch {
       composer = null;
+      renderPass = null;
     }
   }
 
@@ -276,6 +288,33 @@ export function initGame(mountEl: HTMLElement): () => void {
   let simTime = 0;
   const smokeClouds: SmokeCloud[] = [];
   let smokeEmitAcc = 0;
+  interface GalixGrenadeFlight {
+    mesh: THREE.Mesh;
+    sx: number;
+    sy: number;
+    sz: number;
+    ex: number;
+    ey: number;
+    ez: number;
+    age: number;
+    duration: number;
+    trailAcc: number;
+  }
+  const galixGrenades: GalixGrenadeFlight[] = [];
+  const galixCanisterGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.34, 8);
+  const galixCanisterMat = new THREE.MeshStandardMaterial({
+    color: 0x3b4436,
+    roughness: 0.55,
+    metalness: 0.45,
+    emissive: new THREE.Color(0x50d4ff),
+    emissiveIntensity: 0.45,
+  });
+  function clearGalixGrenades() {
+    for (let i = 0; i < galixGrenades.length; i++) {
+      scene.remove(galixGrenades[i].mesh);
+    }
+    galixGrenades.length = 0;
+  }
   const ramCooldowns = new Map<string, number>();
   const rockCooldowns = new Map<string, number>();
   let matchSilverEarned = 0;
@@ -418,6 +457,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     applyMapLook();
     applyGraphics();
     smokeClouds.length = 0;
+    clearGalixGrenades();
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
     for (const b of bots) b.respawn();
     if (boss) boss.respawn();
@@ -487,6 +527,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     const chosenTankId = getSelectedTankId();
     ballistics.clear();
     smokeClouds.length = 0;
+    clearGalixGrenades();
     smokeEmitAcc = 0;
     ramCooldowns.clear();
     rockCooldowns.clear();
@@ -712,6 +753,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     resizeScope();
     applyGraphics();
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
+    if (engineReady) {
+      updateCamera(0);
+      updateHud(0);
+      render();
+    }
     tryLock();
   }
 
@@ -766,6 +812,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       hitcam.hide();
       ballistics.clear();
       smokeClouds.length = 0;
+      clearGalixGrenades();
       tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
       tank.name = t('sbPlayerSelf', { name: tank.spec.name });
       const activeMode = getModeDef(currentModeId);
@@ -796,6 +843,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     ui.show('main');
   }
 
+  let engineReady = false;
+
   const ui = createUI({
     play: startPlay,
     resume: resumeGame,
@@ -822,24 +871,55 @@ export function initGame(mountEl: HTMLElement): () => void {
       updateHelp();
     },
     onSelectTank: (tankId: string) => {
+      previewTank.reset(0, 0, 0, tankId);
+      previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
+      previewTank.root.updateMatrixWorld(true);
       if (!battleStarted) {
         tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
         tank.name = t('sbPlayerSelf', { name: tank.spec.name });
       }
+      if (engineReady && hangarOpen) {
+        menuCamera(0);
+        render();
+      }
     },
     onPreviewTank: (tankId: string) => {
-      if (!battleStarted) {
-        tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
-        tank.name = t('sbPlayerSelf', { name: tank.spec.name });
+      previewTank.reset(0, 0, 0, tankId);
+      previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
+      previewTank.root.updateMatrixWorld(true);
+      if (engineReady && hangarOpen) {
+        menuCamera(0);
+        render();
       }
     },
     onHangarToggle: (open: boolean) => {
       hangarOpen = open;
       if (open) {
         menuAngle = 0.58;
-      } else if (!battleStarted) {
-        tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
-        tank.name = t('sbPlayerSelf', { name: tank.spec.name });
+        previewTank.reset(0, 0, 0, getSelectedTankId());
+        previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
+        previewTank.root.updateMatrixWorld(true);
+        renderer.toneMappingExposure = hangarShowcase.world.exposure;
+        if (gradePass) {
+          gradePass.uniforms.sat.value = hangarShowcase.world.grade.sat;
+          gradePass.uniforms.tint.value.set(...hangarShowcase.world.grade.tint);
+        }
+        if (engineReady) {
+          camera.fov = 44;
+          menuCamera(0);
+          render();
+        }
+      } else {
+        applyMapLook();
+        if (!battleStarted) {
+          tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
+          tank.name = t('sbPlayerSelf', { name: tank.spec.name });
+        }
+        if (engineReady && state === 'menu') {
+          camera.fov = 50;
+          menuCamera(0);
+          render();
+        }
       }
     },
   });
@@ -919,49 +999,71 @@ export function initGame(mountEl: HTMLElement): () => void {
         tank.root.position.z,
         tank.heading,
         simTime,
-        ab?.smokeDuration ?? 4.6,
-        ab?.smokeRadius ?? 6.2,
+        ab?.smokeDuration ?? 8.5,
+        ab?.smokeRadius ?? 9.5,
       );
       smokeClouds.push(...ring);
       audio.play('galix', tank.root.position, 0.9, true);
       showMsg(t('msgGalixActivated'), '#78f0ff');
-      for (let i = 0; i < ring.length; i++) {
+
+      // Immediate central smoke burst + launcher flash
+      const c0 = ring[0];
+      for (let p = 0; p < 10; p++) {
+        ballistics.fx.emit({
+          x: c0.x + (Math.random() - 0.5) * 3.0,
+          y: c0.y + Math.random() * 1.6,
+          z: c0.z + (Math.random() - 0.5) * 3.0,
+          vx: (Math.random() - 0.5) * 5.5,
+          vy: 2.2 + Math.random() * 2.8,
+          vz: (Math.random() - 0.5) * 5.5,
+          life: 3.4 + Math.random() * 1.4,
+          s0: 5.5,
+          s1: 17.5,
+          r: 0.86,
+          g: 0.88,
+          b: 0.91,
+          a: 0.84,
+          drag: 0.65,
+        });
+      }
+
+      // Launch 6 animated 3D GALIX smoke canisters from turret pods along parabolic arcs
+      const origins = tank.getGalixPodWorldOrigins();
+      for (let i = 1; i < ring.length; i++) {
         const c = ring[i];
-        for (let p = 0; p < 4; p++) {
-          ballistics.fx.emit({
-            x: c.x + (Math.random() - 0.5) * 1.6,
-            y: c.y + Math.random() * 1.2,
-            z: c.z + (Math.random() - 0.5) * 1.6,
-            vx: (Math.random() - 0.5) * 3.8,
-            vy: 1.9 + Math.random() * 2.2,
-            vz: (Math.random() - 0.5) * 3.8,
-            life: 2.3 + Math.random() * 1.1,
-            s0: 4.4,
-            s1: 11.5,
-            r: 0.87,
-            g: 0.89,
-            b: 0.91,
-            a: 0.78,
-          });
-        }
-        if (i > 0) {
-          ballistics.fx.emit({
-            additive: true,
-            x: c.x,
-            y: c.y + 0.5,
-            z: c.z,
-            vx: (Math.random() - 0.5) * 6,
-            vy: 2 + Math.random() * 4,
-            vz: (Math.random() - 0.5) * 6,
-            life: 0.28,
-            s0: 1.1,
-            s1: 0.3,
-            r: 0.8,
-            g: 0.95,
-            b: 1,
-            a: 0.95,
-          });
-        }
+        const orig = origins[(i - 1) % origins.length];
+        const mesh = new THREE.Mesh(galixCanisterGeo, galixCanisterMat);
+        mesh.position.copy(orig);
+        scene.add(mesh);
+        galixGrenades.push({
+          mesh,
+          sx: orig.x,
+          sy: orig.y,
+          sz: orig.z,
+          ex: c.x,
+          ey: c.y + 0.4,
+          ez: c.z,
+          age: 0,
+          duration: 0.38 + (i % 2) * 0.05,
+          trailAcc: 0,
+        });
+        // Pod muzzle discharge flash
+        ballistics.fx.emit({
+          additive: true,
+          x: orig.x,
+          y: orig.y,
+          z: orig.z,
+          vx: (c.x - orig.x) * 1.6,
+          vy: 3.5,
+          vz: (c.z - orig.z) * 1.6,
+          life: 0.24,
+          s0: 1.35,
+          s1: 0.25,
+          r: 0.75,
+          g: 0.94,
+          b: 1.0,
+          a: 0.95,
+        });
       }
     } else if (res.primed) {
       audio.play('dm63', tank.root.position, 0.65, true);
@@ -1232,16 +1334,17 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function menuCamera(dt: number) {
-    menuAngle += dt * (hangarOpen ? 0.22 : 0.12);
-    const p = tank.root.position;
-    const dist = hangarOpen ? 12.2 : 17;
-    const height = hangarOpen ? 3.8 : 5.5 + Math.sin(menuAngle * 0.7) * 1.2;
+    menuAngle += dt * (hangarOpen ? 0.24 : 0.12);
+    const focusTank = hangarOpen ? previewTank : tank;
+    const p = focusTank.root.position;
+    const dist = hangarOpen ? 11.6 : 17;
+    const height = hangarOpen ? 3.5 : 5.5 + Math.sin(menuAngle * 0.7) * 1.2;
     const targetFov = hangarOpen ? 44 : 50;
     camera.fov += (targetFov - camera.fov) * 0.1;
     camera.updateProjectionMatrix();
     camera.position.set(p.x + Math.sin(menuAngle) * dist, p.y + height, p.z + Math.cos(menuAngle) * dist);
-    camera.lookAt(p.x, p.y + (hangarOpen ? 1.65 : 2.2), p.z);
-    tank.root.visible = true;
+    camera.lookAt(p.x, p.y + (hangarOpen ? 1.5 : 2.2), p.z);
+    focusTank.root.visible = true;
   }
 
   const scopeCv = $<HTMLCanvasElement>('scope');
@@ -2481,12 +2584,15 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   const clock = new THREE.Clock();
   function render() {
+    const activeScene = hangarOpen ? hangarShowcase.scene : scene;
+    if (renderPass) renderPass.scene = activeScene;
     if (composer && settings.post && !isSoftwareGl) composer.render();
-    else renderer.render(scene, camera);
+    else renderer.render(activeScene, camera);
   }
 
   applyMapLook();
   applyGraphics();
+  engineReady = true;
 
   if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1') {
     startPlay(true);
@@ -2526,9 +2632,18 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     if (state !== 'pause' && state !== 'matchEnd') idleFrames = 0;
     if (state === 'menu') {
-      tank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
-      menuCamera(dt);
-      world.update(camera.position, tank.root.position, dt);
+      if (hangarOpen) {
+        previewTank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
+        previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
+        previewTank.root.updateMatrixWorld(true);
+        menuCamera(dt);
+      } else {
+        if (!battleStarted) {
+          tank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
+        }
+        menuCamera(dt);
+        world.update(camera.position, tank.root.position, dt);
+      }
       ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
       render();
       scheduleNext();
@@ -2552,27 +2667,105 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     dt *= flags.timeScale;
     simTime += dt;
+
+    // Step animated 3D GALIX smoke canister launches along parabolic trajectories
+    for (let i = galixGrenades.length - 1; i >= 0; i--) {
+      const g = galixGrenades[i];
+      g.age += dt;
+      const prog = Math.min(1, g.age / g.duration);
+      const pos = computeGalixArcPosition(g.sx, g.sy, g.sz, g.ex, g.ey, g.ez, prog, 3.6);
+      g.mesh.position.set(pos.x, pos.y, pos.z);
+      g.mesh.rotation.x += dt * 16;
+      g.mesh.rotation.z += dt * 11;
+      g.trailAcc += dt;
+      while (g.trailAcc >= 0.025) {
+        g.trailAcc -= 0.025;
+        ballistics.fx.emit({
+          x: pos.x + (Math.random() - 0.5) * 0.2,
+          y: pos.y + (Math.random() - 0.5) * 0.2,
+          z: pos.z + (Math.random() - 0.5) * 0.2,
+          vx: (Math.random() - 0.5) * 1.1,
+          vy: 0.7 + Math.random() * 0.9,
+          vz: (Math.random() - 0.5) * 1.1,
+          life: 0.95 + Math.random() * 0.4,
+          s0: 0.75,
+          s1: 3.4,
+          r: 0.9,
+          g: 0.93,
+          b: 0.96,
+          a: 0.65,
+          drag: 1.1,
+        });
+      }
+      if (prog >= 1) {
+        // Airburst smoke detonation bloom
+        for (let b = 0; b < 7; b++) {
+          const ang = (b / 7) * Math.PI * 2 + Math.random() * 0.5;
+          const spd = 2.4 + Math.random() * 4.2;
+          ballistics.fx.emit({
+            x: g.ex + (Math.random() - 0.5) * 1.8,
+            y: g.ey + Math.random() * 1.4,
+            z: g.ez + (Math.random() - 0.5) * 1.8,
+            vx: Math.cos(ang) * spd,
+            vy: 1.8 + Math.random() * 2.8,
+            vz: Math.sin(ang) * spd,
+            life: 3.6 + Math.random() * 1.4,
+            s0: 5.4,
+            s1: 18.0,
+            r: 0.85,
+            g: 0.88,
+            b: 0.91,
+            a: 0.84,
+            drag: 0.65,
+          });
+        }
+        ballistics.fx.emit({
+          additive: true,
+          x: g.ex,
+          y: g.ey + 0.5,
+          z: g.ez,
+          vx: 0,
+          vy: 1.2,
+          vz: 0,
+          life: 0.3,
+          s0: 2.2,
+          s1: 0.4,
+          r: 0.82,
+          g: 0.95,
+          b: 1.0,
+          a: 0.95,
+        });
+        scene.remove(g.mesh);
+        galixGrenades.splice(i, 1);
+      }
+    }
+
     pruneSmokeClouds(smokeClouds, simTime);
     if (smokeClouds.length > 0) {
       smokeEmitAcc += dt;
-      if (smokeEmitAcc >= 0.12) {
+      if (smokeEmitAcc >= 0.085) {
         smokeEmitAcc = 0;
         for (let i = 0; i < smokeClouds.length; i++) {
           const c = smokeClouds[i];
+          const remain = Math.max(0, c.expiresAt - simTime);
+          const fadeOut = Math.min(1, remain / 2.2);
+          const swirlA = simTime * 1.35 + i * 1.1;
+          const tint = 0.82 + (i % 3) * 0.04;
           ballistics.fx.emit({
-            x: c.x + (Math.random() - 0.5) * 2.4,
-            y: c.y + Math.random() * 1.4,
-            z: c.z + (Math.random() - 0.5) * 2.4,
-            vx: (Math.random() - 0.5) * 1.6,
-            vy: 0.9 + Math.random() * 1.5,
-            vz: (Math.random() - 0.5) * 1.6,
-            life: 1.5 + Math.random() * 0.7,
-            s0: 4.2,
-            s1: 10.2,
-            r: 0.85,
-            g: 0.87,
-            b: 0.89,
-            a: 0.68,
+            x: c.x + (Math.random() - 0.5) * 3.8,
+            y: c.y + Math.random() * 2.2,
+            z: c.z + (Math.random() - 0.5) * 3.8,
+            vx: Math.cos(swirlA) * 2.1 + (Math.random() - 0.5) * 1.8,
+            vy: 1.3 + Math.random() * 1.8,
+            vz: Math.sin(swirlA) * 2.1 + (Math.random() - 0.5) * 1.8,
+            life: 2.8 + Math.random() * 1.4,
+            s0: 6.2,
+            s1: 19.2,
+            r: tint,
+            g: tint + 0.02,
+            b: tint + 0.04,
+            a: 0.78 * fadeOut,
+            drag: 0.55,
           });
         }
       }
@@ -2846,7 +3039,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     touchCtl?.dispose();
     audio.engineSilence();
     audio.music('off');
+    clearGalixGrenades();
+    galixCanisterGeo.dispose();
+    galixCanisterMat.dispose();
     if (boss) boss.dispose();
+    hangarShowcase.dispose();
     world.dispose();
     renderer.dispose();
   };

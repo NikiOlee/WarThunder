@@ -633,8 +633,8 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       duration: 3.5,
       speedMult: 1.28,
       accelMult: 1.45,
-      smokeDuration: 4.6,
-      smokeRadius: 6.2,
+      smokeDuration: 8.5,
+      smokeRadius: 9.5,
     },
     armor: {
       hullFront: 245,
@@ -780,8 +780,29 @@ export const MAUS_SPEC: TankSpec = {
   },
 };
 
+export function getTankPowerRating(spec: TankSpec): number {
+  const effectiveHp =
+    spec.maxHp * (1 + spec.frontDamageReduction * 0.015) +
+    (spec.armor.hullFront + spec.armor.turretFront) * 0.14 +
+    (spec.aps ? 65 : 0);
+  const dpm = spec.gunDamage / Math.max(0.1, spec.reload);
+  const firepower =
+    dpm * 2.1 +
+    spec.gunDamage * 1.05 +
+    spec.penetrationMm * 0.18 +
+    spec.maxRange * 0.05;
+  const mobility = spec.maxSpeedKmh * 0.42 + (spec.stabilized ? 25 : 0);
+  const abilityPower =
+    spec.ability?.type === 'dm63_apfsds'
+      ? 150
+      : spec.ability?.type === 'galix_overdrive'
+        ? 125
+        : 0;
+  return effectiveHp + firepower + mobility + abilityPower;
+}
+
 export function getAllTanks(): TankSpec[] {
-  return Object.values(TANK_CATALOG);
+  return Object.values(TANK_CATALOG).sort((a, b) => getTankPowerRating(a) - getTankPowerRating(b));
 }
 
 export function getTankSpec(id?: string | null): TankSpec {

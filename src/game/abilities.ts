@@ -156,25 +156,44 @@ export function getOverdriveMultipliers(
   };
 }
 
+export function computeGalixArcPosition(
+  sx: number,
+  sy: number,
+  sz: number,
+  ex: number,
+  ey: number,
+  ez: number,
+  progress: number,
+  arcHeight = 3.2,
+): { x: number; y: number; z: number } {
+  const t = Math.max(0, Math.min(1, progress));
+  const arc = 4 * arcHeight * t * (1 - t);
+  return {
+    x: sx + (ex - sx) * t,
+    y: sy + (ey - sy) * t + arc,
+    z: sz + (ez - sz) * t,
+  };
+}
+
 export function createSmokeRing(
   cx: number,
   cy: number,
   cz: number,
   heading: number,
   simTime: number,
-  duration = 4.6,
-  radius = 6.2,
+  duration = 8.5,
+  radius = 9.5,
 ): SmokeCloud[] {
   const clouds: SmokeCloud[] = [];
   const expiresAt = simTime + duration;
+  const dist = Math.max(4.2, radius * 0.68);
   // Central screen + 6 perimeter canisters discharged around turret
-  clouds.push({ x: cx, y: cy + 1.1, z: cz, radius: radius * 1.05, createdAt: simTime, expiresAt });
+  clouds.push({ x: cx, y: cy + 1.3, z: cz, radius: radius * 1.12, createdAt: simTime, expiresAt });
   for (let i = 0; i < 6; i++) {
     const a = heading + (i / 6) * Math.PI * 2;
-    const dist = 4.2;
     clouds.push({
       x: cx + Math.sin(a) * dist,
-      y: cy + 0.9,
+      y: cy + 1.0,
       z: cz + Math.cos(a) * dist,
       radius,
       createdAt: simTime,

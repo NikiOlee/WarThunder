@@ -8,12 +8,14 @@ import {
   activateAbility,
   consumePrimedShot,
   getOverdriveMultipliers,
+  computeGalixArcPosition,
   createSmokeRing,
   pruneSmokeClouds,
   isTankConcealedBySmoke,
   isLineBlockedBySmoke,
   type TankAbilitySpec,
 } from './abilities.ts';
+import { getTankSpec } from './tanks.ts';
 
 const GALIX_SPEC: TankAbilitySpec = {
   type: 'galix_overdrive',
@@ -73,6 +75,21 @@ describe('GALIX Overdrive + Smoke ability', () => {
     assert.equal(isLineBlockedBySmoke(clouds, 70, 200, 130, 200, 15), false);
     pruneSmokeClouds(clouds, 15);
     assert.equal(clouds.length, 0);
+  });
+
+  it('computes parabolic GALIX grenade trajectories and uses expanded 8.5s / 9.5m Leclerc smoke', () => {
+    const start = computeGalixArcPosition(0, 2, 0, 6, 0.5, 8, 0, 3.6);
+    assert.deepEqual(start, { x: 0, y: 2, z: 0 });
+    const mid = computeGalixArcPosition(0, 2, 0, 6, 0.5, 8, 0.5, 3.6);
+    assert.equal(mid.x, 3);
+    assert.ok(Math.abs(mid.y - (1.25 + 3.6)) < 1e-6);
+    assert.equal(mid.z, 4);
+    const end = computeGalixArcPosition(0, 2, 0, 6, 0.5, 8, 1, 3.6);
+    assert.deepEqual(end, { x: 6, y: 0.5, z: 8 });
+
+    const leclerc = getTankSpec('leclerc');
+    assert.equal(leclerc.ability?.smokeDuration, 8.5);
+    assert.equal(leclerc.ability?.smokeRadius, 9.5);
   });
 });
 

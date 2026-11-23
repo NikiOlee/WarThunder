@@ -551,7 +551,6 @@ export function createUI(h: UIHandlers) {
   };
   $('bHangarBack').onclick = () => {
     click();
-    h.onPreviewTank?.(getSelectedTankId());
     show('main');
   };
   $('bSet').onclick = () => {

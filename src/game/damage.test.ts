@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks } from './tanks';
+import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks, getTankPowerRating } from './tanks';
 import { BARREL_HITBOX_BOUNDS, SKY_EASTER_MSG, isPointInBarrelZone, isShotIntoSky, resolveHit } from './damage';
 import { computeHullGroundPose, stepTurretAngles } from './tank';
 
-test('T-55 through Leopard 2A7V specs match order, speed, reload, maxRange, price, and gunDamage values', () => {
+test('T-55 through Leopard 2A7V specs are sorted weakest to strongest and match speed, reload, maxRange, price, and gunDamage values', () => {
   const tanks = getAllTanks();
   assert.equal(tanks.length, 12);
   assert.equal(tanks[0].id, 't55');
@@ -23,14 +23,21 @@ test('T-55 through Leopard 2A7V specs match order, speed, reload, maxRange, pric
   assert.equal(tanks[6].name, 'ZTZ-96A');
   assert.equal(tanks[7].id, 't90m');
   assert.equal(tanks[7].name, 'Т-90М');
-  assert.equal(tanks[8].id, 'merkava4');
-  assert.equal(tanks[8].name, 'Merkava Mk.4');
-  assert.equal(tanks[9].id, 'challenger2');
-  assert.equal(tanks[9].name, 'Challenger 2');
+  assert.equal(tanks[8].id, 'challenger2');
+  assert.equal(tanks[8].name, 'Challenger 2');
+  assert.equal(tanks[9].id, 'merkava4');
+  assert.equal(tanks[9].name, 'Merkava Mk.4');
   assert.equal(tanks[10].id, 'leclerc');
   assert.equal(tanks[10].name, 'AMX-56 Leclerc');
   assert.equal(tanks[11].id, 'leopard2a7v');
   assert.equal(tanks[11].name, 'Leopard 2A7V');
+
+  for (let i = 1; i < tanks.length; i++) {
+    assert.ok(
+      getTankPowerRating(tanks[i - 1]) <= getTankPowerRating(tanks[i]),
+      `expected ${tanks[i - 1].id} <= ${tanks[i].id} in Hangar strength order`,
+    );
+  }
 
   const t55 = getTankSpec(DEFAULT_TANK_ID);
   assert.equal(t55.maxSpeedKmh, 50);

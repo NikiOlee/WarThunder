@@ -4,9 +4,9 @@ import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, get
 import { BARREL_HITBOX_BOUNDS, SKY_EASTER_MSG, isPointInBarrelZone, isShotIntoSky, resolveHit } from './damage';
 import { computeHullGroundPose, stepTurretAngles } from './tank';
 
-test('T-55 through Leopard 2A7V specs are sorted weakest to strongest and match speed, reload, maxRange, price, and gunDamage values', () => {
+test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and match speed, reload, maxRange, price, and gunDamage values', () => {
   const tanks = getAllTanks();
-  assert.equal(tanks.length, 12);
+  assert.equal(tanks.length, 14);
   assert.equal(tanks[0].id, 't55');
   assert.equal(tanks[0].name, 'Т-55');
   assert.equal(tanks[1].id, 'm60a3');
@@ -31,6 +31,10 @@ test('T-55 through Leopard 2A7V specs are sorted weakest to strongest and match 
   assert.equal(tanks[10].name, 'AMX-56 Leclerc');
   assert.equal(tanks[11].id, 'leopard2a7v');
   assert.equal(tanks[11].name, 'Leopard 2A7V');
+  assert.equal(tanks[12].id, 'k2');
+  assert.equal(tanks[12].name, 'K2 Black Panther');
+  assert.equal(tanks[13].id, 'm1a2sep');
+  assert.equal(tanks[13].name, 'M1A2 SEP (Abrams)');
 
   for (let i = 1; i < tanks.length; i++) {
     assert.ok(
@@ -171,6 +175,30 @@ test('T-55 through Leopard 2A7V specs are sorted weakest to strongest and match 
   assert.equal(leo7.ability?.damageMin, 500);
   assert.equal(leo7.ability?.damageMax, 550);
   assert.ok(leo7.damage.fuel >= leo7.maxHp);
+
+  const k2 = getTankSpec('k2');
+  assert.equal(k2.priceSilver, 10000);
+  assert.equal(k2.maxSpeedKmh, 85);
+  assert.equal(k2.reload, 2.5);
+  assert.equal(k2.gunDamage, 110);
+  assert.equal(k2.maxHp, 140);
+  assert.equal(k2.stabilized, true);
+  assert.equal(k2.adaptiveSuspension, true);
+  assert.equal(k2.ability?.type, 'kstam_missile');
+  assert.equal(k2.ability?.damage, 500);
+  assert.equal(k2.ability?.splashRadius, 10);
+  assert.ok(k2.damage.fuel >= k2.maxHp);
+
+  const m1a2sep = getTankSpec('m1a2sep');
+  assert.equal(m1a2sep.priceSilver, 13060);
+  assert.equal(m1a2sep.gunDamage, 100);
+  assert.equal(m1a2sep.maxRange, 1500);
+  assert.equal(m1a2sep.reload, 2.7);
+  assert.equal(m1a2sep.maxHp, 180);
+  assert.equal(m1a2sep.engineAudio, 'turbine');
+  assert.equal(m1a2sep.ability?.type, 'thermal_sight');
+  assert.equal(m1a2sep.secondaryAbility?.type, 'ap_barrage');
+  assert.ok(m1a2sep.damage.fuel >= m1a2sep.maxHp);
 });
 
 test('Damage depends on attacker gunDamage and target armor zone (Patton and T-62M)', () => {

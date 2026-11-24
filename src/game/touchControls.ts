@@ -59,6 +59,9 @@ export interface TouchControllerHooks {
   onCycleZoom: () => void;
   onReloadMg: () => void;
   onActivateAbility?: () => void;
+  onActivateAbility2?: () => void;
+  onKstamHoldStart?: () => void;
+  onKstamHoldEnd?: () => void;
   onPause: () => void;
   onToggleScoreboard: () => void;
 }
@@ -82,6 +85,8 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   const mgKnob = document.getElementById('tMgJoyKnob');
   const btnMgReload = document.getElementById('tBtnMgReload');
   const btnAbility = document.getElementById('tBtnAbility');
+  const btnAbility2 = document.getElementById('tBtnAbility2');
+  const btnKstamLock = document.getElementById('tBtnKstamLock');
   const btnSniper = document.getElementById('tBtnSniper');
   const btnBinoc = document.getElementById('tBtnBinoc');
   const btnZoom = document.getElementById('tBtnZoom');
@@ -99,6 +104,7 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   let mgPointerId: number | null = null;
   let mgLastX = 0;
   let mgLastY = 0;
+  let kstamPointerId: number | null = null;
 
   const setKnobVisual = (x: number, y: number) => {
     if (joyKnob) {
@@ -156,6 +162,11 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
     firePointerId = null;
     state.fireHeld = false;
     btnFire?.classList.remove('pressed');
+    if (kstamPointerId !== null) {
+      kstamPointerId = null;
+      btnKstamLock?.classList.remove('pressed');
+      hooks.onKstamHoldEnd?.();
+    }
   };
 
   const onJoyDown = (e: PointerEvent) => {
@@ -246,6 +257,28 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
     resetMgJoystick();
   };
 
+  const onKstamDown = (e: PointerEvent) => {
+    if (!hooks.isTouchGameplayActive() || kstamPointerId !== null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    kstamPointerId = e.pointerId;
+    btnKstamLock?.classList.add('pressed');
+    try {
+      btnKstamLock?.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    hooks.onKstamHoldStart?.();
+  };
+
+  const onKstamUp = (e: PointerEvent) => {
+    if (e.pointerId !== kstamPointerId) return;
+    e.preventDefault();
+    kstamPointerId = null;
+    btnKstamLock?.classList.remove('pressed');
+    hooks.onKstamHoldEnd?.();
+  };
+
   const bindTapButton = (el: HTMLElement | null, handler: () => void) => {
     if (!el) return () => {};
     const onDown = (e: PointerEvent) => {
@@ -311,11 +344,16 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
   btnMg?.addEventListener('pointerup', onMgUp);
   btnMg?.addEventListener('pointercancel', onMgUp);
 
+  btnKstamLock?.addEventListener('pointerdown', onKstamDown);
+  btnKstamLock?.addEventListener('pointerup', onKstamUp);
+  btnKstamLock?.addEventListener('pointercancel', onKstamUp);
+
   const unbindSniper = bindTapButton(btnSniper, hooks.onToggleSniper);
   const unbindBinoc = bindTapButton(btnBinoc, hooks.onToggleBinoc);
   const unbindZoom = bindTapButton(btnZoom, hooks.onCycleZoom);
   const unbindMgReload = bindTapButton(btnMgReload, hooks.onReloadMg);
   const unbindAbility = bindTapButton(btnAbility, () => hooks.onActivateAbility?.());
+  const unbindAbility2 = bindTapButton(btnAbility2, () => hooks.onActivateAbility2?.());
   const unbindPause = bindTapButton(btnPause, hooks.onPause);
   const unbindScore = bindTapButton(btnScore, hooks.onToggleScoreboard);
 
@@ -343,11 +381,16 @@ export function attachTouchControls(hooks: TouchControllerHooks): {
       btnMg?.removeEventListener('pointerup', onMgUp);
       btnMg?.removeEventListener('pointercancel', onMgUp);
 
+      btnKstamLock?.removeEventListener('pointerdown', onKstamDown);
+      btnKstamLock?.removeEventListener('pointerup', onKstamUp);
+      btnKstamLock?.removeEventListener('pointercancel', onKstamUp);
+
       unbindSniper();
       unbindBinoc();
       unbindZoom();
       unbindMgReload();
       unbindAbility();
+      unbindAbility2();
       unbindPause();
       unbindScore();
 

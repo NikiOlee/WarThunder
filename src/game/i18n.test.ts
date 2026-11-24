@@ -139,6 +139,8 @@ test('Tank model names remain canonical while roles, countries, and descriptions
     'Merkava Mk.4',
     'AMX-56 Leclerc',
     'Leopard 2A7V',
+    'K2 Black Panther',
+    'M1A2 SEP (Abrams)',
     'Маус',
   ];
   const allTanks = [...getAllTanks(), MAUS_SPEC];

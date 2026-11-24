@@ -382,6 +382,10 @@ export function createUI(h: UIHandlers) {
     if (tBtnMgLabel) tBtnMgLabel.textContent = t('tBtnMgPad');
     const tBtnFireLabel = document.querySelector('#tBtnFire .tbtn-label');
     if (tBtnFireLabel) tBtnFireLabel.textContent = t('tBtnFire');
+    const thTag = $('thermalHudTag');
+    if (thTag) thTag.textContent = t('hudThermalTag');
+    const wsHdr = $('weakspotHdr');
+    if (wsHdr) wsHdr.textContent = t('hudWeakspotHdr');
   }
   ui.updateAllStaticTexts = updateAllStaticTexts;
 
@@ -788,10 +792,22 @@ export function createUI(h: UIHandlers) {
     const apsRow = spec.aps
       ? `<div class="hstat hstat-aps"><span>${t('hstatAps')}</span><b>${t('hstatApsVal')}</b></div>`
       : '';
+    const abilityKeyMap: Record<string, string> = {
+      galix_overdrive: 'hstatAbilityLeclerc',
+      dm63_apfsds: 'hstatAbilityLeopard',
+      thermal_sight: 'hstatAbilityAbrams',
+      kstam_missile: 'hstatAbilityK2',
+    };
     const abilityRow = spec.ability
       ? `<div class="hstat hstat-ability"><span>${t('hstatAbility')}</span><b>${t(
-          spec.ability.type === 'galix_overdrive' ? 'hstatAbilityLeclerc' : 'hstatAbilityLeopard',
+          abilityKeyMap[spec.ability.type] ?? 'hstatAbilityLeopard',
         )}</b></div>`
+      : '';
+    const ability2Row = spec.secondaryAbility
+      ? `<div class="hstat hstat-ability"><span>${t('hstatAbility2')}</span><b>${t('hstatAbilityAbramsBarrage')}</b></div>`
+      : '';
+    const passiveRow = spec.adaptiveSuspension
+      ? `<div class="hstat hstat-aps"><span>${t('hstatPassive')}</span><b>${t('hstatPassiveK2')}</b></div>`
       : '';
 
     $('hangarStats').innerHTML = `
@@ -807,6 +823,8 @@ export function createUI(h: UIHandlers) {
       <div class="hstat"><span>${t('hstatSideRearDmg')}</span><b>${sideRearDmgLabel}</b></div>
       ${apsRow}
       ${abilityRow}
+      ${ability2Row}
+      ${passiveRow}
       <div class="hstat hstat-warn"><span>${t('hstatWeakspot')}</span><b>${t('hstatWeakspotVal')}</b></div>
       <div class="hstat"><span>${t('hstatPrice')}</span><b>${priceText}</b></div>
     `;

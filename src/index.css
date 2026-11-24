@@ -89,9 +89,104 @@ html, body {
   text-shadow: 0 0 3px #000, 0 0 6px #000;
 }
 
+body.thermal-active #app canvas {
+  filter: contrast(1.42) brightness(0.9) saturate(0.55);
+}
+
+#thermalOverlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+  z-index: 2;
+  background: radial-gradient(ellipse at center, rgba(10, 28, 34, 0.14) 42%, rgba(4, 14, 18, 0.5) 100%);
+  box-shadow: inset 0 0 0 2px rgba(102, 244, 212, 0.35);
+}
+
+body.thermal-active #thermalOverlay {
+  display: block;
+}
+
+#thermalOverlay .th-corner {
+  position: fixed;
+  width: 14px;
+  height: 14px;
+  border-color: #66f4d4;
+  border-style: solid;
+  border-width: 0;
+}
+
+#thermalOverlay .th-corner.tl { left: 6px; top: 6px; border-left-width: 2px; border-top-width: 2px; }
+#thermalOverlay .th-corner.tr { right: 6px; top: 6px; border-right-width: 2px; border-top-width: 2px; }
+#thermalOverlay .th-corner.bl { left: 6px; bottom: 6px; border-left-width: 2px; border-bottom-width: 2px; }
+#thermalOverlay .th-corner.br { right: 6px; bottom: 6px; border-right-width: 2px; border-bottom-width: 2px; }
+
+#thermalHudTag {
+  position: fixed;
+  left: 50%;
+  top: 66px;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #66f4d4;
+  background: rgba(8, 22, 24, 0.82);
+  border: 1px solid rgba(102, 244, 212, 0.55);
+}
+
+#kstamReticle {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 86px;
+  height: 86px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 6;
+}
+
+#kstamRing {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 2px dashed #ff3b2f;
+  box-shadow: 0 0 12px rgba(255, 59, 47, 0.55);
+}
+
+#kstamReticle.locked #kstamRing {
+  border-style: solid;
+  border-width: 3px;
+  border-color: #45ff7a;
+  box-shadow: 0 0 16px rgba(69, 255, 122, 0.72);
+}
+
+#kstamTxt {
+  margin-top: 6px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  color: #ff6b5f;
+  background: rgba(16, 12, 12, 0.85);
+  border: 1px solid rgba(255, 59, 47, 0.6);
+}
+
+#kstamReticle.locked #kstamTxt {
+  color: #45ff7a;
+  border-color: rgba(69, 255, 122, 0.75);
+}
+
 body.menu .hud,
 body.menu #crosshair,
 body.menu #gunMark,
+body.menu #kstamReticle,
+body.menu #thermalOverlay,
+body.menu #weakspotHud,
+body.menu #ability2Badge,
 body.menu #hitcam,
 body.menu #scope,
 body.menu #dead,
@@ -313,7 +408,7 @@ body.menu #spectatorBar {
 #hp {
   left: 14px;
   bottom: 18px;
-  width: 280px;
+  width: 344px;
   font-size: 11px;
   letter-spacing: 2px;
   color: #b9b59a;
@@ -520,6 +615,95 @@ body.menu #spectatorBar {
 
 .hstat.hstat-ability b {
   color: #78f0ff;
+}
+
+#ability2Badge {
+  left: 182px;
+  bottom: 198px;
+  min-width: 172px;
+  padding: 5px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: rgba(12, 16, 10, 0.85);
+  border: 1px solid rgba(255, 210, 122, 0.55);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.72);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #ffd27a;
+  z-index: 4;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+#ability2Badge.ready b {
+  color: #8fe36a;
+}
+
+#ability2Badge.active {
+  border-color: #ff9c42;
+  background: rgba(42, 22, 8, 0.9);
+}
+
+#ability2Badge.active b {
+  color: #ff9c42;
+}
+
+#ability2Badge.cooling {
+  border-color: rgba(255, 180, 60, 0.55);
+}
+
+#ability2Badge.cooling b {
+  color: #ffb43c;
+}
+
+#weakspotHud {
+  left: 182px;
+  bottom: 232px;
+  width: 205px;
+  padding: 6px 9px;
+  background: rgba(10, 20, 22, 0.86);
+  border: 1px solid rgba(102, 244, 212, 0.52);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.72);
+  font-size: 10px;
+  letter-spacing: 0.7px;
+  color: #cffcf2;
+  z-index: 4;
+  text-shadow: none;
+}
+
+#weakspotHud .ws-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(102, 244, 212, 0.28);
+  padding-bottom: 3px;
+}
+
+#weakspotHdr {
+  color: #66f4d4;
+  font-weight: bold;
+  font-size: 9px;
+}
+
+#weakspotTarget {
+  color: #ffd27a;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#weakspotHud .ws-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #ff988c;
+  font-size: 9px;
+  line-height: 1.3;
 }
 
 #dmgStat {
@@ -2170,6 +2354,12 @@ body.play[data-control="touch"] #spectatorBar {
   bottom: max(68px, calc(env(safe-area-inset-bottom) + 58px));
   min-width: min(320px, 86vw);
   padding: 8px 12px;
+}
+
+body.play[data-control="touch"] #weakspotHud {
+  left: max(12px, env(safe-area-inset-left));
+  bottom: auto;
+  top: calc(max(10px, env(safe-area-inset-top)) + 168px);
 }
 
 .touch-top-bar {

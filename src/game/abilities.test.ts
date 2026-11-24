@@ -7,7 +7,12 @@ import {
   canActivateAbility,
   activateAbility,
   consumePrimedShot,
+  consumeKstamLaunch,
   getOverdriveMultipliers,
+  getBarrageMultipliers,
+  isThermalActive,
+  stepKstamLock,
+  computeKstamSplashDamage,
   computeGalixArcPosition,
   createSmokeRing,
   pruneSmokeClouds,
@@ -121,5 +126,94 @@ describe('DM63/DM73 APFSDS ability', () => {
     activateAbility(s, DM63_SPEC);
     const shotHigh = consumePrimedShot(s, DM63_SPEC, 930, () => 1);
     assert.equal(shotHigh.damage, 550);
+  });
+});
+
+describe('M1A2 SEP Thermal Sight & AP Barrage abilities', () => {
+  it('activates Thermal Sight Gen-2 for 15s with 30s cooldown', () => {
+    const abrams = getTankSpec('m1a2sep');
+    assert.equal(abrams.ability?.type, 'thermal_sight');
+    const s = createAbilityState();
+    assert.equal(isThermalActive(s, abrams.ability), false);
+
+    const res = activateAbility(s, abrams.ability);
+    assert.equal(res.activated, true);
+    assert.equal(res.type, 'thermal_sight');
+    assert.equal(isThermalActive(s, abrams.ability), true);
+    assert.equal(s.activeRemaining, 15);
+    assert.equal(s.cooldownRemaining, 30);
+
+    stepAbilityState(s, 15.1);
+    assert.equal(isThermalActive(s, abrams.ability), false);
+    assert.equal(canActivateAbility(s, abrams.ability), false);
+    stepAbilityState(s, 15);
+    assert.equal(canActivateAbility(s, abrams.ability), true);
+  });
+
+  it('activates AP Barrage [F] boosting reload speed +35% and penetration +50% for 6s', () => {
+    const abrams = getTankSpec('m1a2sep');
+    assert.equal(abrams.secondaryAbility?.type, 'ap_barrage');
+    const s = createAbilityState();
+    assert.deepEqual(getBarrageMultipliers(s, abrams.secondaryAbility), {
+      active: false,
+      reloadMult: 1,
+      penMult: 1,
+    });
+
+    const res = activateAbility(s, abrams.secondaryAbility);
+    assert.equal(res.activated, true);
+    assert.equal(res.type, 'ap_barrage');
+    assert.deepEqual(getBarrageMultipliers(s, abrams.secondaryAbility), {
+      active: true,
+      reloadMult: 0.65,
+      penMult: 1.5,
+    });
+
+    stepAbilityState(s, 6.1);
+    assert.equal(getBarrageMultipliers(s, abrams.secondaryAbility).active, false);
+    assert.equal(canActivateAbility(s, abrams.secondaryAbility), false);
+    stepAbilityState(s, 12);
+    assert.equal(canActivateAbility(s, abrams.secondaryAbility), true);
+  });
+});
+
+describe('K2 Black Panther KSTAM Top-Attack & Splash ability', () => {
+  it('locks red -> green over 1.5s, cancels cleanly on early release, and launches for 500 dmg + enemy-only 10m splash', () => {
+    const k2 = getTankSpec('k2');
+    assert.equal(k2.ability?.type, 'kstam_missile');
+    const s = createAbilityState();
+
+    const act = activateAbility(s, k2.ability);
+    assert.equal(act.activated, true);
+    assert.equal(act.primed, true);
+    assert.equal(s.cooldownRemaining, 0);
+
+    // Partial lock remains red and resets to 0 on early release without consuming cooldown
+    const stepMid = stepKstamLock(0, true, true, 0.9, 1.5);
+    assert.equal(stepMid.color, 'red');
+    assert.equal(stepMid.locked, false);
+    const cancelled = stepKstamLock(stepMid.progress, true, false, 0.016, 1.5);
+    assert.equal(cancelled.progress, 0);
+    assert.equal(s.primed, true);
+    assert.equal(s.cooldownRemaining, 0);
+
+    // Full 1.5s lock turns green
+    const stepDone = stepKstamLock(stepMid.progress, true, true, 0.7, 1.5);
+    assert.equal(stepDone.color, 'green');
+    assert.equal(stepDone.locked, true);
+
+    const launch = consumeKstamLaunch(s, k2.ability);
+    assert.equal(launch.launched, true);
+    assert.equal(launch.damage, 500);
+    assert.equal(launch.splashRadius, 10);
+    assert.equal(s.primed, false);
+    assert.equal(s.cooldownRemaining, 18);
+
+    // Splash damages enemies within 10m and deals strictly 0 damage to allies/self
+    assert.ok(computeKstamSplashDamage(0, 10, 280, false) === 280);
+    assert.ok(computeKstamSplashDamage(5, 10, 280, false) > 0);
+    assert.equal(computeKstamSplashDamage(10.5, 10, 280, false), 0);
+    assert.equal(computeKstamSplashDamage(2, 10, 280, true), 0);
+    assert.equal(computeKstamSplashDamage(0, 10, 280, true), 0);
   });
 });

@@ -29,7 +29,14 @@ import {
 import { resolveTankCollisionPair } from './collision';
 import { shouldApplyRockDamage } from './envCollision';
 import { isShotIntoSky, SKY_EASTER_MSG } from './damage';
-import { createSmokeRing, computeGalixArcPosition, pruneSmokeClouds, type SmokeCloud } from './abilities';
+import {
+  createSmokeRing,
+  computeGalixArcPosition,
+  isThermalActive,
+  pruneSmokeClouds,
+  stepKstamLock,
+  type SmokeCloud,
+} from './abilities';
 import { createHangarShowcase } from './hangarStage';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { recordMatchHistory } from './matchHistory';
@@ -378,6 +385,12 @@ export function initGame(mountEl: HTMLElement): () => void {
   const cam = { yaw: 0, pitch: 0.2 };
   const aim = { yaw: 0, elev: 0, point: new THREE.Vector3(), range: null as number | null };
   let binocFrozen = false;
+  let kstamHolding = false;
+  let kstamLockProg = 0;
+  let kstamLockTarget: Tank | null = null;
+  let kstamLockedAnnounced = false;
+  let kstamTickAcc = 0;
+  let lastThermalOn = false;
   let touchCtl: ReturnType<typeof attachTouchControls> | null = null;
 
   const hitcam = new HitCam($<HTMLCanvasElement>('hitcam'));
@@ -612,6 +625,13 @@ export function initGame(mountEl: HTMLElement): () => void {
     mode = 'third';
     fovCur = settings.fov;
     binocFrozen = false;
+    kstamHolding = false;
+    kstamLockProg = 0;
+    kstamLockTarget = null;
+    kstamLockedAnnounced = false;
+    kstamTickAcc = 0;
+    clearThermalVisuals();
+    el.kstamReticle.classList.add('hidden');
     hitcam.hide();
     roundPhase = 'active';
     roundEndT = 0;
@@ -807,6 +827,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     setScoreboardOpen(false);
     mouseDown = false;
     fireQueued = false;
+    kstamHolding = false;
+    kstamLockProg = 0;
+    kstamLockTarget = null;
+    kstamLockedAnnounced = false;
+    clearThermalVisuals();
     touchCtl?.reset();
     locked = false;
     for (const k in keys) keys[k] = false;
@@ -873,6 +898,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     document.body.dataset.state = 'title';
     mouseDown = false;
     fireQueued = false;
+    kstamHolding = false;
+    kstamLockProg = 0;
+    kstamLockTarget = null;
+    kstamLockedAnnounced = false;
+    clearThermalVisuals();
     touchCtl?.reset();
     if (document.pointerLockElement) document.exitPointerLock();
     fallback = false;
@@ -1110,10 +1140,70 @@ export function initGame(mountEl: HTMLElement): () => void {
           a: 0.95,
         });
       }
+    } else if (res.type === 'thermal_sight') {
+      audio.play('thermal', tank.root.position, 0.85, true);
+      showMsg(t('msgThermalActivated'), '#66f4d4');
+    } else if (res.type === 'kstam_missile' && res.primed) {
+      audio.play('dm63', tank.root.position, 0.55, true);
+      showMsg(t('msgKstamPrimed'), '#ffd27a');
     } else if (res.primed) {
       audio.play('dm63', tank.root.position, 0.65, true);
       showMsg(t('msgDm63Primed'), '#ffd27a');
     }
+  }
+
+  function triggerPlayerSecondaryAbility() {
+    if (state !== 'play' || !tank.alive || spectating || matchEnded || consoleOpen || scoreboardOpen) return;
+    if (!tank.spec.secondaryAbility) return;
+    const res = tank.activateSecondaryAbility();
+    if (!res.activated) return;
+    if (res.type === 'ap_barrage') {
+      audio.play('barrage', tank.root.position, 0.85, true);
+      showMsg(t('msgBarrageActivated'), '#ff9c42');
+    }
+  }
+
+  function releaseKstamLock() {
+    if (!kstamHolding) return;
+    const abSpec = tank.spec.ability;
+    const lockDur = abSpec?.lockDuration ?? 1.5;
+    const readyToLaunch =
+      state === 'play' &&
+      tank.alive &&
+      !spectating &&
+      !matchEnded &&
+      abSpec?.type === 'kstam_missile' &&
+      tank.abilityState?.primed &&
+      kstamLockProg >= lockDur - 1e-4 &&
+      kstamLockTarget &&
+      kstamLockTarget.alive;
+
+    if (readyToLaunch && kstamLockTarget) {
+      const launched = tank.consumeKstam();
+      if (launched.launched) {
+        tank.muzzleWorld(_gm);
+        tank.gunDirection(_gd);
+        ballistics.fireKstam({
+          pos: _gm,
+          dir: _gd,
+          target: kstamLockTarget,
+          targetPoint: kstamLockTarget.root.position,
+          splashRadius: launched.splashRadius,
+          damage: launched.damage,
+          owner: tank,
+        });
+        kick += mode === 'third' ? 0.015 : 0.003;
+        shake = mode === 'third' ? 0.14 : 0;
+        showMsg(t('msgKstamFired'), '#45ff7a');
+      }
+    } else if (kstamLockProg > 0.05) {
+      showMsg(t('msgKstamCancelled'), '#ffb43c');
+    }
+    kstamHolding = false;
+    kstamLockProg = 0;
+    kstamLockTarget = null;
+    kstamLockedAnnounced = false;
+    kstamTickAcc = 0;
   }
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -1154,8 +1244,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     else if (e.code === K.comp) ballComp = !ballComp;
     else if (e.code === K.post) setSetting('post', !settings.post);
     else if (e.code === K.ability && mode !== 'binoc') triggerPlayerAbility();
+    else if (e.code === 'KeyF' && mode !== 'binoc' && tank.spec.secondaryAbility) triggerPlayerSecondaryAbility();
     else if (e.code === 'KeyR' && mode !== 'binoc') tank.reloadMg();
-    else if (e.code === K.mg && mode !== 'binoc' && isMgExhausted(tank.mgState)) {
+    if (e.code === K.mg && mode !== 'binoc' && isMgExhausted(tank.mgState) && !tank.spec.secondaryAbility) {
       showMsg(t('msgMgOutToast'), '#ff6a4a');
     }
   };
@@ -1167,6 +1258,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     for (const k in keys) keys[k] = false;
     mouseDown = false;
     fireQueued = false;
+    releaseKstamLock();
     setScoreboardOpen(false);
   };
   const onMouseMove = (e: MouseEvent) => {
@@ -1186,6 +1278,21 @@ export function initGame(mountEl: HTMLElement): () => void {
       else if (e.button === 2) cycleSpectateTarget(1);
       return;
     }
+    if (
+      e.button === 2 &&
+      tank.alive &&
+      mode !== 'binoc' &&
+      !scoreboardOpen &&
+      tank.spec.ability?.type === 'kstam_missile' &&
+      tank.abilityState?.primed
+    ) {
+      kstamHolding = true;
+      kstamLockProg = 0;
+      kstamLockTarget = null;
+      kstamLockedAnnounced = false;
+      kstamTickAcc = 0;
+      return;
+    }
     if (e.button !== 0) return;
     if (mode === 'binoc') {
       snapTurretToView();
@@ -1197,6 +1304,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   };
   const onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) mouseDown = false;
+    else if (e.button === 2) releaseKstamLock();
   };
   const onContextMenu = (e: MouseEvent) => e.preventDefault();
   const onWheel = (e: WheelEvent) => {
@@ -1253,6 +1361,30 @@ export function initGame(mountEl: HTMLElement): () => void {
     onActivateAbility: () => {
       if (spectating || scoreboardOpen || mode === 'binoc') return;
       triggerPlayerAbility();
+    },
+    onActivateAbility2: () => {
+      if (spectating || scoreboardOpen || mode === 'binoc') return;
+      triggerPlayerSecondaryAbility();
+    },
+    onKstamHoldStart: () => {
+      if (
+        spectating ||
+        scoreboardOpen ||
+        mode === 'binoc' ||
+        !tank.alive ||
+        tank.spec.ability?.type !== 'kstam_missile' ||
+        !tank.abilityState?.primed
+      ) {
+        return;
+      }
+      kstamHolding = true;
+      kstamLockProg = 0;
+      kstamLockTarget = null;
+      kstamLockedAnnounced = false;
+      kstamTickAcc = 0;
+    },
+    onKstamHoldEnd: () => {
+      releaseKstamLock();
     },
     onPause: () => {
       openPause();
@@ -1545,6 +1677,14 @@ export function initGame(mountEl: HTMLElement): () => void {
     abilityBadge: $('abilityBadge'),
     abilityBadgeLbl: $('abilityBadgeLbl'),
     abilityBadgeState: $('abilityBadgeState'),
+    ability2Badge: $('ability2Badge'),
+    ability2BadgeLbl: $('ability2BadgeLbl'),
+    ability2BadgeState: $('ability2BadgeState'),
+    weakspotHud: $('weakspotHud'),
+    weakspotTarget: $('weakspotTarget'),
+    weakspotRows: $('weakspotRows'),
+    kstamReticle: $('kstamReticle'),
+    kstamTxt: $('kstamTxt'),
     tBtnFire: $('tBtnFire'),
     tFireReloadTxt: $('tFireReloadTxt'),
     tBtnMg: $('tBtnMg'),
@@ -1552,6 +1692,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     tBtnSniper: $('tBtnSniper'),
     tBtnBinoc: $('tBtnBinoc'),
     tBtnAbility: $('tBtnAbility'),
+    tBtnAbility2: $('tBtnAbility2'),
+    tBtnKstamLock: $('tBtnKstamLock'),
     tBtnZoom: $('tBtnZoom'),
   };
   el.mv.textContent = String(tank.stats.muzzleVelocity);
@@ -1560,6 +1702,46 @@ export function initGame(mountEl: HTMLElement): () => void {
   const _gm = new THREE.Vector3();
   const _gd = new THREE.Vector3();
   const _pr = new THREE.Vector3();
+  const _candV = new THREE.Vector3();
+
+  function findSightEnemy(maxDist: number, minDot: number): { target: Tank; dist: number } | null {
+    lookDir(_dir, cam.yaw, cam.pitch);
+    let best: Tank | null = null;
+    let bestScore = -Infinity;
+    let bestDist = 0;
+    for (let i = 0; i < allTanksList.length; i++) {
+      const cand = allTanksList[i];
+      if (!cand.alive || cand.team === tank.team) continue;
+      _candV.set(cand.root.position.x - camOrigin.x, cand.root.position.y + 1.4 - camOrigin.y, cand.root.position.z - camOrigin.z);
+      const dist = _candV.length();
+      if (dist < 1 || dist > maxDist) continue;
+      const dot = (_candV.x * _dir.x + _candV.y * _dir.y + _candV.z * _dir.z) / dist;
+      if (dot < minDot) continue;
+      const score = dot * 100 - dist * 0.005;
+      if (score > bestScore) {
+        bestScore = score;
+        best = cand;
+        bestDist = dist;
+      }
+    }
+    return best ? { target: best, dist: bestDist } : null;
+  }
+
+  function clearThermalVisuals() {
+    if (lastThermalOn) {
+      lastThermalOn = false;
+      document.body.classList.remove('thermal-active');
+    }
+    for (let i = 0; i < allTanksList.length; i++) {
+      allTanksList[i].setThermalHighlight(false, false);
+    }
+    if (el.weakspotHud) el.weakspotHud.classList.add('hidden');
+    if (hudCache) {
+      hudCache.weakspotVisible = false;
+      hudCache.kstamVisible = false;
+      hudCache.kstamLocked = false;
+    }
+  }
   let fpsAcc = 0;
   let fpsN = 0;
 
@@ -1612,6 +1794,15 @@ export function initGame(mountEl: HTMLElement): () => void {
     abilityMode: '',
     abilityLbl: '',
     abilityTxt: '',
+    ability2Visible: false,
+    ability2Mode: '',
+    ability2Lbl: '',
+    ability2Txt: '',
+    kstamVisible: false,
+    kstamLocked: false,
+    kstamTxt: '',
+    weakspotVisible: false,
+    weakspotTarget: '',
     mv: '',
     survivalTimer: '',
     survivalUrgent: false,
@@ -1627,6 +1818,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     tAbilityVisible: false,
     tAbilityMode: '',
     tAbilityTxt: '',
+    tAbility2Visible: false,
+    tAbility2Mode: '',
+    tAbility2Txt: '',
+    tKstamHoldVisible: false,
     tZoomVisible: false,
     tZoomTxt: '',
   };
@@ -1850,7 +2045,10 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (abSpec.type === 'galix_overdrive' && abSt.activeRemaining > 0.01) {
         abMode = 'active';
         abStateShort = t('hudAbilityActive', { t: abSt.activeRemaining.toFixed(1) });
-      } else if (abSpec.type === 'dm63_apfsds' && abSt.primed) {
+      } else if (abSpec.type === 'thermal_sight' && abSt.activeRemaining > 0.01) {
+        abMode = 'active';
+        abStateShort = t('hudAbilityThermalActive', { t: abSt.activeRemaining.toFixed(1) });
+      } else if ((abSpec.type === 'dm63_apfsds' || abSpec.type === 'kstam_missile') && abSt.primed) {
         abMode = 'primed';
         abStateShort = t('hudAbilityPrimed');
       } else if (abSt.cooldownRemaining > 0.01) {
@@ -1860,7 +2058,14 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     if (abilityVisible && abSpec && abSt) {
       const abKeyStr = keyName(settings.keys.ability).toUpperCase();
-      const abLbl = abSpec.type === 'galix_overdrive' ? t('hudAbilityGalix', { key: abKeyStr }) : t('hudAbilityDm63', { key: abKeyStr });
+      const abLbl =
+        abSpec.type === 'galix_overdrive'
+          ? t('hudAbilityGalix', { key: abKeyStr })
+          : abSpec.type === 'thermal_sight'
+            ? t('hudAbilityThermal', { key: abKeyStr })
+            : abSpec.type === 'kstam_missile'
+              ? t('hudAbilityKstam', { key: abKeyStr })
+              : t('hudAbilityDm63', { key: abKeyStr });
       if (abLbl !== hudCache.abilityLbl) {
         hudCache.abilityLbl = abLbl;
         el.abilityBadgeLbl.textContent = abLbl;
@@ -1875,6 +2080,42 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (abStateShort !== hudCache.abilityTxt) {
         hudCache.abilityTxt = abStateShort;
         el.abilityBadgeState.textContent = abStateShort;
+      }
+    }
+
+    const ab2Spec = tank.spec.secondaryAbility;
+    const ab2St = tank.secondaryAbilityState;
+    const ability2Visible = !!(ab2Spec && ab2St && !spectating && tank.alive);
+    if (ability2Visible !== hudCache.ability2Visible) {
+      hudCache.ability2Visible = ability2Visible;
+      el.ability2Badge.classList.toggle('hidden', !ability2Visible);
+    }
+    let ab2Mode = 'ready';
+    let ab2StateShort = t('hudAbilityReady');
+    if (ab2Spec && ab2St) {
+      if (ab2St.activeRemaining > 0.01) {
+        ab2Mode = 'active';
+        ab2StateShort = t('hudAbilityBarrageActive', { t: ab2St.activeRemaining.toFixed(1) });
+      } else if (ab2St.cooldownRemaining > 0.01) {
+        ab2Mode = 'cooling';
+        ab2StateShort = t('hudAbilityCooldown', { t: ab2St.cooldownRemaining.toFixed(1) });
+      }
+    }
+    if (ability2Visible && ab2Spec && ab2St) {
+      const ab2Lbl = t('hudAbility2Barrage', { key: 'F' });
+      if (ab2Lbl !== hudCache.ability2Lbl) {
+        hudCache.ability2Lbl = ab2Lbl;
+        el.ability2BadgeLbl.textContent = ab2Lbl;
+      }
+      if (ab2Mode !== hudCache.ability2Mode) {
+        hudCache.ability2Mode = ab2Mode;
+        el.ability2Badge.classList.toggle('ready', ab2Mode === 'ready');
+        el.ability2Badge.classList.toggle('active', ab2Mode === 'active');
+        el.ability2Badge.classList.toggle('cooling', ab2Mode === 'cooling');
+      }
+      if (ab2StateShort !== hudCache.ability2Txt) {
+        hudCache.ability2Txt = ab2StateShort;
+        el.ability2BadgeState.textContent = ab2StateShort;
       }
     }
 
@@ -2011,13 +2252,41 @@ export function initGame(mountEl: HTMLElement): () => void {
           el.tBtnAbility.classList.toggle('primed', abMode === 'primed');
           el.tBtnAbility.classList.toggle('cooling', abMode === 'cooling');
         }
-        const tAbTxt = abSpec.type === 'galix_overdrive'
-          ? t('tBtnAbilityGalix', { state: abStateShort })
-          : t('tBtnAbilityDm63', { state: abStateShort });
+        const tAbTxt =
+          abSpec.type === 'galix_overdrive'
+            ? t('tBtnAbilityGalix', { state: abStateShort })
+            : abSpec.type === 'thermal_sight'
+              ? t('tBtnAbilityThermal', { state: abStateShort })
+              : abSpec.type === 'kstam_missile'
+                ? t('tBtnAbilityKstam', { state: abStateShort })
+                : t('tBtnAbilityDm63', { state: abStateShort });
         if (tAbTxt !== hudCache.tAbilityTxt) {
           hudCache.tAbilityTxt = tAbTxt;
           el.tBtnAbility.textContent = tAbTxt;
         }
+      }
+      if (ability2Visible !== hudCache.tAbility2Visible) {
+        hudCache.tAbility2Visible = ability2Visible;
+        el.tBtnAbility2.classList.toggle('hidden', !ability2Visible);
+      }
+      if (ability2Visible && ab2Spec) {
+        if (ab2Mode !== hudCache.tAbility2Mode) {
+          hudCache.tAbility2Mode = ab2Mode;
+          el.tBtnAbility2.classList.toggle('ready', ab2Mode === 'ready');
+          el.tBtnAbility2.classList.toggle('active', ab2Mode === 'active');
+          el.tBtnAbility2.classList.toggle('cooling', ab2Mode === 'cooling');
+        }
+        const tAb2Txt = t('tBtnAbilityBarrage', { state: ab2StateShort });
+        if (tAb2Txt !== hudCache.tAbility2Txt) {
+          hudCache.tAbility2Txt = tAb2Txt;
+          el.tBtnAbility2.textContent = tAb2Txt;
+        }
+      }
+      const kstamHoldVis = !!(abilityVisible && abSpec?.type === 'kstam_missile' && abSt?.primed);
+      if (kstamHoldVis !== hudCache.tKstamHoldVisible) {
+        hudCache.tKstamHoldVisible = kstamHoldVis;
+        el.tBtnKstamLock.classList.toggle('hidden', !kstamHoldVis);
+        el.tBtnKstamLock.textContent = t('tBtnKstamHold');
       }
       const zoomVisible = !spectating && mode !== 'third';
       if (zoomVisible !== hudCache.tZoomVisible) {
@@ -2218,6 +2487,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     setScoreboardOpen(false);
     mouseDown = false;
     fireQueued = false;
+    kstamHolding = false;
+    kstamLockProg = 0;
+    kstamLockTarget = null;
+    kstamLockedAnnounced = false;
+    clearThermalVisuals();
     touchCtl?.reset();
     locked = false;
     for (const k in keys) keys[k] = false;
@@ -2596,7 +2870,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       } else if (e.destroyed) {
         showMsg(t('msgTargetDestroyed'), '#ff6a4a');
       } else if (!e.isMg && e.damage >= 450) {
-        showMsg(t('msgDm63Hit', { dmg: Math.round(e.damage) }), '#78f0ff');
+        const heavyHitKey = tank.spec.ability?.type === 'kstam_missile' ? 'msgKstamHit' : 'msgDm63Hit';
+        showMsg(t(heavyHitKey, { dmg: Math.round(e.damage) }), tank.spec.ability?.type === 'kstam_missile' ? '#45ff7a' : '#78f0ff');
       } else if (!e.isMg) {
         showMsg(getCombatResultText(e.result), RESULT_COL[e.result] || '#ffd27a');
       }
@@ -3032,11 +3307,130 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     ballistics.update(dt);
     updateCamera(dt);
+
+    // Thermal Sight Gen-2 + Weakspot Scanner HUD
+    const thermalOn =
+      state === 'play' &&
+      tank.alive &&
+      !spectating &&
+      !matchEnded &&
+      !hangarOpen &&
+      isThermalActive(tank.abilityState, tank.spec.ability);
+    if (thermalOn !== lastThermalOn) {
+      lastThermalOn = thermalOn;
+      document.body.classList.toggle('thermal-active', thermalOn);
+    }
+    if (thermalOn) {
+      for (let i = 0; i < allTanksList.length; i++) {
+        allTanksList[i].setThermalHighlight(true, allTanksList[i].team !== tank.team);
+      }
+      const wsMatch = findSightEnemy(1600, 0.72);
+      const wsVis = !!wsMatch;
+      if (wsVis !== hudCache.weakspotVisible) {
+        hudCache.weakspotVisible = wsVis;
+        el.weakspotHud.classList.toggle('hidden', !wsVis);
+        if (wsVis) {
+          el.weakspotRows.innerHTML =
+            `<div>${t('hudWeakspotFuel')}</div>` +
+            `<div>${t('hudWeakspotRear')}</div>` +
+            `<div>${t('hudWeakspotRoof')}</div>`;
+        }
+      }
+      if (wsVis && wsMatch) {
+        const wsTgtTxt = `${wsMatch.target.spec.name} · ${Math.round(wsMatch.dist)}${t('hudMetersUnit')}`;
+        if (wsTgtTxt !== hudCache.weakspotTarget) {
+          hudCache.weakspotTarget = wsTgtTxt;
+          el.weakspotTarget.textContent = wsTgtTxt;
+        }
+      }
+    } else {
+      for (let i = 0; i < allTanksList.length; i++) {
+        allTanksList[i].setThermalHighlight(false, false);
+      }
+      if (hudCache.weakspotVisible) {
+        hudCache.weakspotVisible = false;
+        el.weakspotHud.classList.add('hidden');
+      }
+    }
+
+    // KSTAM Top-Attack hold-to-lock loop
+    const kstamCanHold =
+      state === 'play' &&
+      tank.alive &&
+      !spectating &&
+      !matchEnded &&
+      mode !== 'binoc' &&
+      !scoreboardOpen &&
+      tank.spec.ability?.type === 'kstam_missile' &&
+      Boolean(tank.abilityState?.primed) &&
+      kstamHolding;
+    if (kstamCanHold) {
+      const kHit = findSightEnemy(1200, 0.84);
+      kstamLockTarget = kHit ? kHit.target : null;
+      const lockDur = tank.spec.ability?.lockDuration ?? 1.5;
+      const stepRes = stepKstamLock(kstamLockProg, !!kstamLockTarget, true, dt, lockDur);
+      kstamLockProg = stepRes.progress;
+
+      if (stepRes.locked) {
+        if (!kstamLockedAnnounced) {
+          kstamLockedAnnounced = true;
+          audio.play('kstamLocked', tank.root.position, 0.85, true);
+          showMsg(t('msgKstamLocked'), '#45ff7a');
+        }
+      } else {
+        kstamLockedAnnounced = false;
+        if (kstamLockTarget) {
+          kstamTickAcc += dt;
+          if (kstamTickAcc >= 0.34) {
+            kstamTickAcc = 0;
+            audio.play('kstamLockTick', tank.root.position, 0.6, true);
+          }
+        }
+      }
+
+      if (!hudCache.kstamVisible) {
+        hudCache.kstamVisible = true;
+        el.kstamReticle.classList.remove('hidden');
+      }
+      if (stepRes.locked !== hudCache.kstamLocked) {
+        hudCache.kstamLocked = stepRes.locked;
+        el.kstamReticle.classList.toggle('locked', stepRes.locked);
+      }
+      const kTxt = !kstamLockTarget
+        ? t('hudKstamNoTarget')
+        : stepRes.locked
+          ? t('hudKstamLocked')
+          : t('hudKstamLocking', { pct: Math.round((stepRes.progress / lockDur) * 100) });
+      if (kTxt !== hudCache.kstamTxt) {
+        hudCache.kstamTxt = kTxt;
+        el.kstamTxt.textContent = kTxt;
+      }
+    } else {
+      if (kstamHolding) {
+        kstamHolding = false;
+        kstamLockProg = 0;
+        kstamLockTarget = null;
+        kstamLockedAnnounced = false;
+        kstamTickAcc = 0;
+      }
+      if (hudCache.kstamVisible) {
+        hudCache.kstamVisible = false;
+        hudCache.kstamLocked = false;
+        el.kstamReticle.classList.add('hidden');
+        el.kstamReticle.classList.remove('locked');
+      }
+    }
+
     const focusPos = spectating && spectateTarget ? spectateTarget.root.position : tank.root.position;
     updateTankVisibilityAndLod();
     world.update(camera.position, focusPos, dt, vis);
     ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
-    audio.engineUpdate(Math.abs(tank.speed) / tank.stats.maxSpeed, input.throttle, tank.alive && !spectating);
+    audio.engineUpdate(
+      Math.abs(tank.speed) / tank.stats.maxSpeed,
+      input.throttle,
+      tank.alive && !spectating,
+      tank.spec.engineAudio ?? 'diesel',
+    );
     updateHud(dt);
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, dt);
     hitcam.draw(dt);
@@ -3094,6 +3488,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('bSpecPrev').removeEventListener('click', onSpecPrev);
     $('bSpecNext').removeEventListener('click', onSpecNext);
     touchCtl?.dispose();
+    clearThermalVisuals();
     audio.engineSilence();
     audio.music('off');
     clearGalixGrenades();

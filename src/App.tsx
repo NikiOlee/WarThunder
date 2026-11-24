@@ -18,8 +18,19 @@ export default function App() {
       <div id="app" ref={mountRef} data-testid="game-canvas" />
       <canvas id="scope" />
       <div id="vignette" />
+      <div id="thermalOverlay" aria-hidden="true">
+        <span className="th-corner tl" />
+        <span className="th-corner tr" />
+        <span className="th-corner bl" />
+        <span className="th-corner br" />
+        <span id="thermalHudTag">FLIR GEN-2 · 8–12 µm</span>
+      </div>
       <div id="crosshair" />
       <div id="gunMark" />
+      <div id="kstamReticle" className="hud hidden" data-testid="kstam-reticle">
+        <div id="kstamRing" />
+        <div id="kstamTxt">KSTAM · ЗАХВАТ</div>
+      </div>
       <canvas id="hitcam" />
       <canvas id="minimap" className="hud" width={156} height={156} data-testid="minimap" />
       <div id="mgHud" className="hud" data-testid="mg-hud">
@@ -43,6 +54,10 @@ export default function App() {
       <div id="abilityBadge" className="hud hidden" data-testid="ability-badge">
         <span id="abilityBadgeLbl">GALIX [E]</span>
         <b id="abilityBadgeState">ГОТОВ</b>
+      </div>
+      <div id="ability2Badge" className="hud hidden" data-testid="ability2-badge">
+        <span id="ability2BadgeLbl">ШКВАЛ [F]</span>
+        <b id="ability2BadgeState">ГОТОВ</b>
       </div>
 
       <div id="help" className="hud" />
@@ -143,6 +158,13 @@ export default function App() {
           4 v 4
         </b>
       </div>
+      <div id="weakspotHud" className="hud hidden" data-testid="weakspot-hud">
+        <div className="ws-title">
+          <span id="weakspotHdr">УЯЗВИМЫЕ ЗОНЫ</span>
+          <b id="weakspotTarget">—</b>
+        </div>
+        <div id="weakspotRows" className="ws-rows" />
+      </div>
       <div id="dmgStat" className="hud" />
       <div id="msg" className="hud" />
       <div id="roundBanner" className="hud hidden" data-testid="round-banner" />
@@ -205,6 +227,12 @@ export default function App() {
             </button>
             <button type="button" className="tbtn tbtn-sec tbtn-ability hidden" id="tBtnAbility" data-touch-control="true" data-testid="touch-btn-ability">
               GALIX · ГОТОВ
+            </button>
+            <button type="button" className="tbtn tbtn-sec tbtn-ability hidden" id="tBtnAbility2" data-touch-control="true" data-testid="touch-btn-ability2">
+              ШКВАЛ · ГОТОВ
+            </button>
+            <button type="button" className="tbtn tbtn-sec tbtn-ability hidden" id="tBtnKstamLock" data-touch-control="true" data-testid="touch-btn-kstam-lock">
+              ПКМ · ЗАХВАТ
             </button>
             <button type="button" className="tbtn tbtn-sec tbtn-reload" id="tBtnMgReload" data-touch-control="true" data-testid="touch-btn-mg-reload">
               ЛЕНТА R

@@ -57,9 +57,12 @@ export interface TankSpec {
   mg: MachineGunSpec;
   aps?: TrophyApsConfig;
   ability?: TankAbilitySpec;
+  secondaryAbility?: TankAbilitySpec;
   accelBoost?: number;
   pivotBoost?: number;
   stabilized?: boolean;
+  engineAudio?: 'diesel' | 'turbine';
+  adaptiveSuspension?: boolean;
 }
 
 export const DEFAULT_TANK_ID = 't55';
@@ -726,6 +729,139 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       spread: 0.004,
     },
   },
+  k2: {
+    id: 'k2',
+    name: 'K2 Black Panther',
+    role: 'Современный ОБТ',
+    country: 'Южная Корея',
+    gunName: '120-мм гладкоствольная CN08 L/55',
+    description:
+      'Южнокорейский основной боевой танк с угловатым низкопрофильным корпусом, конвейерным автоматом заряжания (2.5 с, 110 ед. урона), активной гидропневматической подвеской ISU (без потери скорости на подъёмах и УВН -13°..+24°) и управляемым снарядом [E]+[ПКМ] «KSTAM» (наведение 1.5 с, атака в крышу на 500 ед. урона и сплэш 10 м только по врагам).',
+    priceSilver: 10000,
+    maxSpeedKmh: 85,
+    maxSpeed: 85 / 3.6,
+    maxReverse: 11.0,
+    traverseRate: 42 * DEG,
+    elevRate: 24 * DEG,
+    elevMin: -13 * DEG,
+    elevMax: 24 * DEG,
+    reload: 2.5,
+    muzzleVelocity: 940,
+    maxRange: 850,
+    caliber: 0.12,
+    penetrationMm: 415,
+    maxHp: 140,
+    gunDamage: 110,
+    frontDamageReduction: 41,
+    frontDamageRange: [17, 25],
+    bossDamageCoef: 2.35,
+    accelBoost: 1.42,
+    pivotBoost: 1.5,
+    stabilized: true,
+    adaptiveSuspension: true,
+    ability: {
+      type: 'kstam_missile',
+      cooldown: 18,
+      lockDuration: 1.5,
+      splashRadius: 10,
+      damage: 500,
+    },
+    armor: {
+      hullFront: 270,
+      hullSide: 88,
+      hullRear: 42,
+      deck: 25,
+      turretFront: 295,
+      turretSide: 145,
+      turretRear: 68,
+      turretTop: 26,
+    },
+    damage: {
+      front: 21,
+      sideRear: 110,
+      fuel: 999,
+    },
+    mg: {
+      name: '12.7-мм пулемёт K6 + 7.62-мм',
+      damage: 0.995,
+      fireRate: 15,
+      magSize: 220,
+      totalAmmo: 880,
+      reloadTime: 2.4,
+      muzzleVelocity: 950,
+      maxRange: 570,
+      spread: 0.004,
+    },
+  },
+  m1a2sep: {
+    id: 'm1a2sep',
+    name: 'M1A2 SEP (Abrams)',
+    role: 'Современный ОБТ',
+    country: 'США',
+    gunName: '120-мм гладкоствольная M256',
+    description:
+      'Американский основной боевой танк с приземистым корпусом, «рубленой» башней со сверхпрочной урановой бронёй лба (180 HP, 100 ед. урона на 1500 м, перезарядка 2.7 с), газотурбинным двигателем, тепловизором Gen-2 [E] (подсветка врагов, красных топливных баков и уязвимых зон на 15 с) и способностью [F] «Бронебойный шквал» (+35% скорострельности и +50% пробития на 6 с).',
+    priceSilver: 13060,
+    maxSpeedKmh: 95,
+    maxSpeed: 95 / 3.6,
+    maxReverse: 11.5,
+    traverseRate: 44 * DEG,
+    elevRate: 24 * DEG,
+    elevMin: -10 * DEG,
+    elevMax: 20 * DEG,
+    reload: 2.7,
+    muzzleVelocity: 900,
+    maxRange: 1500,
+    caliber: 0.12,
+    penetrationMm: 410,
+    maxHp: 180,
+    gunDamage: 100,
+    frontDamageReduction: 46,
+    frontDamageRange: [14, 22],
+    bossDamageCoef: 2.35,
+    accelBoost: 1.48,
+    pivotBoost: 1.4,
+    stabilized: true,
+    engineAudio: 'turbine',
+    ability: {
+      type: 'thermal_sight',
+      cooldown: 30,
+      duration: 15,
+    },
+    secondaryAbility: {
+      type: 'ap_barrage',
+      cooldown: 18,
+      duration: 6,
+      reloadMult: 0.65,
+      penMult: 1.5,
+    },
+    armor: {
+      hullFront: 270,
+      hullSide: 90,
+      hullRear: 38,
+      deck: 20,
+      turretFront: 340,
+      turretSide: 145,
+      turretRear: 60,
+      turretTop: 22,
+    },
+    damage: {
+      front: 18,
+      sideRear: 100,
+      fuel: 999,
+    },
+    mg: {
+      name: '12.7-мм M2HB + 7.62-мм M240',
+      damage: 0.995,
+      fireRate: 15,
+      magSize: 220,
+      totalAmmo: 880,
+      reloadTime: 2.5,
+      muzzleVelocity: 950,
+      maxRange: 580,
+      spread: 0.004,
+    },
+  },
 };
 
 export const BOSS_TANK_ID = 'maus';
@@ -791,13 +927,22 @@ export function getTankPowerRating(spec: TankSpec): number {
     spec.gunDamage * 1.05 +
     spec.penetrationMm * 0.18 +
     spec.maxRange * 0.05;
-  const mobility = spec.maxSpeedKmh * 0.42 + (spec.stabilized ? 25 : 0);
-  const abilityPower =
-    spec.ability?.type === 'dm63_apfsds'
+  const mobility =
+    spec.maxSpeedKmh * 0.42 +
+    (spec.stabilized ? 25 : 0) +
+    (spec.adaptiveSuspension ? 18 : 0);
+  const singleAbilityScore = (type?: string) =>
+    type === 'dm63_apfsds'
       ? 150
-      : spec.ability?.type === 'galix_overdrive'
-        ? 125
-        : 0;
+      : type === 'kstam_missile'
+        ? 140
+        : type === 'galix_overdrive'
+          ? 125
+          : type === 'thermal_sight' || type === 'ap_barrage'
+            ? 75
+            : 0;
+  const abilityPower =
+    singleAbilityScore(spec.ability?.type) + singleAbilityScore(spec.secondaryAbility?.type);
   return effectiveHp + firepower + mobility + abilityPower;
 }
 

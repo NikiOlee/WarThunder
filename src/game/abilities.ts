@@ -2,12 +2,17 @@
 //  ACTIVE TANK ABILITIES & VOLUMETRIC SMOKE CONCEALMENT (pure logic)
 // =====================================================================
 
-export type TankAbilityType = 'galix_overdrive' | 'dm63_apfsds';
+export type TankAbilityType =
+  | 'galix_overdrive'
+  | 'dm63_apfsds'
+  | 'thermal_sight'
+  | 'ap_barrage'
+  | 'kstam_missile';
 
 export interface TankAbilitySpec {
   type: TankAbilityType;
   cooldown: number;        // seconds
-  duration?: number;       // seconds (for overdrive)
+  duration?: number;       // seconds (for overdrive, thermal_sight, ap_barrage)
   speedMult?: number;      // max-speed multiplier while active
   accelMult?: number;      // acceleration multiplier while active
   smokeDuration?: number;  // seconds smoke clouds linger
@@ -15,6 +20,11 @@ export interface TankAbilitySpec {
   damageMin?: number;      // DM63 minimum fixed damage
   damageMax?: number;      // DM63 maximum fixed damage
   velocityBoost?: number;  // DM63 muzzle velocity (m/s)
+  reloadMult?: number;     // AP Barrage reload time multiplier (e.g. 0.65 = 35% faster)
+  penMult?: number;        // AP Barrage penetration multiplier (e.g. 1.5 = +50%)
+  lockDuration?: number;   // KSTAM lock duration (seconds)
+  splashRadius?: number;   // KSTAM AoE splash radius (meters)
+  damage?: number;         // KSTAM fixed direct damage
 }
 
 export interface TankAbilityState {
@@ -45,6 +55,18 @@ export interface ConsumedPrimedShot {
   muzzleVelocity: number;
   ignoreArmor: boolean;
   ignoreAps: boolean;
+}
+
+export interface ConsumedKstamLaunch {
+  launched: boolean;
+  damage: number;
+  splashRadius: number;
+}
+
+export interface KstamLockStepResult {
+  progress: number;
+  locked: boolean;
+  color: 'red' | 'green';
 }
 
 export function createAbilityState(): TankAbilityState {
@@ -80,8 +102,13 @@ export function canActivateAbility(
 ): boolean {
   if (!state || !spec) return false;
   if (state.cooldownRemaining > 0.001) return false;
-  if (spec.type === 'galix_overdrive' && state.activeRemaining > 0.001) return false;
-  if (spec.type === 'dm63_apfsds' && state.primed) return false;
+  if (
+    (spec.type === 'galix_overdrive' || spec.type === 'thermal_sight' || spec.type === 'ap_barrage') &&
+    state.activeRemaining > 0.001
+  ) {
+    return false;
+  }
+  if ((spec.type === 'dm63_apfsds' || spec.type === 'kstam_missile') && state.primed) return false;
   return true;
 }
 
@@ -102,11 +129,31 @@ export function activateAbility(
       primed: false,
     };
   }
-  // dm63_apfsds: prime next cannon shot; cooldown starts when fired
+  if (spec.type === 'thermal_sight') {
+    state.activeRemaining = spec.duration ?? 15;
+    state.cooldownRemaining = spec.cooldown ?? 30;
+    return {
+      activated: true,
+      type: 'thermal_sight',
+      spawnSmoke: false,
+      primed: false,
+    };
+  }
+  if (spec.type === 'ap_barrage') {
+    state.activeRemaining = spec.duration ?? 6;
+    state.cooldownRemaining = spec.cooldown ?? 18;
+    return {
+      activated: true,
+      type: 'ap_barrage',
+      spawnSmoke: false,
+      primed: false,
+    };
+  }
+  // dm63_apfsds & kstam_missile: prime shot/missile; cooldown starts when launched
   state.primed = true;
   return {
     activated: true,
-    type: 'dm63_apfsds',
+    type: spec.type,
     spawnSmoke: false,
     primed: true,
   };
@@ -142,6 +189,22 @@ export function consumePrimedShot(
   };
 }
 
+export function consumeKstamLaunch(
+  state: TankAbilityState | null | undefined,
+  spec: TankAbilitySpec | undefined,
+): ConsumedKstamLaunch {
+  if (!state || !spec || spec.type !== 'kstam_missile' || !state.primed) {
+    return { launched: false, damage: 0, splashRadius: 0 };
+  }
+  state.primed = false;
+  state.cooldownRemaining = spec.cooldown ?? 18;
+  return {
+    launched: true,
+    damage: spec.damage ?? 500,
+    splashRadius: spec.splashRadius ?? 10,
+  };
+}
+
 export function getOverdriveMultipliers(
   state: TankAbilityState | null | undefined,
   spec: TankAbilitySpec | undefined,
@@ -154,6 +217,60 @@ export function getOverdriveMultipliers(
     accelMult: spec.accelMult ?? 1.45,
     active: true,
   };
+}
+
+export function getBarrageMultipliers(
+  state: TankAbilityState | null | undefined,
+  spec: TankAbilitySpec | undefined,
+): { active: boolean; reloadMult: number; penMult: number } {
+  if (!state || !spec || spec.type !== 'ap_barrage' || state.activeRemaining <= 0) {
+    return { active: false, reloadMult: 1, penMult: 1 };
+  }
+  return {
+    active: true,
+    reloadMult: spec.reloadMult ?? 0.65,
+    penMult: spec.penMult ?? 1.5,
+  };
+}
+
+export function isThermalActive(
+  state: TankAbilityState | null | undefined,
+  spec: TankAbilitySpec | undefined,
+): boolean {
+  return Boolean(state && spec && spec.type === 'thermal_sight' && state.activeRemaining > 0);
+}
+
+export function stepKstamLock(
+  currentProgress: number,
+  hasTargetInCone: boolean,
+  holdingLock: boolean,
+  dt: number,
+  lockDuration = 1.5,
+): KstamLockStepResult {
+  if (!holdingLock) {
+    return { progress: 0, locked: false, color: 'red' };
+  }
+  const safeDur = Math.max(0.1, lockDuration);
+  const next = hasTargetInCone
+    ? Math.min(safeDur, currentProgress + Math.max(0, dt))
+    : Math.max(0, currentProgress - Math.max(0, dt) * 0.75);
+  const locked = hasTargetInCone && next >= safeDur - 1e-4;
+  return {
+    progress: next,
+    locked,
+    color: locked ? 'green' : 'red',
+  };
+}
+
+export function computeKstamSplashDamage(
+  dist: number,
+  radius = 10,
+  maxSplashDmg = 280,
+  isAllyOrSelf = false,
+): number {
+  if (isAllyOrSelf || radius <= 0 || dist > radius || dist < 0) return 0;
+  const f = Math.max(0, Math.min(1, 1 - (dist / radius) * 0.65));
+  return Math.round(maxSplashDmg * f);
 }
 
 export function computeGalixArcPosition(

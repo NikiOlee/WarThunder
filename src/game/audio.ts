@@ -85,6 +85,13 @@ interface EngineNodes {
   t: AudioBufferSourceNode;
   tb: BiquadFilterNode;
   tg: GainNode;
+  turb1: OscillatorNode;
+  turb2: OscillatorNode;
+  turbBp: BiquadFilterNode;
+  turbGain: GainNode;
+  airSrc: AudioBufferSourceNode;
+  airBp: BiquadFilterNode;
+  airGain: GainNode;
 }
 
 class AudioSys {
@@ -353,6 +360,42 @@ class AudioSys {
         this._burst(dst, t + 0.05, 0.38, 0.28, 'bandpass', 900, 260, 0.5);
         break;
       }
+      case 'thermal': {
+        // Crisp FLIR electro-optical power-up hum & dual confirmation beep
+        this._tone(dst, 'sine', 620, 1280, t, 0.14, 0.22);
+        this._tone(dst, 'triangle', 1760, 2080, t + 0.09, 0.12, 0.16);
+        this._burst(dst, t, 0.18, 0.14, 'bandpass', 2400, 1100, 1.4);
+        break;
+      }
+      case 'barrage': {
+        // Pneumatic loader boost & breech lock clack
+        this._tone(dst, 'sawtooth', 260, 640, t, 0.16, 0.26);
+        this._tone(dst, 'triangle', 880, 1320, t + 0.05, 0.12, 0.2);
+        this._burst(dst, t, 0.1, 0.45, 'bandpass', 1800, 750, 1.2);
+        break;
+      }
+      case 'kstamLockTick': {
+        this._tone(dst, 'sine', 960, 1020, t, 0.05, 0.18);
+        break;
+      }
+      case 'kstamLocked': {
+        this._tone(dst, 'triangle', 1480, 1980, t, 0.08, 0.28);
+        this._tone(dst, 'sine', 2240, 2240, t + 0.08, 0.11, 0.24);
+        break;
+      }
+      case 'kstamLaunch': {
+        // High-loft mortar boost thump + rocket sustainer hiss
+        this._tone(dst, 'sine', 155, 52, t, 0.24, 0.8);
+        this._burst(dst, t, 0.48, 0.68, 'bandpass', 1900, 680, 0.8);
+        this._tone(dst, 'sawtooth', 240, 560, t + 0.04, 0.35, 0.22);
+        break;
+      }
+      case 'kstamHit': {
+        this._explosion(dst, t, 2.2);
+        this._tone(dst, 'sawtooth', 190, 32, t, 0.65, 0.72);
+        this._burst(dst, t + 0.03, 1.4, 1.0, 'bandpass', 960, 180, 0.7);
+        break;
+      }
       default:
         break;
     }
@@ -427,26 +470,66 @@ class AudioSys {
     tb.connect(tg);
     tg.connect(this.engineBus);
 
+    const turbBp = ctx.createBiquadFilter();
+    turbBp.type = 'bandpass';
+    turbBp.frequency.value = 1850;
+    turbBp.Q.value = 1.6;
+    const turbGain = ctx.createGain();
+    turbGain.gain.value = 0;
+    const turb1 = ctx.createOscillator();
+    turb1.type = 'sine';
+    turb1.frequency.value = 1520;
+    const turb2 = ctx.createOscillator();
+    turb2.type = 'triangle';
+    turb2.frequency.value = 3040;
+    turb1.connect(turbBp);
+    turb2.connect(turbBp);
+    turbBp.connect(turbGain);
+    turbGain.connect(this.engineBus);
+
+    const airSrc = this._noise();
+    const airBp = ctx.createBiquadFilter();
+    airBp.type = 'bandpass';
+    airBp.frequency.value = 2100;
+    airBp.Q.value = 0.75;
+    const airGain = ctx.createGain();
+    airGain.gain.value = 0;
+    airSrc.connect(airBp);
+    airBp.connect(airGain);
+    airGain.connect(this.engineBus);
+
     o1.start();
     o2.start();
     n.start();
     t.start();
-    this._engine = { lp, g, o1, o2, n, nl, ng, t, tb, tg };
+    turb1.start();
+    turb2.start();
+    airSrc.start();
+    this._engine = { lp, g, o1, o2, n, nl, ng, t, tb, tg, turb1, turb2, turbBp, turbGain, airSrc, airBp, airGain };
   }
 
-  engineUpdate(speedN: number, throttle: number, alive: boolean): void {
+  engineUpdate(speedN: number, throttle: number, alive: boolean, engineType: 'diesel' | 'turbine' = 'diesel'): void {
     if (!this.ctx || this.ctx.state !== 'running') return;
     if (!this._engine) this._startEngine();
     const e = this._engine!;
     const t = this.ctx.currentTime;
     const rpm = alive ? 0.18 + 0.52 * clamp(speedN, 0, 1) + 0.22 * Math.abs(throttle) : 0;
+    const isTurbine = engineType === 'turbine';
     const f = 24 + rpm * 46;
     e.o1.frequency.setTargetAtTime(f, t, 0.14);
     e.o2.frequency.setTargetAtTime(f * 0.5, t, 0.14);
     e.lp.frequency.setTargetAtTime(120 + rpm * 240, t, 0.14);
-    e.g.gain.setTargetAtTime(alive ? 0.08 + 0.1 * rpm : 0, t, 0.22);
-    e.ng.gain.setTargetAtTime(alive ? 0.07 + 0.04 * rpm : 0.01, t, 0.3);
+    e.g.gain.setTargetAtTime(alive ? (isTurbine ? 0.025 + 0.03 * rpm : 0.08 + 0.1 * rpm) : 0, t, 0.22);
+    e.ng.gain.setTargetAtTime(alive ? (isTurbine ? 0.035 + 0.02 * rpm : 0.07 + 0.04 * rpm) : 0.01, t, 0.3);
     e.tg.gain.setTargetAtTime(alive ? clamp(speedN, 0, 1) * 0.055 : 0, t, 0.18);
+
+    const tFreq = 1380 + rpm * 1550;
+    e.turb1.frequency.setTargetAtTime(tFreq, t, 0.12);
+    e.turb2.frequency.setTargetAtTime(tFreq * 1.92, t, 0.12);
+    e.turbBp.frequency.setTargetAtTime(tFreq * 1.15, t, 0.14);
+    e.turbGain.gain.setTargetAtTime(alive && isTurbine ? 0.045 + 0.075 * rpm : 0, t, 0.16);
+    e.airBp.frequency.setTargetAtTime(1750 + rpm * 2200, t, 0.16);
+    e.airGain.gain.setTargetAtTime(alive && isTurbine ? 0.03 + 0.055 * rpm : 0, t, 0.2);
   }
 
   engineSilence(): void {

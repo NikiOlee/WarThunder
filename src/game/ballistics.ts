@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BARREL_HITBOX_BOUNDS, resolveHit, resolveMgHit, type HitPart, type HitResolution } from './damage';
+import { computeKstamSplashDamage } from './abilities';
 import { canInterceptProjectile, triggerApsIntercept } from './aps';
 import { audio } from './audio';
 import { BOSS_BASE_DAMAGE } from './tanks';
@@ -308,6 +309,22 @@ const LEOPARD2A7V_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.84, 0.94, -3.72), max: new THREE.Vector3(-0.96, 1.64, -1.55) },
   { part: 'fuel', min: new THREE.Vector3(-1.35, 0.96, -3.96), max: new THREE.Vector3(1.35, 1.64, -3.15) },
 ];
+const K2_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.48, 0.05, -3.52), max: new THREE.Vector3(1.48, 1.56, 3.66) },
+  { part: 'trackL', min: new THREE.Vector3(1.52, 0.03, -3.54), max: new THREE.Vector3(2.12, 1.08, 3.58) },
+  { part: 'trackR', min: new THREE.Vector3(-2.12, 0.03, -3.54), max: new THREE.Vector3(-1.52, 1.08, 3.58) },
+  { part: 'fuel', min: new THREE.Vector3(0.92, 0.92, -3.48), max: new THREE.Vector3(1.7, 1.5, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.7, 0.92, -3.48), max: new THREE.Vector3(-0.92, 1.5, -1.45) },
+  { part: 'fuel', min: new THREE.Vector3(-1.3, 0.94, -3.6), max: new THREE.Vector3(1.3, 1.52, -2.92) },
+];
+const M1A2SEP_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.56, 0.05, -3.76), max: new THREE.Vector3(1.56, 1.7, 3.82) },
+  { part: 'trackL', min: new THREE.Vector3(1.58, 0.03, -3.82), max: new THREE.Vector3(2.24, 1.12, 3.84) },
+  { part: 'trackR', min: new THREE.Vector3(-2.24, 0.03, -3.82), max: new THREE.Vector3(-1.58, 1.12, 3.84) },
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.94, -3.76), max: new THREE.Vector3(1.78, 1.62, -1.52) },
+  { part: 'fuel', min: new THREE.Vector3(-1.78, 0.94, -3.76), max: new THREE.Vector3(-0.96, 1.62, -1.52) },
+  { part: 'fuel', min: new THREE.Vector3(-1.38, 0.94, -3.84), max: new THREE.Vector3(1.38, 1.62, -3.08) },
+];
 const MAUS_HULL_BOXES: HitBox[] = [
   { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
   { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
@@ -326,7 +343,85 @@ const MERKAVA4_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.
 const CHALLENGER2_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.68, 0.0, -2.75), max: new THREE.Vector3(1.68, 1.18, 1.85) };
 const LECLERC_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 0.98, 1.72) };
 const LEOPARD2A7V_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.66, 0.0, -2.9), max: new THREE.Vector3(1.66, 1.1, 2.38) };
+const K2_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.85), max: new THREE.Vector3(1.58, 0.98, 1.82) };
+const M1A2SEP_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.64, 0.0, -2.92), max: new THREE.Vector3(1.64, 1.14, 1.94) };
 const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
+
+function getHullBoxesForTank(id: string): HitBox[] {
+  switch (id) {
+    case 'maus':
+      return MAUS_HULL_BOXES;
+    case 'm60a3':
+      return M60_HULL_BOXES;
+    case 'leopard2a4':
+      return LEOPARD2A4_HULL_BOXES;
+    case 't72b3':
+      return T72B3_HULL_BOXES;
+    case 't62m':
+      return T62M_HULL_BOXES;
+    case 'm1a1':
+      return M1A1_HULL_BOXES;
+    case 'ztz96a':
+      return ZTZ96A_HULL_BOXES;
+    case 't90m':
+      return T90M_HULL_BOXES;
+    case 'merkava4':
+      return MERKAVA4_HULL_BOXES;
+    case 'challenger2':
+      return CHALLENGER2_HULL_BOXES;
+    case 'leclerc':
+      return LECLERC_HULL_BOXES;
+    case 'leopard2a7v':
+      return LEOPARD2A7V_HULL_BOXES;
+    case 'k2':
+      return K2_HULL_BOXES;
+    case 'm1a2sep':
+      return M1A2SEP_HULL_BOXES;
+    default:
+      return HULL_BOXES;
+  }
+}
+
+function getTurretBoxForTank(id: string): HitBox {
+  switch (id) {
+    case 'maus':
+      return MAUS_TURRET_BOX;
+    case 'm60a3':
+      return M60_TURRET_BOX;
+    case 'leopard2a4':
+      return LEOPARD2A4_TURRET_BOX;
+    case 't72b3':
+      return T72B3_TURRET_BOX;
+    case 't62m':
+      return T62M_TURRET_BOX;
+    case 'm1a1':
+      return M1A1_TURRET_BOX;
+    case 'ztz96a':
+      return ZTZ96A_TURRET_BOX;
+    case 't90m':
+      return T90M_TURRET_BOX;
+    case 'merkava4':
+      return MERKAVA4_TURRET_BOX;
+    case 'challenger2':
+      return CHALLENGER2_TURRET_BOX;
+    case 'leclerc':
+      return LECLERC_TURRET_BOX;
+    case 'leopard2a7v':
+      return LEOPARD2A7V_TURRET_BOX;
+    case 'k2':
+      return K2_TURRET_BOX;
+    case 'm1a2sep':
+      return M1A2SEP_TURRET_BOX;
+    default:
+      return TURRET_BOX;
+  }
+}
+
+export function getFuelBoxesForTank(id: string): Array<{ min: THREE.Vector3; max: THREE.Vector3 }> {
+  return getHullBoxesForTank(id)
+    .filter((b) => b.part === 'fuel')
+    .map((b) => ({ min: b.min, max: b.max }));
+}
 // Gun-pivot-space hitbox (elevates & rotates with barrel! Expanded around barrel & muzzle)
 const BARREL_BOX: HitBox = {
   part: 'barrel',
@@ -452,6 +547,16 @@ interface Projectile {
     ignoreAps?: boolean;
   };
   owner: Tank | null;
+  kstam?: {
+    target: Tank | null;
+    startPos: THREE.Vector3;
+    targetPoint: THREE.Vector3;
+    elapsed: number;
+    duration: number;
+    apexHeight: number;
+    splashRadius: number;
+    maxSplashDmg: number;
+  };
 }
 
 interface ShockwaveRing {
@@ -632,57 +737,8 @@ export class BallisticsSystem {
       const ig = this._invGun.get(t);
       if (!inv || !it || !ig) continue;
 
-      const isMaus = t.spec.id === 'maus';
-      const hullBoxes = isMaus
-        ? MAUS_HULL_BOXES
-        : t.spec.id === 'm60a3'
-          ? M60_HULL_BOXES
-          : t.spec.id === 'leopard2a4'
-            ? LEOPARD2A4_HULL_BOXES
-            : t.spec.id === 't72b3'
-              ? T72B3_HULL_BOXES
-              : t.spec.id === 't62m'
-                ? T62M_HULL_BOXES
-                : t.spec.id === 'm1a1'
-                  ? M1A1_HULL_BOXES
-                  : t.spec.id === 'ztz96a'
-                    ? ZTZ96A_HULL_BOXES
-                    : t.spec.id === 't90m'
-                      ? T90M_HULL_BOXES
-                      : t.spec.id === 'merkava4'
-                        ? MERKAVA4_HULL_BOXES
-                        : t.spec.id === 'challenger2'
-                          ? CHALLENGER2_HULL_BOXES
-                          : t.spec.id === 'leclerc'
-                            ? LECLERC_HULL_BOXES
-                            : t.spec.id === 'leopard2a7v'
-                              ? LEOPARD2A7V_HULL_BOXES
-                              : HULL_BOXES;
-      const turretBox = isMaus
-        ? MAUS_TURRET_BOX
-        : t.spec.id === 'm60a3'
-          ? M60_TURRET_BOX
-          : t.spec.id === 'leopard2a4'
-            ? LEOPARD2A4_TURRET_BOX
-            : t.spec.id === 't72b3'
-              ? T72B3_TURRET_BOX
-              : t.spec.id === 't62m'
-                ? T62M_TURRET_BOX
-                : t.spec.id === 'm1a1'
-                  ? M1A1_TURRET_BOX
-                  : t.spec.id === 'ztz96a'
-                    ? ZTZ96A_TURRET_BOX
-                    : t.spec.id === 't90m'
-                      ? T90M_TURRET_BOX
-                      : t.spec.id === 'merkava4'
-                        ? MERKAVA4_TURRET_BOX
-                        : t.spec.id === 'challenger2'
-                          ? CHALLENGER2_TURRET_BOX
-                          : t.spec.id === 'leclerc'
-                            ? LECLERC_TURRET_BOX
-                            : t.spec.id === 'leopard2a7v'
-                              ? LEOPARD2A7V_TURRET_BOX
-                              : TURRET_BOX;
+      const hullBoxes = getHullBoxesForTank(t.spec.id);
+      const turretBox = getTurretBoxForTank(t.spec.id);
 
       _la.copy(a).applyMatrix4(inv);
       _lb.copy(b).applyMatrix4(inv);
@@ -1096,6 +1152,203 @@ export class BallisticsSystem {
     }
   }
 
+  fireKstam({
+    pos,
+    dir,
+    target,
+    targetPoint,
+    splashRadius = 10,
+    damage = 500,
+    owner = null,
+  }: {
+    pos: THREE.Vector3;
+    dir: THREE.Vector3;
+    target: Tank | null;
+    targetPoint: THREE.Vector3;
+    splashRadius?: number;
+    damage?: number;
+    owner?: Tank | null;
+  }): void {
+    const dest = target && target.alive
+      ? new THREE.Vector3(target.root.position.x, target.root.position.y + 1.15, target.root.position.z)
+      : targetPoint.clone();
+    const dist = Math.max(18, pos.distanceTo(dest));
+    const duration = Math.max(1.25, Math.min(3.1, dist / 95));
+    const apexHeight = Math.max(26, Math.min(54, 20 + dist * 0.16));
+
+    const group = new THREE.Group();
+    const streak = new THREE.Mesh(this.streakGeo, this.streakMat);
+    streak.scale.set(1.25, 1.25, 11.5);
+    const core = new THREE.Mesh(this.coreGeo, this.coreMat);
+    core.scale.setScalar(1.3);
+    group.add(streak, core);
+
+    const tp = new Float32Array(TRAIL_N * 3);
+    const tc = new Float32Array(TRAIL_N * 3);
+    for (let i = 0; i < TRAIL_N; i++) {
+      const f = Math.pow(1 - i / (TRAIL_N - 1), 1.4) * 1.4;
+      tc[i * 3] = f * 0.45;
+      tc[i * 3 + 1] = f * 1.0;
+      tc[i * 3 + 2] = f * 0.55;
+      tp[i * 3] = pos.x;
+      tp[i * 3 + 1] = pos.y;
+      tp[i * 3 + 2] = pos.z;
+    }
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(tp, 3).setUsage(THREE.DynamicDrawUsage));
+    tg.setAttribute('color', new THREE.BufferAttribute(tc, 3));
+    const trail = new THREE.Line(
+      tg,
+      new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false }),
+    );
+    trail.frustumCulled = false;
+    group.position.copy(pos);
+    this.scene.add(group, trail);
+
+    const launchDir = this._v.copy(dir).normalize();
+    launchDir.y = Math.max(0.55, launchDir.y + 0.55);
+    launchDir.normalize();
+
+    this.projectiles.push({
+      pos: pos.clone(),
+      prev: pos.clone(),
+      vel: launchDir.clone().multiplyScalar(110),
+      age: 0,
+      dist: 0,
+      acc: 0,
+      group,
+      trail,
+      trailPos: tp,
+      shell: {
+        type: 'KSTAM',
+        caliber: 0.12,
+        muzzleVelocity: 120,
+        penetrationMm: 9999,
+        maxRange: 2500,
+        gunDamage: damage,
+        ignoreArmor: true,
+        fixedDamage: damage,
+        ignoreAps: true,
+      },
+      owner,
+      kstam: {
+        target,
+        startPos: pos.clone(),
+        targetPoint: dest,
+        elapsed: 0,
+        duration,
+        apexHeight,
+        splashRadius,
+        maxSplashDmg: Math.round(damage * 0.56),
+      },
+    });
+
+    this._muzzleFlash(pos, launchDir);
+    audio.play('cannon', pos, 0.85, !!(owner && owner.isPlayer));
+    audio.play('kstamLaunch', pos, 1.0, !!(owner && owner.isPlayer));
+  }
+
+  private _detonateKstam(p: Projectile, pt: THREE.Vector3, directHitTank: Tank | null): void {
+    const fx = this.fx;
+    const owner = p.owner;
+    const k = p.kstam!;
+    this._spawnShockwave(pt);
+    fx.emit({ additive: true, x: pt.x, y: pt.y + 0.6, z: pt.z, life: 0.55, s0: 6.5, s1: 22, r: 1, g: 0.72, b: 0.25, a: 1 });
+    for (let i = 0; i < 24; i++) {
+      fx.emit({
+        additive: true,
+        x: pt.x,
+        y: pt.y + 0.5,
+        z: pt.z,
+        vx: rnd(-18, 18),
+        vy: rnd(3, 22),
+        vz: rnd(-18, 18),
+        life: rnd(0.45, 1.05),
+        s0: 2.2,
+        s1: 0.6,
+        r: 1,
+        g: rnd(0.45, 0.85),
+        b: 0.15,
+        a: 1,
+        drag: 1.4,
+        grav: -14,
+      });
+    }
+    for (let i = 0; i < 12; i++) {
+      fx.emit({
+        x: pt.x + rnd(-1.5, 1.5),
+        y: pt.y + 0.8,
+        z: pt.z + rnd(-1.5, 1.5),
+        vx: rnd(-6, 6),
+        vy: rnd(2, 9),
+        vz: rnd(-6, 6),
+        life: rnd(1.8, 3.2),
+        s0: 3.0,
+        s1: 9.0,
+        r: 0.28,
+        g: 0.26,
+        b: 0.23,
+        a: 0.75,
+        drag: 1.1,
+        grav: 0.5,
+      });
+    }
+    audio.play('kstamHit', pt, 1.15, !!(owner && owner.isPlayer));
+    this.light.position.set(pt.x, pt.y + 2.5, pt.z);
+    this.lightT = 1.8;
+
+    // Enemy-only AoE splash (allied tanks strictly receive 0 damage)
+    for (const t of this.targets) {
+      if (!t.alive || t === directHitTank) continue;
+      const isAllyOrSelf = t === owner || !!(owner && t.team === owner.team);
+      if (isAllyOrSelf) continue;
+      const dist = t.root.position.distanceTo(pt);
+      if (dist > k.splashRadius) continue;
+      // If detonation landed right next to target without hitbox collision, give top-attack damage when <= 2.4m, else splash
+      const dmg =
+        dist <= 2.4 && !directHitTank
+          ? (p.shell.fixedDamage ?? 500)
+          : computeKstamSplashDamage(dist, k.splashRadius, k.maxSplashDmg, isAllyOrSelf);
+      if (dmg <= 0 || t.god) continue;
+      t.hp -= dmg;
+      let destroyed = false;
+      if (t.hp <= 0 && t.alive) {
+        destroyed = true;
+        t.destroy(true);
+        audio.play('bigexplosion', t.root.position);
+      }
+      if (owner && owner.isPlayer) audio.ui('tick');
+      const lp = new THREE.Vector3(0, 1.5, 0);
+      const ld = new THREE.Vector3(0, -1, 0);
+      for (const fn of this.tankListeners) {
+        fn({
+          target: t,
+          owner,
+          result: 'crit',
+          damage: dmg,
+          destroyed,
+          isMg: false,
+          point: pt.clone(),
+          zone: 'turret',
+          part: 'turret',
+          side: 'L',
+          lp,
+          ld,
+          detail: {
+            result: 'crit',
+            damage: dmg,
+            base: 25,
+            effective: 25,
+            pen: 9999,
+            angleDeg: 0,
+            side: 'L',
+            zone: 'turret',
+          },
+        });
+      }
+    }
+  }
+
   private _mgMuzzleFlash(p: THREE.Vector3, d: THREE.Vector3): void {
     const fx = this.fx;
     fx.emit({ additive: true, x: p.x, y: p.y, z: p.z, life: 0.045, s0: 1.05, s1: 0.35, r: 1, g: 0.9, b: 0.55, a: 0.95 });
@@ -1380,6 +1633,73 @@ export class BallisticsSystem {
 
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
+      if (p.kstam) {
+        const k = p.kstam;
+        p.prev.copy(p.pos);
+        k.elapsed += dt;
+        p.age += dt;
+        if (k.target && k.target.alive) {
+          k.targetPoint.set(
+            k.target.root.position.x,
+            k.target.root.position.y + 1.15,
+            k.target.root.position.z,
+          );
+        }
+        const u = Math.min(1, k.elapsed / k.duration);
+        const nx = k.startPos.x + (k.targetPoint.x - k.startPos.x) * u;
+        const nz = k.startPos.z + (k.targetPoint.z - k.startPos.z) * u;
+        const baseY = k.startPos.y + (k.targetPoint.y - k.startPos.y) * (u * u);
+        const ny = baseY + Math.sin(Math.pow(u, 0.72) * Math.PI) * k.apexHeight;
+        p.pos.set(nx, ny, nz);
+        p.vel.subVectors(p.pos, p.prev).multiplyScalar(1 / Math.max(1e-4, dt));
+
+        // Emit subtle loft exhaust smoke trail
+        this.fx.emit({
+          x: p.pos.x,
+          y: p.pos.y,
+          z: p.pos.z,
+          life: 0.45,
+          s0: 0.45,
+          s1: 1.5,
+          r: 0.85,
+          g: 0.92,
+          b: 0.82,
+          a: 0.35,
+          drag: 1.8,
+        });
+
+        const th = this._targetHit(p, p.prev, p.pos);
+        if (th && th.kind === 'tank') {
+          this._tankImpact(p, th);
+          this._detonateKstam(p, th.point, th.tank);
+          this._remove(i);
+          continue;
+        }
+        if (u > 0.55) {
+          const wh = this.world.segmentHit(p.prev, p.pos);
+          if (wh) {
+            this._detonateKstam(p, wh.point, null);
+            this._remove(i);
+            continue;
+          }
+        }
+        if (u >= 1) {
+          this._detonateKstam(p, k.targetPoint, null);
+          this._remove(i);
+          continue;
+        }
+        p.group.position.copy(p.pos);
+        p.group.lookAt(p.pos.x + p.vel.x, p.pos.y + p.vel.y, p.pos.z + p.vel.z);
+        p.group.children[0].scale.z = 11.5;
+        const tp = p.trailPos;
+        tp.copyWithin(3, 0, (TRAIL_N - 1) * 3);
+        tp[0] = p.pos.x;
+        tp[1] = p.pos.y;
+        tp[2] = p.pos.z;
+        p.trail.geometry.attributes.position.needsUpdate = true;
+        continue;
+      }
+
       let hit: ReturnType<BallisticsSystem['_targetHit']> | ReturnType<GameWorld['segmentHit']> | null = null;
       let expiredByRange = false;
       let apsIntercepted = false;

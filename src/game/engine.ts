@@ -38,6 +38,15 @@ import {
   type SmokeCloud,
 } from './abilities';
 import { createHangarShowcase } from './hangarStage';
+import { createMenuShowcase } from './menuStage';
+import {
+  applyMenuOrbitDrag,
+  applyMenuOrbitZoom,
+  createMenuOrbitState,
+  resolveMenuCameraPose,
+  stepMenuOrbitState,
+  type ResolvedOrbitCameraPose,
+} from './menuOrbit';
 import { recordPlayerDeath, recordPlayerHit, recordPlayerKill, recordPlayerShot } from './playerSkill';
 import { recordMatchHistory } from './matchHistory';
 import { applyDocumentLanguage, getLanguage, getMapText, getModeText, t } from './i18n';
@@ -130,12 +139,28 @@ export function initGame(mountEl: HTMLElement): () => void {
     specId: getSelectedTankId(),
   });
   previewTank.setDetailLevel('high', !isSoftwareGl);
+
+  const menuShowcase = createMenuShowcase(renderer, isSoftwareGl);
+  const menuTank = new Tank(menuShowcase.scene, menuShowcase.world, {
+    x: 0,
+    z: 0,
+    heading: 0.22,
+    specId: getSelectedTankId(),
+  });
+  menuTank.setDetailLevel('high', !isSoftwareGl);
+  menuTank.turretYaw = 0.28;
+  menuTank.root.updateMatrixWorld(true);
+
   const vis = new VisibilityController();
 
   function updateTankVisibilityAndLod() {
     vis.updateFromCamera(camera);
     if (hangarOpen) {
       previewTank.setDetailLevel('high', !isSoftwareGl);
+      return;
+    }
+    if (state === 'menu') {
+      menuTank.setDetailLevel('high', !isSoftwareGl);
       return;
     }
     const playerInSniper = state === 'play' && !spectating && mode === 'sniper';
@@ -380,6 +405,16 @@ export function initGame(mountEl: HTMLElement): () => void {
   let msgT = 0;
   let lastSkyMsgTime = -10;
   let menuAngle = 0;
+  let menuTime = 0;
+  const menuOrbit = createMenuOrbitState(0.58, 0.22, 11.4);
+  const menuCamPose: ResolvedOrbitCameraPose = resolveMenuCameraPose(
+    menuOrbit,
+    menuShowcase.heightAt,
+    menuShowcase.cameraColliders,
+  );
+  let menuOrbitPointerId: number | null = null;
+  let menuOrbitLastX = 0;
+  let menuOrbitLastY = 0;
   let consoleOpen = false;
   const keys: Record<string, boolean> = Object.create(null);
   const cam = { yaw: 0, pitch: 0.2 };
@@ -408,6 +443,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       composer.setSize(innerWidth, innerHeight);
     }
     sun.castShadow = !isSoftwareGl && settings.shadows !== 'off';
+    menuShowcase.world.sun.castShadow = !isSoftwareGl && settings.shadows !== 'off';
+    hangarShowcase.world.sun.castShadow = !isSoftwareGl && settings.shadows !== 'off';
     const ms = settings.shadows === 'high' ? 2048 : 1024;
     if (!isSoftwareGl && sun.shadow.mapSize.x !== ms) {
       sun.shadow.mapSize.set(ms, ms);
@@ -473,6 +510,21 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (GFX_KEYS.has(k)) applyGraphics();
   });
 
+  function applyMenuShowcaseLook() {
+    renderer.toneMappingExposure = menuShowcase.world.exposure;
+    if (gradePass) {
+      gradePass.uniforms.sat.value = menuShowcase.world.grade.sat;
+      gradePass.uniforms.tint.value.set(...menuShowcase.world.grade.tint);
+    }
+  }
+
+  function syncMenuTank(tankId: string) {
+    menuTank.reset(0, 0, 0.22, tankId);
+    menuTank.setDetailLevel('high', !isSoftwareGl);
+    menuTank.turretYaw = 0.28 + Math.sin(menuTime * 0.42) * 0.14;
+    menuTank.root.updateMatrixWorld(true);
+  }
+
   function applyMapLook() {
     world.createEnvironment(renderer);
     (scene.background as THREE.Color).setHex(world.background);
@@ -505,7 +557,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       boss.tank.world = world;
     }
     old.dispose();
-    applyMapLook();
+    if (state !== 'menu' || hangarOpen) applyMapLook();
+    else applyMenuShowcaseLook();
     applyGraphics();
     smokeClouds.length = 0;
     clearGalixGrenades();
@@ -801,6 +854,9 @@ export function initGame(mountEl: HTMLElement): () => void {
   function startPlay(fresh: boolean) {
     audio.init();
     audio.resume();
+    menuOrbit.dragging = false;
+    menuOrbitPointerId = null;
+    document.body.style.cursor = '';
     if (fresh || !battleStarted || matchEnded) newBattle();
     state = 'play';
     hangarOpen = false;
@@ -809,6 +865,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     ui.show(null);
     syncBattleMusic();
     resizeScope();
+    applyMapLook();
     applyGraphics();
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
     if (engineReady) {
@@ -888,7 +945,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       mode = 'third';
       fovCur = settings.fov;
       menuAngle = 0;
-      camera.fov = 50;
+      camera.fov = 48;
       camera.updateProjectionMatrix();
     }
     if (!getModeDef(currentModeId).allowCheats) enforceCheatsOff();
@@ -898,6 +955,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     document.body.dataset.state = 'title';
     mouseDown = false;
     fireQueued = false;
+    menuOrbit.dragging = false;
+    menuOrbitPointerId = null;
+    document.body.style.cursor = '';
     kstamHolding = false;
     kstamLockProg = 0;
     kstamLockTarget = null;
@@ -910,6 +970,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     audio.engineSilence();
     audio.music('menu');
     tank.root.visible = true;
+    syncMenuTank(getSelectedTankId());
+    applyMenuShowcaseLook();
     ui.show('main');
   }
 
@@ -945,6 +1007,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       previewTank.setDetailLevel('high', !isSoftwareGl);
       previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
       previewTank.root.updateMatrixWorld(true);
+      syncMenuTank(tankId);
       if (!battleStarted) {
         tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, tankId);
         tank.name = t('sbPlayerSelf', { name: tank.spec.name });
@@ -966,6 +1029,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     },
     onHangarToggle: (open: boolean) => {
       hangarOpen = open;
+      menuOrbit.dragging = false;
+      menuOrbitPointerId = null;
+      document.body.style.cursor = '';
       if (open) {
         menuAngle = 0.52;
         previewTank.reset(0, 0, 0, getSelectedTankId());
@@ -983,17 +1049,18 @@ export function initGame(mountEl: HTMLElement): () => void {
           render();
         }
       } else {
-        applyMapLook();
+        syncMenuTank(getSelectedTankId());
         if (!battleStarted) {
           tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
           tank.name = t('sbPlayerSelf', { name: tank.spec.name });
         }
         if (engineReady && state === 'menu') {
-          camera.fov = 50;
+          applyMenuShowcaseLook();
+          camera.fov = 48;
           menuCamera(0);
-          updateTankVisibilityAndLod();
-          world.update(camera.position, tank.root.position, 0, vis);
           render();
+        } else {
+          applyMapLook();
         }
       }
     },
@@ -1230,6 +1297,18 @@ export function initGame(mountEl: HTMLElement): () => void {
       else if (state === 'menu' && hangarOpen) ui.show('main');
       return;
     }
+    if (
+      state === 'menu' &&
+      !hangarOpen &&
+      ui.currentScreen === 'main' &&
+      !e.repeat &&
+      (e.code === 'Enter' || e.code === 'Space') &&
+      !(document.activeElement instanceof HTMLButtonElement)
+    ) {
+      e.preventDefault();
+      startPlay(false);
+      return;
+    }
     if (state !== 'play') return;
     if (!locked && !fallback) tryLock();
     keys[e.code] = true;
@@ -1258,6 +1337,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     for (const k in keys) keys[k] = false;
     mouseDown = false;
     fireQueued = false;
+    menuOrbit.dragging = false;
+    menuOrbitPointerId = null;
+    document.body.style.cursor = '';
     releaseKstamLock();
     setScoreboardOpen(false);
   };
@@ -1306,8 +1388,43 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (e.button === 0) mouseDown = false;
     else if (e.button === 2) releaseKstamLock();
   };
+  const isMenuOrbitAllowed = () => state === 'menu' && !hangarOpen && ui.currentScreen === 'main' && !consoleOpen;
+  const onMenuPointerDown = (e: PointerEvent) => {
+    if (!isMenuOrbitAllowed()) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target instanceof Element && e.target.closest('button, input, select, a, .panel, #console')) return;
+    menuOrbit.dragging = true;
+    menuOrbitPointerId = e.pointerId;
+    menuOrbitLastX = e.clientX;
+    menuOrbitLastY = e.clientY;
+    document.body.style.cursor = 'grabbing';
+  };
+  const onMenuPointerMove = (e: PointerEvent) => {
+    if (!menuOrbit.dragging || e.pointerId !== menuOrbitPointerId) return;
+    if (!isMenuOrbitAllowed()) {
+      menuOrbit.dragging = false;
+      menuOrbitPointerId = null;
+      document.body.style.cursor = '';
+      return;
+    }
+    const dx = e.clientX - menuOrbitLastX;
+    const dy = e.clientY - menuOrbitLastY;
+    menuOrbitLastX = e.clientX;
+    menuOrbitLastY = e.clientY;
+    applyMenuOrbitDrag(menuOrbit, dx, dy);
+  };
+  const onMenuPointerUp = (e: PointerEvent) => {
+    if (e.pointerId !== menuOrbitPointerId) return;
+    menuOrbit.dragging = false;
+    menuOrbitPointerId = null;
+    document.body.style.cursor = '';
+  };
   const onContextMenu = (e: MouseEvent) => e.preventDefault();
   const onWheel = (e: WheelEvent) => {
+    if (isMenuOrbitAllowed()) {
+      applyMenuOrbitZoom(menuOrbit, e.deltaY);
+      return;
+    }
     if (state !== 'play' || consoleOpen) return;
     const dir = Math.sign(e.deltaY);
     if (mode === 'third') camDist = clamp(camDist * (dir > 0 ? 1.1 : 0.9), 7, 32);
@@ -1323,6 +1440,10 @@ export function initGame(mountEl: HTMLElement): () => void {
   addEventListener('mousemove', onMouseMove);
   addEventListener('mousedown', onMouseDown);
   addEventListener('mouseup', onMouseUp);
+  addEventListener('pointerdown', onMenuPointerDown);
+  addEventListener('pointermove', onMenuPointerMove);
+  addEventListener('pointerup', onMenuPointerUp);
+  addEventListener('pointercancel', onMenuPointerUp);
   addEventListener('contextmenu', onContextMenu);
   addEventListener('wheel', onWheel, { passive: true });
 
@@ -1511,25 +1632,30 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function menuCamera(dt: number) {
-    menuAngle += dt * (hangarOpen ? 0.24 : 0.12);
-    const focusTank = hangarOpen ? previewTank : tank;
-    const p = focusTank.root.position;
-    const dist = hangarOpen ? 11.2 : 17;
-    const height = hangarOpen ? 2.35 + Math.sin(menuAngle * 0.5) * 0.28 : 5.5 + Math.sin(menuAngle * 0.7) * 1.2;
-    const targetFov = hangarOpen ? 52 : 50;
-    camera.fov += (targetFov - camera.fov) * 0.1;
-    camera.updateProjectionMatrix();
-    let cx = p.x + Math.sin(menuAngle) * dist;
-    let cy = p.y + height;
-    let cz = p.z + Math.cos(menuAngle) * dist;
     if (hangarOpen) {
-      cx = clamp(cx, -13.4, 13.4);
-      cy = clamp(cy, 1.5, 7.2);
-      cz = clamp(cz, -17.0, 17.0);
+      menuAngle += dt * 0.24;
+      const p = previewTank.root.position;
+      const dist = 11.2;
+      const height = 2.35 + Math.sin(menuAngle * 0.5) * 0.28;
+      camera.fov += (52 - camera.fov) * 0.1;
+      camera.updateProjectionMatrix();
+      const cx = clamp(p.x + Math.sin(menuAngle) * dist, -13.4, 13.4);
+      const cy = clamp(p.y + height, 1.5, 7.2);
+      const cz = clamp(p.z + Math.cos(menuAngle) * dist, -17.0, 17.0);
+      camera.position.set(cx, cy, cz);
+      camera.lookAt(p.x, p.y + 2.0, p.z);
+      previewTank.root.visible = true;
+      return;
     }
-    camera.position.set(cx, cy, cz);
-    camera.lookAt(p.x, p.y + (hangarOpen ? 2.0 : 2.2), p.z);
-    focusTank.root.visible = true;
+
+    stepMenuOrbitState(menuOrbit, dt, !isSoftwareGl);
+    resolveMenuCameraPose(menuOrbit, menuShowcase.heightAt, menuShowcase.cameraColliders, undefined, menuCamPose);
+    const targetFov = camera.aspect < 0.85 ? 58 : 48;
+    camera.fov += (targetFov - camera.fov) * (isSoftwareGl ? 1 : 0.12);
+    camera.updateProjectionMatrix();
+    camera.position.set(menuCamPose.x, menuCamPose.y, menuCamPose.z);
+    camera.lookAt(menuCamPose.targetX, menuCamPose.targetY, menuCamPose.targetZ);
+    menuTank.root.visible = true;
   }
 
   const scopeCv = $<HTMLCanvasElement>('scope');
@@ -2912,14 +3038,20 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   const clock = new THREE.Clock();
   function render() {
-    const activeScene = hangarOpen ? hangarShowcase.scene : scene;
+    const activeScene = hangarOpen ? hangarShowcase.scene : state === 'menu' ? menuShowcase.scene : scene;
     if (renderPass) renderPass.scene = activeScene;
     if (composer && settings.post && !isSoftwareGl) composer.render();
     else renderer.render(activeScene, camera);
   }
 
-  applyMapLook();
   applyGraphics();
+  if (state === 'menu' && !hangarOpen) {
+    applyMenuShowcaseLook();
+    camera.fov = 48;
+    menuCamera(0);
+  } else {
+    applyMapLook();
+  }
   engineReady = true;
 
   if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1') {
@@ -2967,12 +3099,13 @@ export function initGame(mountEl: HTMLElement): () => void {
         menuCamera(dt);
         vis.updateFromCamera(camera);
       } else {
-        if (!battleStarted) {
-          tank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
-        }
+        menuTime += dt;
+        menuTank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
+        menuTank.turretYaw = 0.28 + Math.sin(menuTime * 0.42) * 0.14;
+        menuTank.root.updateMatrixWorld(true);
+        menuShowcase.update(dt, menuTime);
         menuCamera(dt);
-        updateTankVisibilityAndLod();
-        world.update(camera.position, tank.root.position, dt, vis);
+        vis.updateFromCamera(camera);
       }
       ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
       render();
@@ -3450,6 +3583,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     bots,
     THREE,
     scene,
+    menuScene: menuShowcase.scene,
+    menuTank,
+    menuOrbit,
+    menuShowcase,
     camera,
     renderer,
     get world() {
@@ -3481,6 +3618,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     removeEventListener('mousemove', onMouseMove);
     removeEventListener('mousedown', onMouseDown);
     removeEventListener('mouseup', onMouseUp);
+    removeEventListener('pointerdown', onMenuPointerDown);
+    removeEventListener('pointermove', onMenuPointerMove);
+    removeEventListener('pointerup', onMenuPointerUp);
+    removeEventListener('pointercancel', onMenuPointerUp);
     removeEventListener('contextmenu', onContextMenu);
     removeEventListener('wheel', onWheel);
     removeEventListener('resize', onResize);
@@ -3496,6 +3637,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     galixCanisterMat.dispose();
     if (boss) boss.dispose();
     hangarShowcase.dispose();
+    menuShowcase.dispose();
     world.dispose();
     renderer.dispose();
   };

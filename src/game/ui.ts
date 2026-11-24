@@ -209,6 +209,10 @@ export function createUI(h: UIHandlers) {
     // Note: bLang text remains invariant «Язык/Language/Jezik»
     const playEaster = $('playEaster');
     if (playEaster) playEaster.textContent = t('playEaster');
+    const orbitHint = $('menuOrbitHint');
+    if (orbitHint) {
+      orbitHint.textContent = settings.controlMode === 'touch' ? t('menuOrbitHintTouch') : t('menuOrbitHint');
+    }
     const mainTag = document.querySelector('#mainPanel .tag');
     if (mainTag) mainTag.textContent = t('tankBattleTag');
 
@@ -416,11 +420,12 @@ export function createUI(h: UIHandlers) {
     h.onHangarToggle(which === 'hangar');
     if (!which) {
       menu.classList.add('hidden');
-      menu.classList.remove('hangar-mode');
+      menu.classList.remove('hangar-mode', 'main-showcase');
       return;
     }
     menu.classList.remove('hidden');
     menu.classList.toggle('hangar-mode', which === 'hangar');
+    menu.classList.toggle('main-showcase', which === 'main');
     for (const k in panels) panels[k].classList.toggle('hidden', k !== which);
     document.body.dataset.screen = which;
 
@@ -447,6 +452,10 @@ export function createUI(h: UIHandlers) {
         tank: activeTank.name,
       });
 
+      const orbitHint = $('menuOrbitHint');
+      if (orbitHint) {
+        orbitHint.textContent = settings.controlMode === 'touch' ? t('menuOrbitHintTouch') : t('menuOrbitHint');
+      }
       const infoEl = $('menuModeInfo');
       if (infoEl) {
         const extra =

@@ -368,58 +368,70 @@ export default function App() {
           </div>
         </div>
 
-        <div id="mainPanel" className="panel">
-          <h1>IRON &amp; SKY</h1>
-          <div className="tag">ТАНКОВЫЙ БОЙ</div>
-          <div className="btnrow">
-            <div className="play-btn-col">
-              <div className="play-easter" id="playEaster">
-                Кто не одной каточки не сыграл тот пивасик весь пролил!
+        <div id="mainPanel" className="main-hud">
+          <div className="menu-top-bar">
+            <div className="menu-brand">
+              <h1>IRON &amp; SKY</h1>
+              <div className="tag">ТАНКОВЫЙ БОЙ</div>
+            </div>
+            <div className="menu-top-actions">
+              <div className="play-btn-col">
+                <div className="play-easter" id="playEaster">
+                  Кто не одной каточки не сыграл тот пивасик весь пролил!
+                </div>
+                <button type="button" className="btn menu-play-btn" id="bPlay" data-start="true">
+                  ИГРАТЬ
+                </button>
               </div>
-              <button type="button" className="btn" id="bPlay" data-start="true">
-                ИГРАТЬ
+              <button type="button" className="btn dim menu-new-btn" id="bNew" style={{ display: 'none' }}>
+                НОВАЯ БИТВА
               </button>
             </div>
-            <button type="button" className="btn" id="bModes">
-              РЕЖИМЫ
-            </button>
-            <button type="button" className="btn" id="bMaps">
-              КАРТЫ
-            </button>
+            <div className="mapline" id="mapName">
+              Режим: Бой до 100 киллов · Карта: Холмы · Танк: Т-55
+            </div>
           </div>
-          <div className="mapline" id="mapName">
-            Режим: Бой до 100 киллов · Карта: Холмы · Танк: Т-55
+
+          <div className="menu-flanks">
+            <nav className="menu-rail menu-rail-left" aria-label="Бой и техника">
+              <button type="button" className="btn menu-edge-btn primary-edge" id="bHangar">
+                АНГАР
+              </button>
+              <button type="button" className="btn menu-edge-btn" id="bModes">
+                РЕЖИМЫ
+              </button>
+              <button type="button" className="btn menu-edge-btn" id="bMaps">
+                КАРТЫ
+              </button>
+            </nav>
+
+            <nav className="menu-rail menu-rail-right" aria-label="Система и статистика">
+              <button type="button" className="btn dim menu-edge-btn" id="bHistory" data-testid="btn-history">
+                ИСТОРИЯ БОЁВ
+              </button>
+              <button type="button" className="btn dim menu-edge-btn" id="bSet">
+                НАСТРОЙКИ
+              </button>
+              <button type="button" className="btn dim menu-edge-btn" id="bCtl">
+                УПРАВЛЕНИЕ
+              </button>
+              <button type="button" className="btn dim menu-edge-btn" id="bLang" data-testid="btn-lang">
+                Язык/Language/Jezik
+              </button>
+            </nav>
           </div>
-          <button type="button" className="btn dim" id="bNew" style={{ display: 'none' }}>
-            НОВАЯ БИТВА
-          </button>
-          <div className="btnrow">
-            <button type="button" className="btn dim" id="bHangar">
-              АНГАР
-            </button>
-            <button type="button" className="btn dim" id="bSet">
-              НАСТРОЙКИ
-            </button>
-          </div>
-          <div className="btnrow">
-            <button type="button" className="btn dim" id="bHistory" data-testid="btn-history">
-              ИСТОРИЯ БОЁВ
-            </button>
-            <button type="button" className="btn dim" id="bCtl">
-              УПРАВЛЕНИЕ
-            </button>
-          </div>
-          <div className="btnrow">
-            <button type="button" className="btn dim" id="bLang" data-testid="btn-lang">
-              Язык/Language/Jezik
-            </button>
-          </div>
-          <div className="info" id="menuModeInfo">
-            Режим «Бой до 100 киллов»: вы и 3 союзника против 4 ботов на танках Т-55.
-            <br />
-            +50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу. Читы (sv_cheats) отключены.
-            <br />
-            Консоль настроек: ~ · Таблица счёта: TAB · Таран: -20 ХП
+
+          <div className="menu-bottom-bar">
+            <div className="menu-orbit-hint" id="menuOrbitHint">
+              ЛКМ + мышь — вращать камеру · Колёсико — приблизить
+            </div>
+            <div className="info" id="menuModeInfo">
+              Режим «Бой до 100 киллов»: вы и 3 союзника против 4 ботов на танках Т-55.
+              <br />
+              +50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу. Читы (sv_cheats) отключены.
+              <br />
+              Консоль настроек: ~ · Таблица счёта: TAB · Таран: -20 ХП
+            </div>
           </div>
         </div>
 

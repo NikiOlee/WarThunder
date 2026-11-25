@@ -155,6 +155,7 @@ export interface BombardmentWaveConfig {
   playerZ: number;
   playerHeading: number;
   playerSpeed: number;
+  stillSec?: number;
   worldLimit: number;
   heightAt: (x: number, z: number) => number;
   isSpotOpen?: (x: number, z: number) => boolean;
@@ -171,6 +172,21 @@ export function isTankCaughtInBomb(
   tankMargin = TANK_HIT_MARGIN_M,
 ): boolean {
   return Math.hypot(tankX - bombX, tankZ - bombZ) <= bombRadius + tankMargin;
+}
+
+export function hasThreateningBombAt(
+  tankX: number,
+  tankZ: number,
+  strikes: ReadonlyArray<BombStrike>,
+  marginAdjust = -0.35,
+): boolean {
+  for (let i = 0; i < strikes.length; i++) {
+    const s = strikes[i];
+    if (isTankCaughtInBomb(tankX, tankZ, s.x, s.z, s.radius, Math.max(0, TANK_HIT_MARGIN_M + marginAdjust))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function createBombStrike(
@@ -220,27 +236,58 @@ export function pickStrikeCandidate(cfg: BombardmentWaveConfig): { x: number; z:
   const limit = Math.max(40, cfg.worldLimit - 24);
   const fwdX = Math.sin(cfg.playerHeading);
   const fwdZ = Math.cos(cfg.playerHeading);
+  const stillSec = cfg.stillSec ?? 0;
+  const isSlowOrStopped = Math.abs(cfg.playerSpeed) < 1.8;
+  const alreadyThreatened = hasThreateningBombAt(cfg.playerX, cfg.playerZ, cfg.existingStrikes, -0.5);
+
+  // Anti-camping direct strike: if player stands still >= 1.5s (or stops repeatedly without an active threat over them),
+  // drop a clearly telegraphed bomb/rocket overlapping the tank so standing AFK is never safe.
+  if (!alreadyThreatened && (stillSec >= 1.5 || (isSlowOrStopped && rng() < 0.55))) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const ang = rng() * Math.PI * 2;
+      const jit = attempt === 0 ? 1.2 + rng() * 2.0 : rng() * 3.8;
+      const x = Math.max(-limit, Math.min(limit, cfg.playerX + Math.cos(ang) * jit));
+      const z = Math.max(-limit, Math.min(limit, cfg.playerZ + Math.sin(ang) * jit));
+      if (attempt < 5 && cfg.isSpotOpen && !cfg.isSpotOpen(x, z)) continue;
+      let overlapsExact = false;
+      for (let i = 0; i < cfg.existingStrikes.length; i++) {
+        const s = cfg.existingStrikes[i];
+        if (Math.hypot(x - s.x, z - s.z) < 4.5) {
+          overlapsExact = true;
+          break;
+        }
+      }
+      if (overlapsExact) continue;
+      return { x, z, kind: rng() < 0.72 ? 'bomb' : 'rocket' };
+    }
+    return {
+      x: Math.max(-limit, Math.min(limit, cfg.playerX)),
+      z: Math.max(-limit, Math.min(limit, cfg.playerZ)),
+      kind: 'bomb',
+    };
+  }
 
   for (let attempt = 0; attempt < 24; attempt++) {
     const nearRoll = rng();
     let x: number;
     let z: number;
-    if (nearRoll < 0.34) {
-      // Predictive strike slightly ahead along tank travel vector (leave dodge space!)
-      const lead = Math.min(34, Math.max(12, Math.abs(cfg.playerSpeed) * 1.35 + 14 + rng() * 18));
-      const side = (rng() - 0.5) * 28;
+    if (nearRoll < 0.36) {
+      // Predictive strike along or near tank travel path (covering low-speed pockets too)
+      const spd = Math.abs(cfg.playerSpeed);
+      const lead = spd < 2.2 ? (rng() - 0.15) * 14 : Math.min(34, Math.max(6, spd * 1.25 + 6 + rng() * 16));
+      const side = (rng() - 0.5) * 24;
       x = cfg.playerX + fwdX * lead + fwdZ * side;
       z = cfg.playerZ + fwdZ * lead - fwdX * side;
-    } else if (nearRoll < 0.78) {
-      // Tactical zone around player (14m .. 78m)
+    } else if (nearRoll < 0.8) {
+      // Tactical zone around player (4m .. 64m)
       const ang = rng() * Math.PI * 2;
-      const dist = 14 + rng() * (64 - progress * 12);
+      const dist = 4 + rng() * (60 - progress * 12);
       x = cfg.playerX + Math.cos(ang) * dist;
       z = cfg.playerZ + Math.sin(ang) * dist;
     } else {
-      // Ambient city-wide bombing (within ~165m so visible in combat area)
+      // Ambient city-wide bombing (within ~155m so visible in combat area)
       const ang = rng() * Math.PI * 2;
-      const dist = 48 + rng() * 115;
+      const dist = 42 + rng() * 112;
       x = cfg.playerX + Math.cos(ang) * dist;
       z = cfg.playerZ + Math.sin(ang) * dist;
     }

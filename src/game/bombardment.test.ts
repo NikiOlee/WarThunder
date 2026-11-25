@@ -148,3 +148,55 @@ test('pickStrikeCandidate respects world bounds, open spots, and spacing', () =>
   assert.ok(Math.abs(cand.z) <= 456);
   assert.ok(Math.hypot(cand.x - existing[0].x, cand.z - existing[0].z) >= 8.5);
 });
+
+test('Anti-camp targeting drops lethal overlapping strikes when tank stands still or hugs a wall', () => {
+  let seed = 7;
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+
+  // Even if spot-open rejects everything (simulating hugging a building footprint), stillSec >= 1.5 forces a direct strike!
+  const candWall = pickStrikeCandidate({
+    elapsedSec: 12,
+    playerX: 40,
+    playerZ: -120,
+    playerHeading: 0,
+    playerSpeed: 0,
+    stillSec: 2.0,
+    worldLimit: 480,
+    heightAt: () => 0,
+    isSpotOpen: () => false,
+    existingStrikes: [],
+    rng,
+  });
+  assert.ok(candWall !== null);
+  const sWall = createBombStrike(1, candWall.x, 0, candWall.z, candWall.kind, rng);
+  assert.equal(isTankCaughtInBomb(40, -120, sWall.x, sWall.z, sWall.radius), true);
+
+  // Standing completely still for 6 seconds in simulation must result in at least one lethal hit
+  const active: BombStrike[] = [];
+  let hitCount = 0;
+  for (let tick = 0; tick < 60; tick++) {
+    const t = tick * 0.1;
+    if (tick % 10 === 0 && active.length < 4) {
+      const c = pickStrikeCandidate({
+        elapsedSec: t,
+        playerX: 0,
+        playerZ: -240,
+        playerHeading: 0,
+        playerSpeed: 0,
+        stillSec: t,
+        worldLimit: 480,
+        heightAt: () => 0,
+        isSpotOpen: () => true,
+        existingStrikes: active,
+        rng,
+      });
+      if (c) active.push(createBombStrike(tick + 1, c.x, 0, c.z, c.kind, rng));
+    }
+    const evs = stepBombStrikes(active, 0.1, 0, -240, true);
+    for (const ev of evs) if (ev.hitPlayer) hitCount++;
+  }
+  assert.ok(hitCount >= 1, 'Expected stationary AFK tank to be hit by bombardment');
+});

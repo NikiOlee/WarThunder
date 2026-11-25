@@ -383,6 +383,9 @@ export function initGame(mountEl: HTMLElement): () => void {
   const bombStrikes: BombStrike[] = [];
   let nextBombId = 1;
   let bombSpawnAcc = 0;
+  let bombAnchorX = 0;
+  let bombAnchorZ = 0;
+  let bombStillSec = 0;
   let bombersRetreating = false;
   const smokeClouds: SmokeCloud[] = [];
   let smokeEmitAcc = 0;
@@ -807,6 +810,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
     bombStrikes.length = 0;
     bombSpawnAcc = 0;
+    bombAnchorX = tank.root.position.x;
+    bombAnchorZ = tank.root.position.z;
+    bombStillSec = 0;
     bombersRetreating = false;
     if (isFirstRound && isLondonMap(currentMap) && isBombardmentMode(currentModeId)) {
       cutsceneActive = true;
@@ -3561,6 +3567,15 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (isBombardmentMode(activeMode.id) && isLondonWorld(world)) {
       world.updateRaidBombers(tank.root.position, simTime, dt, !matchEnded || bombersRetreating, bombersRetreating);
       if (!matchEnded && tank.alive) {
+        const movedDist = Math.hypot(tank.root.position.x - bombAnchorX, tank.root.position.z - bombAnchorZ);
+        if (movedDist > 6.5) {
+          bombAnchorX = tank.root.position.x;
+          bombAnchorZ = tank.root.position.z;
+          bombStillSec = 0;
+        } else {
+          bombStillSec += dt;
+        }
+
         const totalSec = activeMode.survivalSeconds || BOMBARDMENT_DURATION_SEC;
         const interval = getBombardmentIntervalSec(survivalElapsed, totalSec);
         bombSpawnAcc += dt;
@@ -3575,6 +3590,7 @@ export function initGame(mountEl: HTMLElement): () => void {
               playerZ: tank.root.position.z,
               playerHeading: tank.heading,
               playerSpeed: tank.speed,
+              stillSec: bombStillSec,
               worldLimit: world.limit,
               heightAt: world.heightAt,
               isSpotOpen: world.isSpotOpenForBomb,

@@ -4,199 +4,46 @@ import { addSilver, computeKillReward, getSilver, isTankOwned, purchaseTank, set
 import { evaluateMatchState, evaluateRoundState, getAllModes, getModeDef, sortScoreboardRows } from './modes';
 import { getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
 
-test('T-55 is free (0 silver) and owned by default, while M60A3 Patton costs 1500 silver and unlocks on purchase', () => {
+test('T-55 is free (0 silver) and owned by default, while paid tanks scale strictly from 1500 to 120000 silver', () => {
   const t55 = getTankSpec('t55');
   assert.equal(t55.priceSilver, 0);
   assert.equal(isTankOwned('t55'), true);
 
-  const m60 = getTankSpec('m60a3');
-  assert.equal(m60.priceSilver, 1500);
-  assert.equal(isTankOwned('m60a3'), false);
+  const checkBuy = (id: string, expectedPrice: number) => {
+    const spec = getTankSpec(id);
+    assert.equal(spec.priceSilver, expectedPrice);
+    assert.equal(isTankOwned(id), false);
 
-  setSilver(1000);
-  const failed = purchaseTank('m60a3');
-  assert.equal(failed.ok, false);
-  assert.equal(failed.reason, 'insufficient');
-  assert.equal(getSilver(), 1000);
-  assert.equal(isTankOwned('m60a3'), false);
+    setSilver(expectedPrice - 100);
+    const failed = purchaseTank(id);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.reason, 'insufficient');
+    assert.equal(isTankOwned(id), false);
 
-  addSilver(600); // 1600 silver
-  const bought = purchaseTank('m60a3');
-  assert.equal(bought.ok, true);
-  assert.equal(bought.balance, 100);
-  assert.equal(getSilver(), 100);
-  assert.equal(isTankOwned('m60a3'), true);
+    addSilver(200); // expectedPrice + 100
+    const bought = purchaseTank(id);
+    assert.equal(bought.ok, true);
+    assert.equal(bought.balance, 100);
+    assert.equal(getSilver(), 100);
+    assert.equal(isTankOwned(id), true);
 
-  assert.equal(setSelectedTankId('m60a3'), 'm60a3');
-  assert.equal(getSelectedTankId(), 'm60a3');
+    assert.equal(setSelectedTankId(id), id);
+    assert.equal(getSelectedTankId(), id);
+  };
 
-  const t62m = getTankSpec('t62m');
-  assert.equal(t62m.priceSilver, 2500);
-  assert.equal(isTankOwned('t62m'), false);
-
-  setSilver(2400);
-  const failedT62 = purchaseTank('t62m');
-  assert.equal(failedT62.ok, false);
-  assert.equal(failedT62.reason, 'insufficient');
-  assert.equal(isTankOwned('t62m'), false);
-
-  addSilver(200); // 2600 silver
-  const boughtT62 = purchaseTank('t62m');
-  assert.equal(boughtT62.ok, true);
-  assert.equal(boughtT62.balance, 100);
-  assert.equal(isTankOwned('t62m'), true);
-  assert.equal(setSelectedTankId('t62m'), 't62m');
-  assert.equal(getSelectedTankId(), 't62m');
-
-  const t72b3 = getTankSpec('t72b3');
-  assert.equal(t72b3.priceSilver, 4000);
-  assert.equal(isTankOwned('t72b3'), false);
-
-  setSilver(3900);
-  const failedT72 = purchaseTank('t72b3');
-  assert.equal(failedT72.ok, false);
-  assert.equal(failedT72.reason, 'insufficient');
-  assert.equal(isTankOwned('t72b3'), false);
-
-  addSilver(300); // 4200 silver
-  const boughtT72 = purchaseTank('t72b3');
-  assert.equal(boughtT72.ok, true);
-  assert.equal(boughtT72.balance, 200);
-  assert.equal(isTankOwned('t72b3'), true);
-  assert.equal(setSelectedTankId('t72b3'), 't72b3');
-  assert.equal(getSelectedTankId(), 't72b3');
-
-  const leo = getTankSpec('leopard2a4');
-  assert.equal(leo.priceSilver, 5500);
-  assert.equal(isTankOwned('leopard2a4'), false);
-
-  setSilver(5400);
-  const failedLeo = purchaseTank('leopard2a4');
-  assert.equal(failedLeo.ok, false);
-  assert.equal(failedLeo.reason, 'insufficient');
-  assert.equal(isTankOwned('leopard2a4'), false);
-
-  addSilver(400); // 5800 silver
-  const boughtLeo = purchaseTank('leopard2a4');
-  assert.equal(boughtLeo.ok, true);
-  assert.equal(boughtLeo.balance, 300);
-  assert.equal(isTankOwned('leopard2a4'), true);
-  assert.equal(setSelectedTankId('leopard2a4'), 'leopard2a4');
-  assert.equal(getSelectedTankId(), 'leopard2a4');
-
-  const m1a1 = getTankSpec('m1a1');
-  assert.equal(m1a1.priceSilver, 6800);
-  assert.equal(isTankOwned('m1a1'), false);
-
-  setSilver(6700);
-  const failedAbrams = purchaseTank('m1a1');
-  assert.equal(failedAbrams.ok, false);
-  assert.equal(failedAbrams.reason, 'insufficient');
-  assert.equal(isTankOwned('m1a1'), false);
-
-  addSilver(200); // 6900 silver
-  const boughtAbrams = purchaseTank('m1a1');
-  assert.equal(boughtAbrams.ok, true);
-  assert.equal(boughtAbrams.balance, 100);
-  assert.equal(isTankOwned('m1a1'), true);
-  assert.equal(setSelectedTankId('m1a1'), 'm1a1');
-  assert.equal(getSelectedTankId(), 'm1a1');
-
-  const ztz96a = getTankSpec('ztz96a');
-  assert.equal(ztz96a.priceSilver, 8500);
-  assert.equal(isTankOwned('ztz96a'), false);
-
-  setSilver(8400);
-  const failedZtz = purchaseTank('ztz96a');
-  assert.equal(failedZtz.ok, false);
-  assert.equal(failedZtz.reason, 'insufficient');
-  assert.equal(isTankOwned('ztz96a'), false);
-
-  addSilver(200); // 8600 silver
-  const boughtZtz = purchaseTank('ztz96a');
-  assert.equal(boughtZtz.ok, true);
-  assert.equal(boughtZtz.balance, 100);
-  assert.equal(isTankOwned('ztz96a'), true);
-  assert.equal(setSelectedTankId('ztz96a'), 'ztz96a');
-  assert.equal(getSelectedTankId(), 'ztz96a');
-
-  const t90m = getTankSpec('t90m');
-  assert.equal(t90m.priceSilver, 10500);
-  assert.equal(isTankOwned('t90m'), false);
-
-  setSilver(10400);
-  const failedT90 = purchaseTank('t90m');
-  assert.equal(failedT90.ok, false);
-  assert.equal(failedT90.reason, 'insufficient');
-  assert.equal(isTankOwned('t90m'), false);
-
-  addSilver(200); // 10600 silver
-  const boughtT90 = purchaseTank('t90m');
-  assert.equal(boughtT90.ok, true);
-  assert.equal(boughtT90.balance, 100);
-  assert.equal(isTankOwned('t90m'), true);
-  assert.equal(setSelectedTankId('t90m'), 't90m');
-  assert.equal(getSelectedTankId(), 't90m');
-
-  const merkava4 = getTankSpec('merkava4');
-  assert.equal(merkava4.priceSilver, 12000);
-  assert.equal(isTankOwned('merkava4'), false);
-
-  setSilver(11900);
-  const failedMerkava = purchaseTank('merkava4');
-  assert.equal(failedMerkava.ok, false);
-  assert.equal(failedMerkava.reason, 'insufficient');
-  assert.equal(isTankOwned('merkava4'), false);
-
-  addSilver(200); // 12100 silver
-  const boughtMerkava = purchaseTank('merkava4');
-  assert.equal(boughtMerkava.ok, true);
-  assert.equal(boughtMerkava.balance, 100);
-  assert.equal(isTankOwned('merkava4'), true);
-  assert.equal(setSelectedTankId('merkava4'), 'merkava4');
-  assert.equal(getSelectedTankId(), 'merkava4');
-
-  const challenger2 = getTankSpec('challenger2');
-  assert.equal(challenger2.priceSilver, 13000);
-  assert.equal(isTankOwned('challenger2'), false);
-
-  setSilver(12900);
-  const failedChallenger = purchaseTank('challenger2');
-  assert.equal(failedChallenger.ok, false);
-  assert.equal(failedChallenger.reason, 'insufficient');
-  assert.equal(isTankOwned('challenger2'), false);
-
-  addSilver(200); // 13100 silver
-  const boughtChallenger = purchaseTank('challenger2');
-  assert.equal(boughtChallenger.ok, true);
-  assert.equal(boughtChallenger.balance, 100);
-  assert.equal(isTankOwned('challenger2'), true);
-  assert.equal(setSelectedTankId('challenger2'), 'challenger2');
-  assert.equal(getSelectedTankId(), 'challenger2');
-
-  const leclerc = getTankSpec('leclerc');
-  assert.equal(leclerc.priceSilver, 58000);
-  assert.equal(isTankOwned('leclerc'), false);
-  setSilver(57900);
-  assert.equal(purchaseTank('leclerc').ok, false);
-  addSilver(200); // 58100 silver
-  const boughtLeclerc = purchaseTank('leclerc');
-  assert.equal(boughtLeclerc.ok, true);
-  assert.equal(boughtLeclerc.balance, 100);
-  assert.equal(isTankOwned('leclerc'), true);
-
-  const leo7 = getTankSpec('leopard2a7v');
-  assert.equal(leo7.priceSilver, 75000);
-  assert.equal(isTankOwned('leopard2a7v'), false);
-  setSilver(74900);
-  assert.equal(purchaseTank('leopard2a7v').ok, false);
-  addSilver(200); // 75100 silver
-  const boughtLeo7 = purchaseTank('leopard2a7v');
-  assert.equal(boughtLeo7.ok, true);
-  assert.equal(boughtLeo7.balance, 100);
-  assert.equal(isTankOwned('leopard2a7v'), true);
-  assert.equal(setSelectedTankId('leopard2a7v'), 'leopard2a7v');
-  assert.equal(getSelectedTankId(), 'leopard2a7v');
+  checkBuy('m60a3', 1500);
+  checkBuy('t62m', 2300);
+  checkBuy('t72b3', 4500);
+  checkBuy('leopard2a4', 11500);
+  checkBuy('ztz96a', 12300);
+  checkBuy('m1a1', 12500);
+  checkBuy('t90m', 16800);
+  checkBuy('challenger2', 19000);
+  checkBuy('merkava4', 65600);
+  checkBuy('leclerc', 69300);
+  checkBuy('leopard2a7v', 76200);
+  checkBuy('k2', 105900);
+  checkBuy('m1a2sep', 120000);
 
   setSelectedTankId('t55');
   setSilver(0);

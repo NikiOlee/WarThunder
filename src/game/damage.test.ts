@@ -1,10 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getTankSpec, getSelectedTankId, setSelectedTankId, DEFAULT_TANK_ID, getAllTanks, getTankPowerRating } from './tanks';
+import {
+  getTankSpec,
+  getSelectedTankId,
+  setSelectedTankId,
+  DEFAULT_TANK_ID,
+  getAllTanks,
+  getTankPowerRating,
+  computeBalancedPrice,
+  MIN_PAID_TANK_PRICE,
+  MAX_TANK_PRICE,
+} from './tanks';
 import { BARREL_HITBOX_BOUNDS, SKY_EASTER_MSG, isPointInBarrelZone, isShotIntoSky, resolveHit } from './damage';
 import { computeHullGroundPose, stepTurretAngles } from './tank';
 
-test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and match speed, reload, maxRange, price, and gunDamage values', () => {
+test('T-55 through M1A2 SEP (Abrams) specs are sorted cheapest/weakest to most expensive/strongest and match balanced prices', () => {
   const tanks = getAllTanks();
   assert.equal(tanks.length, 14);
   assert.equal(tanks[0].id, 't55');
@@ -17,10 +27,10 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.equal(tanks[3].name, 'Т-72Б3');
   assert.equal(tanks[4].id, 'leopard2a4');
   assert.equal(tanks[4].name, 'Leopard 2A4');
-  assert.equal(tanks[5].id, 'm1a1');
-  assert.equal(tanks[5].name, 'M1A1 Abrams');
-  assert.equal(tanks[6].id, 'ztz96a');
-  assert.equal(tanks[6].name, 'ZTZ-96A');
+  assert.equal(tanks[5].id, 'ztz96a');
+  assert.equal(tanks[5].name, 'ZTZ-96A');
+  assert.equal(tanks[6].id, 'm1a1');
+  assert.equal(tanks[6].name, 'M1A1 Abrams');
   assert.equal(tanks[7].id, 't90m');
   assert.equal(tanks[7].name, 'Т-90М');
   assert.equal(tanks[8].id, 'challenger2');
@@ -36,10 +46,25 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.equal(tanks[13].id, 'm1a2sep');
   assert.equal(tanks[13].name, 'M1A2 SEP (Abrams)');
 
+  assert.equal(tanks[0].priceSilver, 0);
+  assert.equal(tanks[1].priceSilver, MIN_PAID_TANK_PRICE);
+  assert.equal(tanks[tanks.length - 1].priceSilver, MAX_TANK_PRICE);
+
+  const minPaidPower = getTankPowerRating(tanks[1]);
+  const maxPaidPower = getTankPowerRating(tanks[tanks.length - 1]);
   for (let i = 1; i < tanks.length; i++) {
     assert.ok(
-      getTankPowerRating(tanks[i - 1]) <= getTankPowerRating(tanks[i]),
-      `expected ${tanks[i - 1].id} <= ${tanks[i].id} in Hangar strength order`,
+      tanks[i - 1].priceSilver < tanks[i].priceSilver,
+      `expected ${tanks[i - 1].id} (${tanks[i - 1].priceSilver}) < ${tanks[i].id} (${tanks[i].priceSilver}) in Hangar price order`,
+    );
+    assert.ok(
+      getTankPowerRating(tanks[i - 1]) < getTankPowerRating(tanks[i]),
+      `expected ${tanks[i - 1].id} < ${tanks[i].id} in Hangar combat power order`,
+    );
+    assert.equal(
+      tanks[i].priceSilver,
+      computeBalancedPrice(getTankPowerRating(tanks[i]), minPaidPower, maxPaidPower),
+      `${tanks[i].id} price must strictly match balanced combat power formula`,
     );
   }
 
@@ -63,7 +88,7 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.ok(m60.damage.fuel >= m60.maxHp);
 
   const t62m = getTankSpec('t62m');
-  assert.equal(t62m.priceSilver, 2500);
+  assert.equal(t62m.priceSilver, 2300);
   assert.equal(t62m.maxSpeedKmh, 50);
   assert.ok(Math.abs(t62m.maxSpeed * 3.6 - 50) < 0.01);
   assert.equal(t62m.reload, 3.5);
@@ -73,7 +98,7 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.ok(t62m.damage.fuel >= t62m.maxHp);
 
   const t72b3 = getTankSpec('t72b3');
-  assert.equal(t72b3.priceSilver, 4000);
+  assert.equal(t72b3.priceSilver, 4500);
   assert.equal(t72b3.maxSpeedKmh, 60);
   assert.ok(Math.abs(t72b3.maxSpeed * 3.6 - 60) < 0.01);
   assert.equal(t72b3.reload, 3.6);
@@ -82,7 +107,7 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.ok(t72b3.damage.fuel >= t72b3.maxHp);
 
   const leo = getTankSpec('leopard2a4');
-  assert.equal(leo.priceSilver, 5500);
+  assert.equal(leo.priceSilver, 11500);
   assert.equal(leo.maxSpeedKmh, 65);
   assert.ok(Math.abs(leo.maxSpeed * 3.6 - 65) < 0.01);
   assert.equal(leo.reload, 3.0);
@@ -90,18 +115,8 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.equal(leo.gunDamage, 70);
   assert.ok(leo.damage.fuel >= leo.maxHp);
 
-  const m1a1 = getTankSpec('m1a1');
-  assert.equal(m1a1.priceSilver, 6800);
-  assert.equal(m1a1.maxSpeedKmh, 70);
-  assert.ok(Math.abs(m1a1.maxSpeed * 3.6 - 70) < 0.01);
-  assert.equal(m1a1.reload, 2.9);
-  assert.equal(m1a1.maxRange, 680);
-  assert.equal(m1a1.gunDamage, 70);
-  assert.deepEqual(m1a1.frontDamageRange, [25, 35]);
-  assert.ok(m1a1.damage.fuel >= m1a1.maxHp);
-
   const ztz96a = getTankSpec('ztz96a');
-  assert.equal(ztz96a.priceSilver, 8500);
+  assert.equal(ztz96a.priceSilver, 12300);
   assert.equal(ztz96a.maxSpeedKmh, 65);
   assert.ok(Math.abs(ztz96a.maxSpeed * 3.6 - 65) < 0.01);
   assert.equal(ztz96a.reload, 3.5);
@@ -110,8 +125,18 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.deepEqual(ztz96a.frontDamageRange, [25, 30]);
   assert.ok(ztz96a.damage.fuel >= ztz96a.maxHp);
 
+  const m1a1 = getTankSpec('m1a1');
+  assert.equal(m1a1.priceSilver, 12500);
+  assert.equal(m1a1.maxSpeedKmh, 70);
+  assert.ok(Math.abs(m1a1.maxSpeed * 3.6 - 70) < 0.01);
+  assert.equal(m1a1.reload, 2.9);
+  assert.equal(m1a1.maxRange, 680);
+  assert.equal(m1a1.gunDamage, 70);
+  assert.deepEqual(m1a1.frontDamageRange, [25, 35]);
+  assert.ok(m1a1.damage.fuel >= m1a1.maxHp);
+
   const t90m = getTankSpec('t90m');
-  assert.equal(t90m.priceSilver, 10500);
+  assert.equal(t90m.priceSilver, 16800);
   assert.equal(t90m.maxSpeedKmh, 70);
   assert.ok(Math.abs(t90m.maxSpeed * 3.6 - 70) < 0.01);
   assert.equal(t90m.reload, 3.0);
@@ -120,8 +145,19 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.deepEqual(t90m.frontDamageRange, [20, 28]);
   assert.ok(t90m.damage.fuel >= t90m.maxHp);
 
+  const challenger2 = getTankSpec('challenger2');
+  assert.equal(challenger2.priceSilver, 19000);
+  assert.equal(challenger2.maxSpeedKmh, 55);
+  assert.ok(Math.abs(challenger2.maxSpeed * 3.6 - 55) < 0.01);
+  assert.equal(challenger2.reload, 4.0);
+  assert.equal(challenger2.maxRange, 750);
+  assert.equal(challenger2.gunDamage, 90);
+  assert.equal(challenger2.maxHp, 135);
+  assert.deepEqual(challenger2.frontDamageRange, [18, 25]);
+  assert.ok(challenger2.damage.fuel >= challenger2.maxHp);
+
   const merkava4 = getTankSpec('merkava4');
-  assert.equal(merkava4.priceSilver, 12000);
+  assert.equal(merkava4.priceSilver, 65600);
   assert.equal(merkava4.maxSpeedKmh, 85);
   assert.ok(Math.abs(merkava4.maxSpeed * 3.6 - 85) < 0.01);
   assert.equal(merkava4.reload, 2.5);
@@ -135,19 +171,8 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.deepEqual(merkava4.aps, { cooldownMin: 15, cooldownMax: 20, interceptRadius: 6.5 });
   assert.ok(merkava4.damage.fuel >= merkava4.maxHp);
 
-  const challenger2 = getTankSpec('challenger2');
-  assert.equal(challenger2.priceSilver, 13000);
-  assert.equal(challenger2.maxSpeedKmh, 55);
-  assert.ok(Math.abs(challenger2.maxSpeed * 3.6 - 55) < 0.01);
-  assert.equal(challenger2.reload, 4.0);
-  assert.equal(challenger2.maxRange, 750);
-  assert.equal(challenger2.gunDamage, 90);
-  assert.equal(challenger2.maxHp, 135);
-  assert.deepEqual(challenger2.frontDamageRange, [18, 25]);
-  assert.ok(challenger2.damage.fuel >= challenger2.maxHp);
-
   const leclerc = getTankSpec('leclerc');
-  assert.equal(leclerc.priceSilver, 58000);
+  assert.equal(leclerc.priceSilver, 69300);
   assert.equal(leclerc.maxSpeedKmh, 100);
   assert.ok(Math.abs(leclerc.maxSpeed * 3.6 - 100) < 0.01);
   assert.equal(leclerc.reload, 2.5);
@@ -161,7 +186,7 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.ok(leclerc.damage.fuel >= leclerc.maxHp);
 
   const leo7 = getTankSpec('leopard2a7v');
-  assert.equal(leo7.priceSilver, 75000);
+  assert.equal(leo7.priceSilver, 76200);
   assert.equal(leo7.maxSpeedKmh, 85);
   assert.ok(Math.abs(leo7.maxSpeed * 3.6 - 85) < 0.01);
   assert.equal(leo7.reload, 3.2);
@@ -177,7 +202,7 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.ok(leo7.damage.fuel >= leo7.maxHp);
 
   const k2 = getTankSpec('k2');
-  assert.equal(k2.priceSilver, 10000);
+  assert.equal(k2.priceSilver, 105900);
   assert.equal(k2.maxSpeedKmh, 85);
   assert.equal(k2.reload, 2.5);
   assert.equal(k2.gunDamage, 110);
@@ -190,7 +215,7 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted weakest to strongest and m
   assert.ok(k2.damage.fuel >= k2.maxHp);
 
   const m1a2sep = getTankSpec('m1a2sep');
-  assert.equal(m1a2sep.priceSilver, 13060);
+  assert.equal(m1a2sep.priceSilver, 120000);
   assert.equal(m1a2sep.gunDamage, 100);
   assert.equal(m1a2sep.maxRange, 1500);
   assert.equal(m1a2sep.reload, 2.7);

@@ -916,38 +916,138 @@ export const MAUS_SPEC: TankSpec = {
   },
 };
 
-export function getTankPowerRating(spec: TankSpec): number {
-  const effectiveHp =
-    spec.maxHp * (1 + spec.frontDamageReduction * 0.015) +
-    (spec.armor.hullFront + spec.armor.turretFront) * 0.14 +
-    (spec.aps ? 65 : 0);
-  const dpm = spec.gunDamage / Math.max(0.1, spec.reload);
-  const firepower =
-    dpm * 2.1 +
-    spec.gunDamage * 1.05 +
-    spec.penetrationMm * 0.18 +
-    spec.maxRange * 0.05;
-  const mobility =
-    spec.maxSpeedKmh * 0.42 +
-    (spec.stabilized ? 25 : 0) +
-    (spec.adaptiveSuspension ? 18 : 0);
-  const singleAbilityScore = (type?: string) =>
-    type === 'dm63_apfsds'
-      ? 150
-      : type === 'kstam_missile'
-        ? 140
-        : type === 'galix_overdrive'
-          ? 125
-          : type === 'thermal_sight' || type === 'ap_barrage'
-            ? 75
-            : 0;
-  const abilityPower =
-    singleAbilityScore(spec.ability?.type) + singleAbilityScore(spec.secondaryAbility?.type);
-  return effectiveHp + firepower + mobility + abilityPower;
+export const MIN_PAID_TANK_PRICE = 1500;
+export const MAX_TANK_PRICE = 120000;
+export const PRICE_CURVE_EXPONENT = 1.6;
+
+export interface TankPowerBreakdown {
+  survivability: number;
+  firepower: number;
+  mobility: number;
+  abilities: number;
+  total: number;
 }
 
+export function getTankPowerBreakdown(spec: TankSpec): TankPowerBreakdown {
+  // 1. Survivability: hull HP, frontal damage mitigation, composite armor & Trophy APS
+  const avgFrontIn = spec.frontDamageRange
+    ? (spec.frontDamageRange[0] + spec.frontDamageRange[1]) * 0.5
+    : Math.max(15, 60 - spec.frontDamageReduction);
+  const frontMitigationRatio = 65 / Math.max(12, avgFrontIn);
+  const armorRaw =
+    spec.armor.hullFront * 0.45 +
+    spec.armor.turretFront * 0.45 +
+    (spec.armor.hullSide + spec.armor.turretSide) * 0.1;
+  const apsBonus = spec.aps ? 135 : 0;
+  const survivability =
+    spec.maxHp * (0.8 + frontMitigationRatio * 0.42) + armorRaw * 0.35 + apsBonus;
+
+  // 2. Firepower: main gun DPM, alpha damage, penetration, shell velocity, range & MG DPS
+  const dpm = spec.gunDamage / Math.max(0.1, spec.reload);
+  const mgDps = spec.mg.damage * spec.mg.fireRate;
+  const firepower =
+    dpm * 9.5 +
+    spec.gunDamage * 1.4 +
+    spec.penetrationMm * 0.35 +
+    spec.muzzleVelocity * 0.14 +
+    Math.min(spec.maxRange, 1500) * 0.08 +
+    mgDps * 3.2;
+
+  // 3. Mobility & handling: speed, reverse, traverse, boosts, stabilizer & adaptive suspension
+  const mobility =
+    spec.maxSpeedKmh * 1.65 +
+    spec.maxReverse * 3.5 +
+    (spec.traverseRate / DEG) * 1.2 +
+    (spec.accelBoost ? (spec.accelBoost - 1) * 85 : 0) +
+    (spec.pivotBoost ? (spec.pivotBoost - 1) * 45 : 0) +
+    (spec.stabilized ? 55 : 0) +
+    (spec.adaptiveSuspension ? 45 : 0);
+
+  // 4. Active special abilities ([E] & [F])
+  const abilityContribution = (type?: string): number => {
+    switch (type) {
+      case 'dm63_apfsds':
+        return 210;
+      case 'kstam_missile':
+        return 205;
+      case 'galix_overdrive':
+        return 165;
+      case 'ap_barrage':
+        return 135;
+      case 'thermal_sight':
+        return 90;
+      default:
+        return 0;
+    }
+  };
+  const abilities =
+    abilityContribution(spec.ability?.type) + abilityContribution(spec.secondaryAbility?.type);
+
+  const total = Math.round(survivability + firepower + mobility + abilities);
+  return {
+    survivability: Math.round(survivability),
+    firepower: Math.round(firepower),
+    mobility: Math.round(mobility),
+    abilities: Math.round(abilities),
+    total,
+  };
+}
+
+export function getTankPowerRating(spec: TankSpec): number {
+  return getTankPowerBreakdown(spec).total;
+}
+
+export function computeBalancedPrice(
+  powerRating: number,
+  minPaidPower: number,
+  maxPaidPower: number,
+): number {
+  if (powerRating <= minPaidPower) return MIN_PAID_TANK_PRICE;
+  if (powerRating >= maxPaidPower) return MAX_TANK_PRICE;
+  const span = Math.max(1, maxPaidPower - minPaidPower);
+  const norm = Math.max(0, Math.min(1, (powerRating - minPaidPower) / span));
+  const raw =
+    MIN_PAID_TANK_PRICE +
+    (MAX_TANK_PRICE - MIN_PAID_TANK_PRICE) * Math.pow(norm, PRICE_CURVE_EXPONENT);
+  return Math.round(raw / 100) * 100;
+}
+
+function applyBalancedCatalogPrices(catalog: Record<string, TankSpec>): void {
+  const paid = Object.values(catalog)
+    .filter((spec) => spec.id !== DEFAULT_TANK_ID)
+    .sort((a, b) => getTankPowerRating(a) - getTankPowerRating(b));
+
+  if (catalog[DEFAULT_TANK_ID]) {
+    catalog[DEFAULT_TANK_ID].priceSilver = 0;
+  }
+  if (paid.length === 0) return;
+
+  const minPaidPower = getTankPowerRating(paid[0]);
+  const maxPaidPower = getTankPowerRating(paid[paid.length - 1]);
+  let prevPrice = 0;
+
+  for (let i = 0; i < paid.length; i++) {
+    const spec = paid[i];
+    let price =
+      i === 0
+        ? MIN_PAID_TANK_PRICE
+        : i === paid.length - 1
+          ? MAX_TANK_PRICE
+          : computeBalancedPrice(getTankPowerRating(spec), minPaidPower, maxPaidPower);
+    if (price <= prevPrice) {
+      price = prevPrice + 100;
+    }
+    spec.priceSilver = price;
+    prevPrice = price;
+  }
+}
+
+applyBalancedCatalogPrices(TANK_CATALOG);
+
 export function getAllTanks(): TankSpec[] {
-  return Object.values(TANK_CATALOG).sort((a, b) => getTankPowerRating(a) - getTankPowerRating(b));
+  return Object.values(TANK_CATALOG).sort(
+    (a, b) => a.priceSilver - b.priceSilver || getTankPowerRating(a) - getTankPowerRating(b),
+  );
 }
 
 export function getTankSpec(id?: string | null): TankSpec {

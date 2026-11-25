@@ -13,7 +13,7 @@ import {
   type SupportedLanguage,
 } from './settings';
 import { audio } from './audio';
-import { getAllTanks, getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
+import { getAllTanks, getSelectedTankId, getTankPowerRating, getTankSpec, setSelectedTankId } from './tanks';
 import { getSilver, isTankOwned, purchaseTank } from './economy';
 import { getAllModes, getModeDef } from './modes';
 import { computeFrontDamage } from './damage';
@@ -835,6 +835,7 @@ export function createUI(h: UIHandlers) {
       ${ability2Row}
       ${passiveRow}
       <div class="hstat hstat-warn"><span>${t('hstatWeakspot')}</span><b>${t('hstatWeakspotVal')}</b></div>
+      <div class="hstat"><span>${t('hstatPowerRating')}</span><b>${t('unitPowerRating', { score: getTankPowerRating(spec) })}</b></div>
       <div class="hstat"><span>${t('hstatPrice')}</span><b>${priceText}</b></div>
     `;
 

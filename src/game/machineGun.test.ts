@@ -38,11 +38,11 @@ test('tank MG specs deal < 1 HP per shot and scale damage with tank price', () =
   assert.ok(t72b3.mg.damage > t62m.mg.damage, 'T-72B3 must deal higher MG damage than T-62M');
   assert.ok(leo.priceSilver > t72b3.priceSilver);
   assert.ok(leo.mg.damage > t72b3.mg.damage, 'Leopard 2A4 must deal higher MG damage than T-72B3');
-  assert.ok(m1a1.priceSilver > leo.priceSilver);
+  assert.ok(ztz96a.priceSilver > leo.priceSilver);
+  assert.ok(ztz96a.mg.damage > leo.mg.damage, 'ZTZ-96A must deal higher MG damage than Leopard 2A4');
+  assert.ok(m1a1.priceSilver > ztz96a.priceSilver);
   assert.ok(m1a1.mg.damage > leo.mg.damage, 'M1A1 Abrams must deal higher MG damage than Leopard 2A4');
-  assert.ok(ztz96a.priceSilver > m1a1.priceSilver);
-  assert.ok(ztz96a.mg.damage > m1a1.mg.damage, 'ZTZ-96A must deal higher MG damage than M1A1 Abrams');
-  assert.ok(t90m.priceSilver > ztz96a.priceSilver);
+  assert.ok(t90m.priceSilver > m1a1.priceSilver);
   assert.ok(t90m.mg.damage > ztz96a.mg.damage, 'T-90M must deal higher MG damage than ZTZ-96A');
 });
 

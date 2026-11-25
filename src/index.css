@@ -194,7 +194,22 @@ body.menu #scoreboard,
 body.menu #roundBanner,
 body.menu #bossBar,
 body.menu #victoryBanner,
-body.menu #spectatorBar {
+body.menu #spectatorBar,
+body.cutscene-active .hud,
+body.cutscene-active #crosshair,
+body.cutscene-active #gunMark,
+body.cutscene-active #kstamReticle,
+body.cutscene-active #thermalOverlay,
+body.cutscene-active #weakspotHud,
+body.cutscene-active #ability2Badge,
+body.cutscene-active #hitcam,
+body.cutscene-active #scope,
+body.cutscene-active #dead,
+body.cutscene-active #scoreboard,
+body.cutscene-active #roundBanner,
+body.cutscene-active #bossBar,
+body.cutscene-active #victoryBanner,
+body.cutscene-active #spectatorBar {
   display: none !important;
 }
 
@@ -376,6 +391,10 @@ body.menu #spectatorBar {
   font-size: 13px;
   letter-spacing: 3px;
   color: #ffd27a;
+}
+
+body.bombardment-active #modeLabel {
+  top: 72px;
 }
 
 #feed {
@@ -1241,6 +1260,10 @@ select {
   background: linear-gradient(110deg, rgba(40, 41, 42, 0.95), rgba(98, 98, 94, 0.6));
 }
 
+.mapcard.london {
+  background: linear-gradient(110deg, rgba(64, 16, 12, 0.92), rgba(140, 44, 24, 0.72));
+}
+
 .mapcard:hover {
   border-color: #b9b48a;
 }
@@ -1661,6 +1684,90 @@ select {
   color: #ff6a4a;
 }
 
+#modeScore.bombardment-mode {
+  top: 16px;
+  padding: 7px 22px;
+  background: rgba(24, 10, 8, 0.88);
+  border: 2px solid #ff6a4a;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.72);
+  gap: 12px;
+}
+
+#modeScore.bombardment-mode #modeTitleHud {
+  color: #ffb88c;
+  font-size: 13px;
+  letter-spacing: 2.5px;
+  font-weight: bold;
+}
+
+#modeScore.bombardment-mode #modeScoreSurvival .ms-sep,
+#modeScore.bombardment-mode #survivalKillsHud {
+  display: none;
+}
+
+#modeScore.bombardment-mode #survivalTimerHud {
+  font-size: 24px;
+  letter-spacing: 3px;
+  color: #ffd27a;
+}
+
+#modeScore.bombardment-mode #survivalTimerHud.urgent {
+  color: #ff4c2a;
+}
+
+/* ---- London 1940 cinematic cutscene overlay ---- */
+#cutsceneOverlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.68) 0%,
+    rgba(0, 0, 0, 0.08) 18%,
+    rgba(0, 0, 0, 0) 50%,
+    rgba(0, 0, 0, 0.08) 82%,
+    rgba(0, 0, 0, 0.65) 100%
+  );
+}
+
+#cutsceneTopCaption {
+  margin-top: clamp(24px, 5vh, 52px);
+  padding: 10px 30px;
+  font-size: clamp(28px, 4.8vw, 52px);
+  font-weight: bold;
+  letter-spacing: 6px;
+  color: #f4ebd8;
+  text-shadow: 0 3px 16px rgba(0, 0, 0, 0.92), 0 0 28px rgba(0, 0, 0, 0.75);
+  border-bottom: 2px solid rgba(255, 210, 122, 0.65);
+  text-align: center;
+  opacity: 0;
+}
+
+#cutsceneCenterCaption {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(880px, 90vw);
+  padding: 18px 28px;
+  font-size: clamp(26px, 4vw, 46px);
+  font-weight: bold;
+  letter-spacing: 3px;
+  line-height: 1.3;
+  text-align: center;
+  color: #ffe2a8;
+  background: rgba(16, 8, 6, 0.76);
+  border: 2px solid rgba(255, 114, 72, 0.85);
+  box-shadow: 0 8px 36px rgba(0, 0, 0, 0.85);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.95);
+  opacity: 0;
+}
+
 #silverToasts {
   left: 14px;
   top: 96px;
@@ -1926,8 +2033,8 @@ select {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 16px 18px;
-  margin: 10px 0;
+  padding: 12px 16px;
+  margin: 8px 0;
   border: 2px solid #4f5a40;
   background: rgba(24, 30, 19, 0.9);
   color: #d6d3bd;
@@ -1950,23 +2057,51 @@ select {
 .modecard .m-badge {
   position: absolute;
   right: 14px;
-  top: 14px;
-  font-size: 11px;
-  letter-spacing: 3px;
+  top: 13px;
+  font-size: 10.5px;
+  letter-spacing: 2px;
   color: #ffd27a;
 }
 
 .modecard .mname {
-  font-size: 20px;
-  letter-spacing: 3px;
+  font-size: 19px;
+  letter-spacing: 2.5px;
   color: #ffd27a;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
+  padding-right: 195px;
 }
 
 .modecard .mdesc {
   font-size: 12px;
   line-height: 1.55;
   color: #c9c7b0;
+}
+
+.modecard.locked {
+  opacity: 0.44;
+  cursor: not-allowed;
+  border-color: #363c2d;
+  background: rgba(16, 18, 14, 0.78);
+}
+
+.modecard.locked:hover {
+  border-color: #363c2d;
+  background: rgba(16, 18, 14, 0.78);
+}
+
+.modecard.locked .m-badge {
+  color: #ff9a7a;
+}
+
+.mode-lock-note {
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: rgba(74, 22, 16, 0.82);
+  border: 1px solid #d45d42;
+  color: #ffd6c4;
+  font-size: 12px;
+  line-height: 1.45;
+  letter-spacing: 0.6px;
 }
 
 .row.locked {
@@ -2488,6 +2623,19 @@ body.play[data-control="touch"] #modeScore {
   padding: 2px 8px;
   font-size: 10px;
   gap: 5px;
+}
+
+body.play[data-control="touch"].bombardment-active #modeLabel {
+  top: calc(max(6px, env(safe-area-inset-top)) + 44px);
+}
+
+body.play[data-control="touch"] #modeScore.bombardment-mode {
+  top: max(6px, env(safe-area-inset-top));
+  padding: 4px 12px;
+}
+
+body.play[data-control="touch"] #modeScore.bombardment-mode #survivalTimerHud {
+  font-size: 17px;
 }
 
 body.play[data-control="touch"] #bossBar {

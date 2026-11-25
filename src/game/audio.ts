@@ -396,6 +396,47 @@ class AudioSys {
         this._burst(dst, t + 0.03, 1.4, 1.0, 'bandpass', 960, 180, 0.7);
         break;
       }
+      case 'bomberFlyover': {
+        // Heavy twin-engine WWII propeller drone sweeping overhead
+        for (const base of [44, 52.5, 88, 105.6]) {
+          const o = this.ctx!.createOscillator();
+          const lp = this.ctx!.createBiquadFilter();
+          const g = this.ctx!.createGain();
+          o.type = base < 65 ? 'sawtooth' : 'triangle';
+          o.frequency.setValueAtTime(base * 0.92, t);
+          o.frequency.linearRampToValueAtTime(base * 1.12, t + 2.3);
+          o.frequency.linearRampToValueAtTime(base * 0.8, t + 5.8);
+          lp.type = 'lowpass';
+          lp.frequency.setValueAtTime(190, t);
+          lp.frequency.linearRampToValueAtTime(420, t + 2.4);
+          lp.frequency.linearRampToValueAtTime(140, t + 5.8);
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(base < 65 ? 0.22 : 0.14, t + 1.9);
+          g.gain.setValueAtTime(base < 65 ? 0.2 : 0.12, t + 3.4);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 6.0);
+          o.connect(lp);
+          lp.connect(g);
+          g.connect(dst);
+          o.start(t);
+          o.stop(t + 6.1);
+        }
+        this._burst(dst, t + 0.3, 5.2, 0.26, 'bandpass', 240, 130, 0.65);
+        break;
+      }
+      case 'bombWhistle': {
+        // Descending whistling drop of a WWII SC250/SC500 aerial bomb
+        this._tone(dst, 'sine', 1650, 380, t, 1.15, 0.14);
+        this._tone(dst, 'triangle', 1120, 290, t + 0.04, 1.1, 0.06);
+        this._burst(dst, t, 0.9, 0.09, 'bandpass', 1400, 420, 1.2);
+        break;
+      }
+      case 'airBomb': {
+        // Heavy aerial bomb detonation with concussive blast wave + debris rumble
+        this._explosion(dst, t, 2.5);
+        this._tone(dst, 'sine', 64, 20, t, 2.2, 1.1);
+        this._burst(dst, t, 2.8, 1.35, 'lowpass', 360, 48);
+        break;
+      }
       default:
         break;
     }

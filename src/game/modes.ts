@@ -1,4 +1,4 @@
-export type GameModeId = 'tdm100' | 'rounds5v5' | 'training' | 'juggernaut' | 'dead' | (string & {});
+export type GameModeId = 'tdm100' | 'rounds5v5' | 'training' | 'juggernaut' | 'dead' | 'bombardment' | (string & {});
 
 export interface GameModeDef {
   id: GameModeId;
@@ -7,6 +7,8 @@ export interface GameModeDef {
   teamSize: number;
   /** Необязательное явное количество врагов (если отличается от teamSize, например 1 против 5). */
   enemyCount?: number;
+  /** Если задано, режим жёстко привязан к указанной карте. */
+  mapOnly?: string;
   targetKills: number;
   roundsToWin: number;
   /** Длительность режима выживания в секундах (если задана, победа по истечении таймера). */
@@ -119,6 +121,26 @@ export const GAME_MODES: Record<string, GameModeDef> = {
     allowBotAccuracy: false,
     silverRewards: true,
     victoryRewardSilver: 1500,
+    recordHistory: true,
+  },
+  bombardment: {
+    id: 'bombardment',
+    name: 'Бомбардировка',
+    shortDesc:
+      'Эксклюзивный одиночный режим выживания на карте «Лондон»: 1 танк против непрерывного налёта бомбардировщиков Люфтваффе (5:00). Одно попадание в жёлтой зоне смертельно. Награда: +1000 серебра.',
+    teamSize: 1,
+    enemyCount: 0,
+    mapOnly: 'london',
+    targetKills: 0,
+    roundsToWin: 0,
+    survivalSeconds: 300,
+    respawns: false,
+    spectatorOnDeath: false,
+    allowConsole: true,
+    allowCheats: false,
+    allowBotAccuracy: false,
+    silverRewards: true,
+    victoryRewardSilver: 1000,
     recordHistory: true,
   },
 };

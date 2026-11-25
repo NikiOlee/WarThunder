@@ -1,6 +1,21 @@
 import * as THREE from 'three';
 import { createWorld, type GameWorld } from './world';
 import { createCityWorld } from './city';
+import { createLondonWorld, type LondonWorld } from './london';
+import {
+  BOMBARDMENT_DURATION_SEC,
+  createBombStrike,
+  getBombardmentIntervalSec,
+  getMaxConcurrentBombs,
+  isBombardmentMode,
+  isLondonMap,
+  pickStrikeCandidate,
+  resolveMapAndModeOnMapChange,
+  resolveMapAndModeOnModeChange,
+  stepBombStrikes,
+  stepCutscene,
+  type BombStrike,
+} from './bombardment';
 import { Tank } from './tank';
 import { BallisticsSystem, G, DRAG_K, SUBSTEP } from './ballistics';
 import { Bot, pickRandomBotTankId, setMap } from './bots';
@@ -110,6 +125,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       name: 'Город',
       desc: 'Разрушенный войной город: руины, обломки стен, воронки и трещины в асфальте. Серая мгла, тесные улицы, ближний бой.',
       build: createCityWorld,
+    },
+    {
+      id: 'london',
+      name: 'Лондон',
+      desc: 'Лондон времён Блица 1940 года: разрушенные кирпичные кварталы, телефонные будки, противотанковые ежи и ночные налёты Люфтваффе.',
+      build: createLondonWorld,
     },
   ];
 
@@ -257,7 +278,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   function syncTeamRoster(modeDef: GameModeDef) {
     syncBoss(!!modeDef.boss);
     const wantAllies = Math.max(0, modeDef.teamSize - 1);
-    const wantEnemies = modeDef.boss ? 0 : Math.max(1, modeDef.enemyCount ?? modeDef.teamSize);
+    const wantEnemies = modeDef.boss ? 0 : Math.max(0, modeDef.enemyCount ?? modeDef.teamSize);
 
     const removeExtra = (team: 'A' | 'B', keep: number) => {
       let seen = 0;
@@ -356,6 +377,13 @@ export function initGame(mountEl: HTMLElement): () => void {
   let spectateIdx = 0;
   let spectateTarget: Tank | null = null;
   let simTime = 0;
+  let cutsceneActive = false;
+  let cutsceneElapsed = 0;
+  let cutsceneBomberSfxPlayed = false;
+  const bombStrikes: BombStrike[] = [];
+  let nextBombId = 1;
+  let bombSpawnAcc = 0;
+  let bombersRetreating = false;
   const smokeClouds: SmokeCloud[] = [];
   let smokeEmitAcc = 0;
   interface GalixGrenadeFlight {
@@ -569,12 +597,93 @@ export function initGame(mountEl: HTMLElement): () => void {
     battleStarted = false;
   }
 
+  function isLondonWorld(w: GameWorld): w is LondonWorld {
+    return 'setBlitzAtmosphere' in w;
+  }
+
+  function hideCutsceneOverlay() {
+    document.body.classList.remove('cutscene-active');
+    const ov = $('cutsceneOverlay');
+    if (ov) ov.classList.add('hidden');
+    const top = $('cutsceneTopCaption');
+    const cen = $('cutsceneCenterCaption');
+    if (top) {
+      top.textContent = '';
+      top.style.opacity = '0';
+    }
+    if (cen) {
+      cen.textContent = '';
+      cen.style.opacity = '0';
+    }
+  }
+
+  function syncCutsceneDom(cs: ReturnType<typeof stepCutscene>) {
+    const ov = $('cutsceneOverlay');
+    const top = $('cutsceneTopCaption');
+    const cen = $('cutsceneCenterCaption');
+    if (cs.phase === 'combat') {
+      hideCutsceneOverlay();
+      return;
+    }
+    document.body.classList.add('cutscene-active');
+    if (ov) ov.classList.remove('hidden');
+    if (top) {
+      top.textContent = cs.topCaptionKey ? t(cs.topCaptionKey) : '';
+      top.style.opacity = cs.topCaptionAlpha.toFixed(3);
+    }
+    if (cen) {
+      cen.textContent = cs.centerCaptionKey ? t(cs.centerCaptionKey) : '';
+      cen.style.opacity = cs.centerCaptionAlpha.toFixed(3);
+    }
+  }
+
+  function emitAirBombExplosion(x: number, groundY: number, z: number, radius: number) {
+    const scale = Math.max(0.8, radius / 8);
+    ballistics.fx.emit({
+      additive: true,
+      x,
+      y: groundY + 1.4,
+      z,
+      life: 0.55,
+      s0: 6 * scale,
+      s1: 22 * scale,
+      r: 1,
+      g: 0.62,
+      b: 0.16,
+      a: 1,
+    });
+    for (let k = 0; k < 10; k++) {
+      const ang = (k / 10) * Math.PI * 2 + Math.random() * 0.4;
+      const spd = (4 + Math.random() * 10) * scale;
+      ballistics.fx.emit({
+        additive: k < 5,
+        x: x + Math.cos(ang) * 1.6,
+        y: groundY + 0.8 + Math.random() * 1.2,
+        z: z + Math.sin(ang) * 1.6,
+        vx: Math.cos(ang) * spd,
+        vy: 5 + Math.random() * 12,
+        vz: Math.sin(ang) * spd,
+        life: k < 5 ? 0.55 + Math.random() * 0.25 : 1.45 + Math.random() * 0.8,
+        s0: k < 5 ? 2.4 * scale : 3.2 * scale,
+        s1: k < 5 ? 7.5 * scale : 13.5 * scale,
+        r: k < 5 ? 1 : 0.18,
+        g: k < 5 ? 0.48 : 0.14,
+        b: k < 5 ? 0.12 : 0.13,
+        a: k < 5 ? 0.95 : 0.82,
+        grav: k < 5 ? -10 : 1.5,
+      });
+    }
+  }
+
   function updateModeScoreHud() {
     const activeMode = getModeDef(currentModeId);
-    const aliveStr = countAlive(teamATanks) + ' v ' + countAlive(teamBTanks);
+    const isBomb = isBombardmentMode(activeMode.id);
+    const aliveStr = isBomb ? t('aliveSolo') : countAlive(teamATanks) + ' v ' + countAlive(teamBTanks);
     $('alive').textContent = aliveStr;
     hudCache.alive = aliveStr;
     const isSurvival = !!(activeMode.survivalSeconds && activeMode.survivalSeconds > 0);
+    document.body.classList.toggle('bombardment-active', isBomb);
+    $('modeScore').classList.toggle('bombardment-mode', isBomb);
     $('modeScoreTeams').classList.toggle('hidden', isSurvival);
     $('modeScoreSurvival').classList.toggle('hidden', !isSurvival);
 
@@ -696,6 +805,29 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('msg').textContent = '';
     updateModeScoreHud();
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
+    bombStrikes.length = 0;
+    bombSpawnAcc = 0;
+    bombersRetreating = false;
+    if (isFirstRound && isLondonMap(currentMap) && isBombardmentMode(currentModeId)) {
+      cutsceneActive = true;
+      cutsceneElapsed = 0;
+      cutsceneBomberSfxPlayed = false;
+      if (isLondonWorld(world)) {
+        world.setBlitzAtmosphere(0);
+        world.updateCutsceneBombers(0, 0, false);
+        world.syncBombVisuals([], simTime);
+      }
+    } else {
+      cutsceneActive = false;
+      cutsceneElapsed = 0;
+      cutsceneBomberSfxPlayed = false;
+      hideCutsceneOverlay();
+      if (isLondonWorld(world)) {
+        world.setBlitzAtmosphere(1);
+        world.updateCutsceneBombers(1, 0, false);
+        world.syncBombVisuals([], simTime);
+      }
+    }
     if (activeMode.roundsToWin > 0) {
       showMsg(t('msgRoundToast', { round: roundNum }), '#ffd27a');
     }
@@ -860,20 +992,38 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (fresh || !battleStarted || matchEnded) newBattle();
     state = 'play';
     hangarOpen = false;
-    document.body.className = 'play';
+    document.body.classList.remove('menu');
+    document.body.classList.add('play');
+    updateModeScoreHud();
     document.body.dataset.state = 'playing';
     ui.show(null);
     syncBattleMusic();
     resizeScope();
     applyMapLook();
+    if (isLondonWorld(world)) {
+      const csNow = cutsceneActive ? stepCutscene(cutsceneElapsed) : null;
+      world.setBlitzAtmosphere(csNow ? csNow.skyCrimson : 1);
+    }
     applyGraphics();
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
-    if (engineReady) {
-      updateCamera(0);
-      updateTankVisibilityAndLod();
-      world.update(camera.position, tank.root.position, 0, vis);
-      updateHud(0);
-      render();
+    if (cutsceneActive) {
+      const csInit = stepCutscene(cutsceneElapsed);
+      syncCutsceneDom(csInit);
+      if (engineReady) {
+        applyCutsceneCamera(csInit, 0);
+        updateTankVisibilityAndLod();
+        world.update(camera.position, tank.root.position, 0, vis);
+        render();
+      }
+    } else {
+      hideCutsceneOverlay();
+      if (engineReady) {
+        updateCamera(0);
+        updateTankVisibilityAndLod();
+        world.update(camera.position, tank.root.position, 0, vis);
+        updateHud(0);
+        render();
+      }
     }
     tryLock();
   }
@@ -881,6 +1031,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   function openPause() {
     if (state !== 'play') return;
     state = 'pause';
+    hideCutsceneOverlay();
     setScoreboardOpen(false);
     mouseDown = false;
     fireQueued = false;
@@ -903,6 +1054,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     state = 'play';
     document.body.dataset.state = 'playing';
     ui.show(null);
+    if (cutsceneActive) {
+      syncCutsceneDom(stepCutscene(cutsceneElapsed));
+    }
     syncBattleMusic();
     tryLock();
   }
@@ -910,11 +1064,18 @@ export function initGame(mountEl: HTMLElement): () => void {
   function toMenu() {
     const wasMatchEnded = matchEnded;
     state = 'menu';
+    hideCutsceneOverlay();
     if (gcon.open) gcon.close();
     setScoreboardOpen(false);
     if (wasMatchEnded) {
       matchEnded = false;
       battleStarted = false;
+      cutsceneActive = false;
+      cutsceneElapsed = 0;
+      cutsceneBomberSfxPlayed = false;
+      bombStrikes.length = 0;
+      bombersRetreating = false;
+      if (isLondonWorld(world)) world.syncBombVisuals([], simTime);
       roundPhase = 'active';
       roundEndT = 0;
       pendingRoundMatchWinner = null;
@@ -951,7 +1112,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (!getModeDef(currentModeId).allowCheats) enforceCheatsOff();
     $('bossBar').classList.add('hidden');
     hudCache.bossVisible = false;
-    document.body.className = 'menu';
+    document.body.classList.remove('play', 'bombardment-active', 'thermal-active', 'cutscene-active');
+    document.body.classList.add('menu');
     document.body.dataset.state = 'title';
     mouseDown = false;
     fireQueued = false;
@@ -977,6 +1139,28 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   let engineReady = false;
 
+  function applyModeSelection(id: string) {
+    const def = getModeDef(id);
+    currentModeId = def.id;
+    if (!def.allowCheats) enforceCheatsOff();
+    if (gcon.open) gcon.close();
+    battleStarted = false;
+    matchEnded = false;
+    matchRecorded = false;
+    cutsceneActive = false;
+    cutsceneElapsed = 0;
+    cutsceneBomberSfxPlayed = false;
+    bombStrikes.length = 0;
+    bombersRetreating = false;
+    survivalRemaining = def.survivalSeconds ?? 0;
+    survivalElapsed = 0;
+    syncTeamRoster(def);
+    for (const b of bots) {
+      b.respawn({ randomTank: !!(def.randomEnemyTanks && b.team === 'B') });
+    }
+    updateHelp();
+  }
+
   const ui = createUI({
     play: startPlay,
     resume: resumeGame,
@@ -984,23 +1168,20 @@ export function initGame(mountEl: HTMLElement): () => void {
     started: () => battleStarted,
     maps: MAPS,
     getMap: () => selectedMap,
-    setMap: (id: string) => loadMap(id),
+    setMap: (id: string) => {
+      const resolved = resolveMapAndModeOnMapChange(id, currentModeId, DEFAULT_MODE_ID);
+      loadMap(resolved.mapId);
+      if (resolved.modeId !== currentModeId) {
+        applyModeSelection(resolved.modeId);
+      }
+    },
     getModeId: () => currentModeId,
     setModeId: (id: string) => {
-      const def = getModeDef(id);
-      currentModeId = def.id;
-      if (!def.allowCheats) enforceCheatsOff();
-      if (gcon.open) gcon.close();
-      battleStarted = false;
-      matchEnded = false;
-      matchRecorded = false;
-      survivalRemaining = def.survivalSeconds ?? 0;
-      survivalElapsed = 0;
-      syncTeamRoster(def);
-      for (const b of bots) {
-        b.respawn({ randomTank: !!(def.randomEnemyTanks && b.team === 'B') });
+      const resolved = resolveMapAndModeOnModeChange(id, selectedMap);
+      if (resolved.mapId !== selectedMap) {
+        loadMap(resolved.mapId);
       }
-      updateHelp();
+      applyModeSelection(resolved.modeId);
     },
     onSelectTank: (tankId: string) => {
       previewTank.reset(0, 0, 0, tankId);
@@ -1311,6 +1492,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     if (state !== 'play') return;
     if (!locked && !fallback) tryLock();
+    if (cutsceneActive) return;
     keys[e.code] = true;
     if (e.repeat) return;
     if (spectating) {
@@ -1344,7 +1526,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     setScoreboardOpen(false);
   };
   const onMouseMove = (e: MouseEvent) => {
-    if (settings.controlMode === 'touch' || !locked || state !== 'play') return;
+    if (settings.controlMode === 'touch' || !locked || state !== 'play' || cutsceneActive) return;
     const s = 0.0022 * clamp(fovCur / 60, 0.06, 1) * settings.sens * (mode === 'third' || spectating ? 1 : settings.sensSniper);
     cam.yaw -= e.movementX * s;
     cam.pitch -= e.movementY * s * (settings.invertY ? -1 : 1);
@@ -1355,6 +1537,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       tryLock();
       return;
     }
+    if (cutsceneActive) return;
     if (spectating) {
       if (e.button === 0) cycleSpectateTarget(-1);
       else if (e.button === 2) cycleSpectateTarget(1);
@@ -1629,6 +1812,42 @@ export function initGame(mountEl: HTMLElement): () => void {
     camera.lookAt(camera.position.x + _rdir.x, camera.position.y + _rdir.y, camera.position.z + _rdir.z);
     kick *= Math.exp(-6 * dt);
     shake *= Math.exp(-8 * dt);
+  }
+
+  function applyCutsceneCamera(cs: ReturnType<typeof stepCutscene>, _dt: number) {
+    const drop = cs.camDropProgress;
+    const skyFov = Math.max(settings.fov, 66);
+    const nextFov = skyFov + (settings.fov - skyFov) * drop;
+    if (Math.abs(camera.fov - nextFov) > 1e-3) {
+      camera.fov = nextFov;
+      camera.updateProjectionMatrix();
+    }
+
+    const skyYaw = 0.06;
+    const skyPitch = 0.54;
+    const viewYaw = skyYaw + (cam.yaw - skyYaw) * drop;
+    const viewPitch = skyPitch + (cam.pitch - skyPitch) * drop;
+    lookDir(_dir, viewYaw, viewPitch);
+
+    // Start low & slightly ahead of tank gazing skyward; lower cleanly behind tank during camera_drop
+    const skyOriginX = tank.root.position.x + 2.5;
+    const skyOriginY = tank.root.position.y + 4.0;
+    const skyOriginZ = tank.root.position.z + 2.0;
+
+    _pos.copy(tank.root.position);
+    _pos.y += 2.8;
+    lookDir(_rdir, cam.yaw, cam.pitch);
+    const combatOriginX = _pos.x - _rdir.x * camDist;
+    const combatOriginY = Math.max(_pos.y - _rdir.y * camDist + 1.4, world.heightAt(_pos.x - _rdir.x * camDist, _pos.z - _rdir.z * camDist) + 1.5);
+    const combatOriginZ = _pos.z - _rdir.z * camDist;
+
+    camera.position.set(
+      skyOriginX + (combatOriginX - skyOriginX) * drop,
+      skyOriginY + (combatOriginY - skyOriginY) * drop,
+      skyOriginZ + (combatOriginZ - skyOriginZ) * drop,
+    );
+    camera.lookAt(camera.position.x + _dir.x * 50, camera.position.y + _dir.y * 50, camera.position.z + _dir.z * 50);
+    tank.root.visible = true;
   }
 
   function menuCamera(dt: number) {
@@ -2285,7 +2504,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       hudCache.kills = killsTxt;
       el.kills.textContent = killsTxt;
     }
-    const aliveTxt = countAlive(teamATanks) + ' v ' + countAlive(teamBTanks);
+    const aliveTxt = isBombardmentMode(currentModeId) ? t('aliveSolo') : countAlive(teamATanks) + ' v ' + countAlive(teamBTanks);
     if (aliveTxt !== hudCache.alive) {
       hudCache.alive = aliveTxt;
       el.alive.textContent = aliveTxt;
@@ -2532,7 +2751,9 @@ export function initGame(mountEl: HTMLElement): () => void {
   function renderScoreboard() {
     const activeMode = getModeDef(currentModeId);
     $('sbModeName').textContent = getModeText(activeMode.id).name.toUpperCase();
-    if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0) {
+    if (isBombardmentMode(activeMode.id)) {
+      $('sbTeamScore').textContent = t('sbSoloSurvival', { time: formatCountdown(survivalRemaining) });
+    } else if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0) {
       $('sbTeamScore').textContent = t('sbSurvivalScore', { time: formatCountdown(survivalRemaining), kills });
     } else if (activeMode.roundsToWin > 0) {
       $('sbTeamScore').textContent = t('sbRoundsScore', { round: roundNum, a: teamARounds, b: teamBRounds, win: activeMode.roundsToWin });
@@ -2603,6 +2824,8 @@ export function initGame(mountEl: HTMLElement): () => void {
   function finishMatch(winner: 'A' | 'B', victorySilver: number) {
     if (matchEnded) return;
     matchEnded = true;
+    cutsceneActive = false;
+    hideCutsceneOverlay();
     state = 'matchEnd';
     if (gcon.open) gcon.close();
     spectating = false;
@@ -3131,6 +3354,51 @@ export function initGame(mountEl: HTMLElement): () => void {
     dt *= flags.timeScale;
     simTime += dt;
 
+    if (cutsceneActive) {
+      cutsceneElapsed += dt;
+      const cs = stepCutscene(cutsceneElapsed);
+      syncCutsceneDom(cs);
+
+      if (isLondonWorld(world)) {
+        world.setBlitzAtmosphere(cs.skyCrimson);
+        world.updateCutsceneBombers(
+          cs.bomberFlightProgress,
+          dt,
+          cs.phase === 'calm_sky' || cs.phase === 'bombers_passing' || cs.phase === 'final_prompt',
+        );
+        world.updateRaidBombers(tank.root.position, simTime, dt, false, false);
+        world.syncBombVisuals([], simTime);
+      }
+
+      if (cutsceneElapsed >= 1.8 && !cutsceneBomberSfxPlayed) {
+        cutsceneBomberSfxPlayed = true;
+        audio.play('bomberFlyover', null, 0.92, true);
+      }
+
+      tank.update(dt, { throttle: 0, steer: 0, brake: true }, ballistics.fx);
+      tank.root.updateMatrixWorld(true);
+
+      if (cs.phase === 'combat') {
+        cutsceneActive = false;
+        bombSpawnAcc = 1.4;
+        hideCutsceneOverlay();
+        if (isLondonWorld(world)) {
+          world.setBlitzAtmosphere(1);
+          world.updateCutsceneBombers(1, 0, false);
+        }
+        updateCamera(dt);
+      } else {
+        applyCutsceneCamera(cs, dt);
+        updateTankVisibilityAndLod();
+        world.update(camera.position, tank.root.position, dt, vis);
+        ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
+        audio.engineUpdate(0, 0, false, tank.spec.engineAudio ?? 'diesel');
+        render();
+        scheduleNext();
+        return;
+      }
+    }
+
     // Step animated 3D GALIX smoke canister launches along parabolic trajectories
     for (let i = galixGrenades.length - 1; i >= 0; i--) {
       const g = galixGrenades[i];
@@ -3290,6 +3558,70 @@ export function initGame(mountEl: HTMLElement): () => void {
     resolveBossRam();
     resolveEnvironmentImpacts();
 
+    if (isBombardmentMode(activeMode.id) && isLondonWorld(world)) {
+      world.updateRaidBombers(tank.root.position, simTime, dt, !matchEnded || bombersRetreating, bombersRetreating);
+      if (!matchEnded && tank.alive) {
+        const totalSec = activeMode.survivalSeconds || BOMBARDMENT_DURATION_SEC;
+        const interval = getBombardmentIntervalSec(survivalElapsed, totalSec);
+        bombSpawnAcc += dt;
+        if (bombSpawnAcc >= interval) {
+          bombSpawnAcc = 0;
+          const maxBombs = getMaxConcurrentBombs(survivalElapsed, totalSec);
+          if (bombStrikes.length < maxBombs) {
+            const cand = pickStrikeCandidate({
+              elapsedSec: survivalElapsed,
+              totalSec,
+              playerX: tank.root.position.x,
+              playerZ: tank.root.position.z,
+              playerHeading: tank.heading,
+              playerSpeed: tank.speed,
+              worldLimit: world.limit,
+              heightAt: world.heightAt,
+              isSpotOpen: world.isSpotOpenForBomb,
+              existingStrikes: bombStrikes,
+            });
+            if (cand) {
+              bombStrikes.push(
+                createBombStrike(nextBombId++, cand.x, world.heightAt(cand.x, cand.z), cand.z, cand.kind),
+              );
+            }
+          }
+        }
+
+        for (let i = 0; i < bombStrikes.length; i++) {
+          const s = bombStrikes[i];
+          if (!s.whistlePlayed && s.fuseRemaining <= 1.25) {
+            s.whistlePlayed = true;
+            audio.play('bombWhistle', new THREE.Vector3(s.x, s.groundY + 12, s.z), 0.72);
+          }
+        }
+
+        const detonations = stepBombStrikes(bombStrikes, dt, tank.root.position.x, tank.root.position.z, tank.alive);
+        for (let i = 0; i < detonations.length; i++) {
+          const ev = detonations[i];
+          const s = ev.strike;
+          emitAirBombExplosion(s.x, s.groundY, s.z, s.radius);
+          audio.play('airBomb', new THREE.Vector3(s.x, s.groundY + 1, s.z), 0.95);
+          const distToPlayer = Math.hypot(s.x - tank.root.position.x, s.z - tank.root.position.z);
+          if (distToPlayer < 90) {
+            shake = Math.max(shake, clamp(1 - distToPlayer / 90, 0.15, 0.85));
+          }
+          if (ev.hitPlayer && tank.alive) {
+            tank.hp = 0;
+            tank.destroy(true);
+            shake = Math.max(shake, 1.35);
+            showMsg(t('msgBombardmentHit'), '#ff4c2a');
+            world.syncBombVisuals(bombStrikes, simTime);
+            handleTankDestroyed(tank, null, t('suffixAirBomb'));
+            render();
+            scheduleNext();
+            return;
+          }
+        }
+      }
+      world.syncBombVisuals(bombStrikes, simTime);
+    }
+
     if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0 && !matchEnded) {
       survivalRemaining = Math.max(0, survivalRemaining - dt);
       survivalElapsed += dt;
@@ -3306,6 +3638,15 @@ export function initGame(mountEl: HTMLElement): () => void {
       }
       const survEval = evaluateSurvivalState(activeMode, survivalRemaining, tank.alive);
       if (survEval.finished && survEval.winner) {
+        if (isBombardmentMode(activeMode.id) && survEval.winner === 'A') {
+          bombersRetreating = true;
+          bombStrikes.length = 0;
+          if (isLondonWorld(world)) {
+            world.syncBombVisuals([], simTime);
+            world.updateRaidBombers(tank.root.position, simTime, dt, true, true);
+          }
+          showMsg(t('msgBombardmentSurvived'), '#8fe36a');
+        }
         finishMatch(survEval.winner, survEval.victorySilver);
         render();
         scheduleNext();
@@ -3601,6 +3942,27 @@ export function initGame(mountEl: HTMLElement): () => void {
     game,
     settings,
     visibility: vis,
+    get mapId() {
+      return currentMap;
+    },
+    get modeId() {
+      return currentModeId;
+    },
+    get state() {
+      return state;
+    },
+    get cutscenePhase() {
+      return cutsceneActive ? stepCutscene(cutsceneElapsed).phase : 'combat';
+    },
+    get cutsceneElapsed() {
+      return cutsceneElapsed;
+    },
+    get activeBombs() {
+      return bombStrikes;
+    },
+    get survivalRemaining() {
+      return survivalRemaining;
+    },
   };
 
   return () => {

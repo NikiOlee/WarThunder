@@ -205,10 +205,14 @@ test('Mode canonical specs preserved while UI displays localized text', () => {
   assert.equal(getModeText('dead', 'ru').name, 'Мертвецы');
   assert.equal(getModeText('dead', 'sr').name, 'Mrtvaci');
   assert.equal(getModeText('dead', 'en').name, 'Dead Men');
+
+  assert.equal(getModeText('bombardment', 'ru').name, 'Бомбардировка');
+  assert.equal(getModeText('bombardment', 'sr').name, 'Bombardovanje');
+  assert.equal(getModeText('bombardment', 'en').name, 'Bombardment');
 });
 
 test('Maps localize correctly in ru, sr, and en', () => {
-  const mapIds = ['hills', 'city'];
+  const mapIds = ['hills', 'city', 'london'];
   for (const mapId of mapIds) {
     for (const lang of SUPPORTED_LANGUAGES) {
       const loc = getMapText(mapId, lang);
@@ -224,6 +228,11 @@ test('Maps localize correctly in ru, sr, and en', () => {
   assert.equal(getMapText('city', 'ru').name, 'Город');
   assert.equal(getMapText('city', 'sr').name, 'Grad');
   assert.equal(getMapText('city', 'en').name, 'City');
+
+  assert.equal(getMapText('london', 'ru').name, 'Лондон');
+  assert.equal(/\d/.test(getMapText('london', 'ru').name), false);
+  assert.equal(getMapText('london', 'sr').name, 'London');
+  assert.equal(getMapText('london', 'en').name, 'London');
 });
 
 test('HitCam results and view orientation texts localize cleanly', () => {

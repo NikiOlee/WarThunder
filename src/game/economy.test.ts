@@ -109,7 +109,14 @@ test('Mode tdm100 (Бой до 100 киллов) finishes at 100 kills and locks
 
 test('Training mode unlocks cheats and bot accuracy, while 5v5 rounds mode enables spectator and round wins', () => {
   const all = getAllModes();
-  assert.equal(all.length, 5);
+  assert.equal(all.length, 6);
+
+  const bomb = getModeDef('bombardment');
+  assert.equal(bomb.teamSize, 1);
+  assert.equal(bomb.enemyCount, 0);
+  assert.equal(bomb.survivalSeconds, 300);
+  assert.equal(bomb.victoryRewardSilver, 1000);
+  assert.equal(bomb.mapOnly, 'london');
 
   const training = getModeDef('training');
   assert.equal(training.name, 'Тренировка');

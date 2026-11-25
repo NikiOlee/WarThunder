@@ -97,8 +97,13 @@ const DICT_RU: TranslationDict = {
   extraTraining: 'Читы (sv_cheats on) и настройка точности ботов активны. Серебро не начисляется.',
   extraJuggernaut: 'Охота на Мауса: 6 охотников против босса (4000 ХП). У Мауса 128-мм орудие и огнемёт на 20 м. +1500 серебра за победу. Читы отключены.',
   extraDead: 'Выживите 5:00 против 5 врагов на случайной технике (респаун врагов 4 с, у вас 1 жизнь). +1500 серебра за победу. Читы отключены.',
+  extraBombardment: 'Одиночное выживание против Люфтваффе на карте «Лондон». Выбирайтесь из жёлтых зон (1 попадание = гибель). Продержитесь 5:00 — награда +1000 серебра.',
   extraRounds: '+50 серебра за килл · +500 за победу · После смерти — режим наблюдателя. Читы (sv_cheats) отключены.',
   extraTdm: '+50 серебра за килл · +150 за 10 киллов · +300 за 20 киллов · +500 за победу. Читы (sv_cheats) отключены.',
+  modeLockedLondon: 'ЗАБЛОКИРОВАНО (ЛОНДОН)',
+  modeLondonOnlyHint: 'При выборе карты «Лондон» доступен только режим «Бомбардировка».',
+  cutsceneLondon1940: 'Лондон... 1940',
+  cutsceneSurvivePrompt: 'Ну чтож солдат... Твоя задача !ВЫЖИТЬ!',
 
   // Hangar
   hangarTitle: 'АНГАР',
@@ -262,8 +267,10 @@ const DICT_RU: TranslationDict = {
   sbWeVsEnemiesTraining: 'МЫ {a} : {b} ВРАГИ (тренировка)',
   sbRoundsScore: 'РАУНД {round} · МЫ {a} : {b} ВРАГИ (до {win})',
   sbSurvivalScore: 'ОСТАЛОСЬ {time} · ФРАГИ: {kills}',
+  sbSoloSurvival: 'СОЛО · ОСТАЛОСЬ {time}',
   sbBossScore: 'МАУС: {hp} / {max} ХП',
   sbPlayerSelf: 'ВЫ ({name})',
+  aliveSolo: '1 (СОЛО)',
 
   // HUD
   hudThirdPerson: 'ОТ ТРЕТЬЕГО ЛИЦА',
@@ -372,6 +379,8 @@ const DICT_RU: TranslationDict = {
   msgRockImpact: 'УДАР О КАМЕНЬ: -{dmg} ХП',
   msgMausCrushed: 'МАУС РАЗДАВИЛ ВАС!',
   msgMausBurned: 'МАУС СЖЁГ ВАС ОГНЕМЁТОМ!',
+  msgBombardmentHit: 'ПРЯМОЕ ПОПАДАНИЕ АВИАБОМБЫ!',
+  msgBombardmentSurvived: 'НАЛЁТ ОТБИТ! БОМБАРДИРОВЩИКИ УХОДЯТ!',
   msgMgOutToast: 'ПАТРОНЫ ПУЛЕМЁТА КОНЧИЛИСЬ',
   msgTrophyIntercept: 'КАЗ «TROPHY» ПЕРЕХВАТИЛ СНАРЯД!',
   msgTrophyEnemyBlocked: 'СНАРЯД ПЕРЕХВАЧЕН КАЗ «TROPHY»!',
@@ -395,6 +404,7 @@ const DICT_RU: TranslationDict = {
   suffixRock: ' [КАМЕНЬ]',
   suffixFlame: ' [ОГНЕМЁТ]',
   suffixMg: ' [ПУЛЕМЁТ]',
+  suffixAirBomb: ' [АВИАБОМБА]',
 
   // HitCam
   hcPen: 'Попадание',
@@ -466,8 +476,13 @@ const DICT_SR: TranslationDict = {
   extraTraining: 'Čitovi (sv_cheats on) i podešavanje preciznosti botova su aktivni. Srebro se ne dodeljuje.',
   extraJuggernaut: 'Lov na Mausa: 6 lovaca protiv bosa (4000 HP). Maus ima top od 128 mm i bacač plamena na 20 m. +1500 srebra za pobedu. Čitovi su isključeni.',
   extraDead: 'Preživite 5:00 protiv 5 neprijatelja na nasumičnim tenkovima (neprijatelji se ponovo rađaju svake 4 s, vi imate 1 život). +1500 srebra za pobedu. Čitovi su isključeni.',
+  extraBombardment: 'Solo preživljavanje protiv Luftvafea na mapi «London». Izbegavajte žute zone (1 pogodak = uništenje). Izdržite 5:00 — nagrada +1000 srebra.',
   extraRounds: '+50 srebra za ubistvo · +500 za pobedu · Posle smrti — režim posmatrača. Čitovi (sv_cheats) su isključeni.',
   extraTdm: '+50 srebra za ubistvo · +150 za 10 ubistava · +300 za 20 ubistava · +500 za pobedu. Čitovi (sv_cheats) su isključeni.',
+  modeLockedLondon: 'ZAKLJUČANO (LONDON)',
+  modeLondonOnlyHint: 'Kada je izabrana mapa «London», dostupan je samo režim «Bombardovanje».',
+  cutsceneLondon1940: 'London... 1940',
+  cutsceneSurvivePrompt: 'Pa dobro vojniče... Tvoj zadatak je !PREŽIVETI!',
 
   // Hangar
   hangarTitle: 'HANGAR',
@@ -631,8 +646,10 @@ const DICT_SR: TranslationDict = {
   sbWeVsEnemiesTraining: 'MI {a} : {b} NEPRIJATELJI (trening)',
   sbRoundsScore: 'RUNDA {round} · MI {a} : {b} NEPRIJATELJI (do {win})',
   sbSurvivalScore: 'PREOSTALO {time} · UBISTVA: {kills}',
+  sbSoloSurvival: 'SOLO · PREOSTALO {time}',
   sbBossScore: 'MAUS: {hp} / {max} HP',
   sbPlayerSelf: 'VI ({name})',
+  aliveSolo: '1 (SOLO)',
 
   // HUD
   hudThirdPerson: 'IZ TREĆEG LICA',
@@ -741,6 +758,8 @@ const DICT_SR: TranslationDict = {
   msgRockImpact: 'UDARAC U KAMEN: -{dmg} HP',
   msgMausCrushed: 'MAUS VAS JE PREGAZIO!',
   msgMausBurned: 'MAUS VAS JE SPALIO BACAČEM PLAMENA!',
+  msgBombardmentHit: 'DIREKTAN POGODAK AVIO-BOMBE!',
+  msgBombardmentSurvived: 'NAPAD ODBIJEN! BOMBARDERI SE POVLAČE!',
   msgMgOutToast: 'NESTAO JE METAKA ZA MITRALJEZ',
   msgTrophyIntercept: 'APS «TROPHY» PRESREO GRANATU!',
   msgTrophyEnemyBlocked: 'GRANATU PRESREO APS «TROPHY»!',
@@ -764,6 +783,7 @@ const DICT_SR: TranslationDict = {
   suffixRock: ' [KAMEN]',
   suffixFlame: ' [BACAČ PLAMENA]',
   suffixMg: ' [MITRALJEZ]',
+  suffixAirBomb: ' [AVIO-BOMBA]',
 
   // HitCam
   hcPen: 'Pogodak',
@@ -835,8 +855,13 @@ const DICT_EN: TranslationDict = {
   extraTraining: 'Cheats (sv_cheats on) and bot accuracy setting are active. No silver earned.',
   extraJuggernaut: 'Hunt for the Maus: 6 hunters vs boss (4000 HP). Maus has 128 mm gun and 20m flamethrower. +1500 silver for victory. Cheats disabled.',
   extraDead: 'Survive 5:00 against 5 enemies in random tanks (enemies respawn every 4s, you have 1 life). +1500 silver for victory. Cheats disabled.',
+  extraBombardment: 'Solo survival against the Luftwaffe on London. Dodge yellow warning zones (1 hit = destroyed). Survive 5:00 for +1000 silver.',
   extraRounds: '+50 silver per kill · +500 for victory · Spectator mode upon death. Cheats (sv_cheats) disabled.',
   extraTdm: '+50 silver per kill · +150 for 10 kills · +300 for 20 kills · +500 for victory. Cheats (sv_cheats) disabled.',
+  modeLockedLondon: 'LOCKED (LONDON)',
+  modeLondonOnlyHint: 'The London map only allows Bombardment mode.',
+  cutsceneLondon1940: 'London... 1940',
+  cutsceneSurvivePrompt: 'Well then, soldier... Your mission: !SURVIVE!',
 
   // Hangar
   hangarTitle: 'HANGAR',
@@ -1000,8 +1025,10 @@ const DICT_EN: TranslationDict = {
   sbWeVsEnemiesTraining: 'US {a} : {b} ENEMIES (training)',
   sbRoundsScore: 'ROUND {round} · US {a} : {b} ENEMIES (first to {win})',
   sbSurvivalScore: 'REMAINING {time} · KILLS: {kills}',
+  sbSoloSurvival: 'SOLO · REMAINING {time}',
   sbBossScore: 'MAUS: {hp} / {max} HP',
   sbPlayerSelf: 'YOU ({name})',
+  aliveSolo: '1 (SOLO)',
 
   // HUD
   hudThirdPerson: 'THIRD PERSON',
@@ -1110,6 +1137,8 @@ const DICT_EN: TranslationDict = {
   msgRockImpact: 'ROCK IMPACT: -{dmg} HP',
   msgMausCrushed: 'THE MAUS CRUSHED YOU!',
   msgMausBurned: 'THE MAUS INCINERATED YOU WITH FLAMETHROWER!',
+  msgBombardmentHit: 'DIRECT AERIAL BOMB HIT!',
+  msgBombardmentSurvived: 'AIR RAID SURVIVED! BOMBERS TURNING BACK!',
   msgMgOutToast: 'MACHINE GUN IS OUT OF AMMO',
   msgTrophyIntercept: 'TROPHY APS INTERCEPTED SHELL!',
   msgTrophyEnemyBlocked: 'SHELL INTERCEPTED BY TROPHY APS!',
@@ -1133,6 +1162,7 @@ const DICT_EN: TranslationDict = {
   suffixRock: ' [ROCK]',
   suffixFlame: ' [FLAMETHROWER]',
   suffixMg: ' [MACHINE GUN]',
+  suffixAirBomb: ' [AIR BOMB]',
 
   // HitCam
   hcPen: 'Hit',
@@ -1546,6 +1576,11 @@ export const MODES_LOCALIZED: Record<SupportedLanguage, Record<string, ModeLocal
       shortDesc:
         'Выживание 5:00 в одиночку против 5 преследующих ботов на случайных танках. Без возрождения игрока, респаун врагов каждые 4 с. Награда: 1500 серебра.',
     },
+    bombardment: {
+      name: 'Бомбардировка',
+      shortDesc:
+        'Эксклюзивное одиночное выживание на карте «Лондон»: 1 танк против непрерывного налёта бомбардировщиков Люфтваффе (5:00). Одно попадание в жёлтой зоне смертельно. Награда: +1000 серебра.',
+    },
   },
   sr: {
     tdm100: {
@@ -1569,6 +1604,11 @@ export const MODES_LOCALIZED: Record<SupportedLanguage, Record<string, ModeLocal
       name: 'Mrtvaci',
       shortDesc:
         'Preživljavanje 5:00 solo protiv 5 botova koji vas progone na nasumičnim tenkovima. Bez oživljavanja igrača, neprijatelji se stvaraju svake 4 s. Nagrada: 1500 srebra.',
+    },
+    bombardment: {
+      name: 'Bombardovanje',
+      shortDesc:
+        'Ekskluzivno solo preživljavanje na mapi «London»: 1 tenk protiv neprekidnog vazdušnog napada bombardera Luftvafea (5:00). Jedan pogodak u žutoj zoni je smrtonosan. Nagrada: +1000 srebra.',
     },
   },
   en: {
@@ -1594,6 +1634,11 @@ export const MODES_LOCALIZED: Record<SupportedLanguage, Record<string, ModeLocal
       shortDesc:
         'Survive 5:00 solo against 5 relentless bots in random tanks. No player respawn, enemy respawn every 4 seconds. Reward: 1500 silver.',
     },
+    bombardment: {
+      name: 'Bombardment',
+      shortDesc:
+        'Exclusive solo survival on London: 1 tank against waves of Luftwaffe bombers (5:00). A single hit inside a yellow warning zone is lethal. Reward: +1000 silver.',
+    },
   },
 };
 
@@ -1607,6 +1652,10 @@ export const MAPS_LOCALIZED: Record<SupportedLanguage, Record<string, MapLocaliz
       name: 'Город',
       desc: 'Разрушенный войной город: руины, обломки стен, воронки и трещины в асфальте. Серая мгла, тесные улицы, ближний бой.',
     },
+    london: {
+      name: 'Лондон',
+      desc: 'Ночной Блитц над британской столицей: кирпичные руины, красные телефонные будки, противотанковые ежи, пожары и ковровые бомбардировки с воздуха.',
+    },
   },
   sr: {
     hills: {
@@ -1617,6 +1666,10 @@ export const MAPS_LOCALIZED: Record<SupportedLanguage, Record<string, MapLocaliz
       name: 'Grad',
       desc: 'Ratom razrušen grad: ruševine, krhotine zidova, krateri i pukotine u asfaltu. Sivo sivilo, uske ulice, borba na blizinu.',
     },
+    london: {
+      name: 'London',
+      desc: 'Blic nad britanskom prestonicom: ruševine od cigle, crvene telefonske govornice, protivtenkovski ježevi, požari i neprekidno bombardovanje iz vazduha.',
+    },
   },
   en: {
     hills: {
@@ -1626,6 +1679,10 @@ export const MAPS_LOCALIZED: Record<SupportedLanguage, Record<string, MapLocaliz
     city: {
       name: 'City',
       desc: 'War-torn urban area: ruins, collapsed masonry, shell craters, and cracked asphalt. Gray haze, narrow streets, close-quarters combat.',
+    },
+    london: {
+      name: 'London',
+      desc: 'The Blitz over the British capital: brick ruins, red telephone boxes, anti-tank hedgehogs, fires, and relentless aerial bombardment.',
     },
   },
 };

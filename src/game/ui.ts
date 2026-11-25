@@ -16,6 +16,7 @@ import { audio } from './audio';
 import { getAllTanks, getSelectedTankId, getTankPowerRating, getTankSpec, setSelectedTankId } from './tanks';
 import { getSilver, isTankOwned, purchaseTank } from './economy';
 import { getAllModes, getModeDef } from './modes';
+import { isLondonMap, isModeOptionLocked } from './bombardment';
 import { computeFrontDamage } from './damage';
 import {
   clearMatchHistory,
@@ -465,9 +466,11 @@ export function createUI(h: UIHandlers) {
               ? t('extraJuggernaut')
               : activeModeDef.id === 'dead'
                 ? t('extraDead')
-                : activeModeDef.id === 'rounds5v5'
-                  ? t('extraRounds')
-                  : t('extraTdm');
+                : activeModeDef.id === 'bombardment'
+                  ? t('extraBombardment')
+                  : activeModeDef.id === 'rounds5v5'
+                    ? t('extraRounds')
+                    : t('extraTdm');
         const ctrlTip = settings.controlMode === 'touch' ? t('tipTouch') : t('tipPc');
         infoEl.innerHTML = `${activeModeText.shortDesc}<br />${extra}<br />${ctrlTip}`;
       }
@@ -901,17 +904,34 @@ export function createUI(h: UIHandlers) {
   function renderModes(): void {
     const box = $('modeCards');
     box.innerHTML = '';
+    const activeMapId = h.getMap();
     const activeId = h.getModeId();
+    if (isLondonMap(activeMapId)) {
+      const note = document.createElement('div');
+      note.className = 'mode-lock-note';
+      note.id = 'modeLondonNotice';
+      note.dataset.testid = 'mode-london-notice';
+      note.textContent = t('modeLondonOnlyHint');
+      box.appendChild(note);
+    }
     for (const m of getAllModes()) {
       const sel = activeId === m.id;
+      const locked = isModeOptionLocked(activeMapId, m.id);
       const mText = getModeText(m.id);
       const card = document.createElement('button');
       card.type = 'button';
-      card.className = 'modecard' + (sel ? ' sel' : '');
+      card.className = 'modecard' + (sel ? ' sel' : '') + (locked ? ' locked' : '');
       card.dataset.modeId = m.id;
-      card.innerHTML = `<div class="mname">${mText.name}</div><div class="mdesc">${mText.shortDesc}</div>${sel ? `<span class="m-badge">${t('badgeSelected')}</span>` : ''}`;
+      card.disabled = locked;
+      if (locked) card.setAttribute('aria-disabled', 'true');
+      const badgeHtml = sel
+        ? `<span class="m-badge">${t('badgeSelected')}</span>`
+        : locked
+          ? `<span class="m-badge">${t('modeLockedLondon')}</span>`
+          : '';
+      card.innerHTML = `<div class="mname">${mText.name}</div><div class="mdesc">${mText.shortDesc}</div>${badgeHtml}`;
       card.onclick = () => {
-        if (h.getModeId() === m.id) return;
+        if (locked || h.getModeId() === m.id) return;
         click();
         h.setModeId(m.id);
         renderModes();

@@ -27,6 +27,10 @@ export default function App() {
       </div>
       <div id="crosshair" />
       <div id="gunMark" />
+      <div id="cutsceneOverlay" className="hidden" data-testid="cutscene-overlay" aria-live="polite">
+        <div id="cutsceneTopCaption" data-testid="cutscene-top-caption" />
+        <div id="cutsceneCenterCaption" data-testid="cutscene-center-caption" />
+      </div>
       <div id="kstamReticle" className="hud hidden" data-testid="kstam-reticle">
         <div id="kstamRing" />
         <div id="kstamTxt">KSTAM · ЗАХВАТ</div>

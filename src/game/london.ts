@@ -11,7 +11,7 @@ import {
   type ObstacleBox,
 } from './world';
 import { resolveBuildingLod, sectorIndexFor, type VisibilityController } from './visibility';
-import type { BombStrike } from './bombardment';
+import { AIR_RAID_CONFIG, type BombStrike, type RaidAircraft } from './bombardment';
 
 const SIZE = 1000;
 const LIMIT = 480;
@@ -22,8 +22,18 @@ const SQRT2_INV = 1 / Math.SQRT2;
 export interface LondonWorld extends GameWorld {
   setBlitzAtmosphere: (crimson: number) => void;
   updateCutsceneBombers: (progress: number, dt: number, active: boolean) => void;
-  updateRaidBombers: (focus: THREE.Vector3, time: number, dt: number, active: boolean, retreating: boolean) => void;
-  syncBombVisuals: (strikes: ReadonlyArray<BombStrike>, simTime: number) => void;
+  syncRaidAircraft: (
+    aircraft: ReadonlyArray<RaidAircraft>,
+    simTime: number,
+    dt: number,
+    active: boolean,
+    retreating: boolean,
+  ) => void;
+  syncBombVisuals: (
+    strikes: ReadonlyArray<BombStrike>,
+    simTime: number,
+    aircraft?: ReadonlyArray<RaidAircraft>,
+  ) => void;
   isSpotOpenForBomb: (x: number, z: number) => boolean;
 }
 
@@ -1530,7 +1540,13 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
   }
 
   const cutsceneBombers: BomberActor[] = [];
-  const raidBombers: BomberActor[] = [];
+  interface RaidActor {
+    group: THREE.Group;
+    props: THREE.Mesh[];
+    fireGlow: THREE.Sprite;
+    smokeTrail: THREE.Sprite[];
+  }
+  const raidBombers: RaidActor[] = [];
 
   for (let i = 0; i < 6; i++) {
     const variant = i % 2 === 0 ? 'he111' : 'ju88';
@@ -1553,24 +1569,154 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
     });
   }
 
-  for (let i = 0; i < 6; i++) {
-    const variant = i % 2 === 0 ? 'ju88' : 'he111';
+  const crashFireTex = softSprite(255, 118, 28);
+  const crashSmokeTex = softSprite(28, 24, 24);
+  for (let i = 0; i < AIR_RAID_CONFIG.totalAircraft; i++) {
+    const variant = i % 2 === 0 ? 'he111' : 'ju88';
     const built = createLuftwaffeBomberMesh(variant, crossMat, camoTopMat, bellyMat, glassMat, propMat);
-    built.group.scale.setScalar(1.15);
+    built.group.scale.setScalar(i < 2 ? 1.25 : 1.15);
     built.group.visible = false;
+    built.group.rotation.order = 'YXZ';
     root.add(built.group);
+
+    const fireGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: crashFireTex,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0.9,
+      }),
+    );
+    fireGlow.scale.set(16, 16, 1);
+    fireGlow.visible = false;
+    built.group.add(fireGlow);
+
+    const smokeTrail: THREE.Sprite[] = [];
+    for (let k = 0; k < 4; k++) {
+      const sp = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: crashSmokeTex,
+          transparent: true,
+          depthWrite: false,
+          opacity: 0.72,
+        }),
+      );
+      sp.visible = false;
+      root.add(sp);
+      smokeTrail.push(sp);
+    }
+
     raidBombers.push({
       group: built.group,
       props: built.props,
-      offsetX: 0,
-      offsetY: 0,
-      offsetZ: 0,
-      orbitRadius: 95 + (i % 3) * 42,
-      orbitSpeed: 0.16 + (i % 2) * 0.04,
-      orbitPhase: (i / 6) * Math.PI * 2,
-      altitude: 128 + (i % 3) * 18,
+      fireGlow,
+      smokeTrail,
     });
   }
+
+  // Ground AA Batteries (ПВО): 6 sandbagged gun emplacements + pooled tracer streaks + sky flak bursts
+  const aaDynamicGroup = new THREE.Group();
+  root.add(aaDynamicGroup);
+  interface AaBattery {
+    x: number;
+    y: number;
+    z: number;
+    turret: THREE.Group;
+  }
+  const aaBatteries: AaBattery[] = [];
+  {
+    const sandMat = new THREE.MeshStandardMaterial({ color: 0x9b855c, roughness: 0.95 });
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x2d3236, roughness: 0.55, metalness: 0.6 });
+    const pitGeo = new THREE.CylinderGeometry(3.2, 3.6, 1.05, 10, 1, true);
+    const pedGeo = new THREE.CylinderGeometry(0.5, 0.75, 1.1, 8);
+    const barrelGeo = new THREE.CylinderGeometry(0.08, 0.12, 3.2, 6).translate(0, 1.6, 0);
+
+    for (const [ax, az] of [
+      [-72, -145],
+      [72, -145],
+      [-92, 24],
+      [92, 24],
+      [-74, 145],
+      [74, 145],
+    ] as const) {
+      const ay = heightAt(ax, az);
+      const pit = new THREE.Mesh(pitGeo, sandMat);
+      pit.position.set(ax, ay + 0.5, az);
+      const ped = new THREE.Mesh(pedGeo, steelMat);
+      ped.position.set(ax, ay + 0.55, az);
+      root.add(pit, ped);
+
+      const turret = new THREE.Group();
+      turret.position.set(ax, ay + 1.1, az);
+      const b1 = new THREE.Mesh(barrelGeo, steelMat);
+      b1.position.x = -0.18;
+      const b2 = new THREE.Mesh(barrelGeo, steelMat);
+      b2.position.x = 0.18;
+      turret.add(b1, b2);
+      aaDynamicGroup.add(turret);
+      aaBatteries.push({ x: ax, y: ay + 1.4, z: az, turret });
+    }
+  }
+
+  interface AaTracer {
+    mesh: THREE.Mesh;
+    age: number;
+    life: number;
+    sx: number;
+    sy: number;
+    sz: number;
+    vx: number;
+    vy: number;
+    vz: number;
+  }
+  const aaTracers: AaTracer[] = [];
+  {
+    const tracerGeo = new THREE.BoxGeometry(0.24, 0.24, 5.5);
+    const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffc64a, toneMapped: false });
+    for (let i = 0; i < 12; i++) {
+      const mesh = new THREE.Mesh(tracerGeo, tracerMat);
+      mesh.visible = false;
+      aaDynamicGroup.add(mesh);
+      aaTracers.push({ mesh, age: 99, life: 0.8, sx: 0, sy: 0, sz: 0, vx: 0, vy: 0, vz: 0 });
+    }
+  }
+
+  interface AaFlakBurst {
+    smoke: THREE.Sprite;
+    flash: THREE.Sprite;
+    age: number;
+    life: number;
+    x: number;
+    y: number;
+    z: number;
+  }
+  const aaFlakBursts: AaFlakBurst[] = [];
+  {
+    const flakSmokeTex = softSprite(36, 32, 34);
+    const flakFlashTex = softSprite(255, 165, 58);
+    for (let i = 0; i < 10; i++) {
+      const smoke = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: flakSmokeTex, transparent: true, depthWrite: false, opacity: 0.78 }),
+      );
+      const flash = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: flakFlashTex,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          opacity: 0.9,
+        }),
+      );
+      smoke.visible = flash.visible = false;
+      aaDynamicGroup.add(smoke, flash);
+      aaFlakBursts.push({ smoke, flash, age: 99, life: 1.4, x: 0, y: 0, z: 0 });
+    }
+  }
+  let aaFireAcc = 0;
+  let aaFlakAcc = 0;
+  let aaTracerCursor = 0;
+  let aaFlakCursor = 0;
 
   function updateCutsceneBombers(progress: number, dt: number, active: boolean): void {
     const visible = active && progress > 0 && progress < 1.05;
@@ -1589,32 +1735,182 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
   }
 
   let retreatOffset = 0;
-  function updateRaidBombers(focus: THREE.Vector3, simTime: number, dt: number, active: boolean, retreating: boolean): void {
+  const _aaAimTarget = new THREE.Vector3();
+  function syncRaidAircraft(
+    aircraft: ReadonlyArray<RaidAircraft>,
+    simTime: number,
+    dt: number,
+    active: boolean,
+    retreating: boolean,
+  ): void {
     if (retreating) {
-      retreatOffset += dt * 75;
+      retreatOffset += dt * 80;
     } else {
       retreatOffset = 0;
     }
+
+    const flyingTargets: RaidAircraft[] = [];
+    let focusTarget: RaidAircraft | null = null;
+    for (let i = 0; i < aircraft.length; i++) {
+      const a = aircraft[i];
+      if (a.state === 'approaching' || a.state === 'egress') {
+        flyingTargets.push(a);
+        if (a.aaUnderFire) focusTarget = a;
+      }
+    }
+
     for (let i = 0; i < raidBombers.length; i++) {
-      const b = raidBombers[i];
-      b.group.visible = active;
-      if (!active) continue;
-      const ang = b.orbitPhase + simTime * b.orbitSpeed;
-      const rad = b.orbitRadius + retreatOffset;
-      const bx = focus.x + Math.cos(ang) * rad;
-      const bz = focus.z + Math.sin(ang) * rad;
-      const vx = -Math.sin(ang);
-      const vz = Math.cos(ang);
-      b.group.position.set(bx, b.altitude + retreatOffset * 0.35 + Math.sin(simTime * 0.8 + i) * 3, bz);
-      b.group.rotation.set(retreating ? -0.14 : 0, Math.atan2(vx, vz), retreating ? 0.1 : -0.16);
-      for (let p = 0; p < b.props.length; p++) {
-        b.props[p].rotation.z += dt * 34;
+      const actor = raidBombers[i];
+      if (!active || i >= aircraft.length) {
+        actor.group.visible = false;
+        actor.fireGlow.visible = false;
+        for (let k = 0; k < actor.smokeTrail.length; k++) actor.smokeTrail[k].visible = false;
+        continue;
+      }
+      const p = aircraft[i];
+      if (p.state === 'crashed') {
+        actor.group.visible = false;
+        actor.fireGlow.visible = false;
+        for (let k = 0; k < actor.smokeTrail.length; k++) actor.smokeTrail[k].visible = false;
+        continue;
+      }
+
+      actor.group.visible = true;
+      const retY = retreating ? retreatOffset * 0.4 : 0;
+      const retX = retreating ? Math.sin(p.heading) * retreatOffset : 0;
+      const retZ = retreating ? Math.cos(p.heading) * retreatOffset : 0;
+      actor.group.position.set(p.x + retX, p.y + retY, p.z + retZ);
+      actor.group.rotation.set(retreating ? -0.15 : p.pitch, p.heading, p.roll);
+
+      for (let k = 0; k < actor.props.length; k++) {
+        actor.props[k].rotation.z += dt * (p.state === 'crashing' ? 14 : 34);
+      }
+
+      const isCrashing = p.state === 'crashing';
+      actor.fireGlow.visible = isCrashing;
+      if (isCrashing) {
+        const flick = 14 + Math.sin(simTime * 22 + i) * 3.5;
+        actor.fireGlow.scale.set(flick, flick, 1);
+        for (let k = 0; k < actor.smokeTrail.length; k++) {
+          const sp = actor.smokeTrail[k];
+          sp.visible = true;
+          const lag = (k + 1) * 0.22;
+          sp.position.set(
+            p.x - p.crashVx * lag + Math.sin(simTime * 5 + k) * 1.8,
+            p.y - p.crashVy * lag + k * 1.4,
+            p.z - p.crashVz * lag + Math.cos(simTime * 5 + k) * 1.8,
+          );
+          const sz = 10 + k * 4.5;
+          sp.scale.set(sz, sz, 1);
+        }
+      } else {
+        for (let k = 0; k < actor.smokeTrail.length; k++) actor.smokeTrail[k].visible = false;
+      }
+    }
+
+    // Aim AA batteries & spawn tracers + sky flak bursts when raid aircraft are in the sky
+    const primaryAim = focusTarget ?? flyingTargets[0] ?? null;
+    for (let i = 0; i < aaBatteries.length; i++) {
+      const bat = aaBatteries[i];
+      if (primaryAim) {
+        const targetForBat = focusTarget ?? flyingTargets[i % flyingTargets.length];
+        _aaAimTarget.set(targetForBat.x, targetForBat.y, targetForBat.z);
+        bat.turret.lookAt(_aaAimTarget);
+        bat.turret.rotateX(Math.PI / 2);
+      }
+    }
+
+    if (active && !retreating && flyingTargets.length > 0) {
+      const fireRate = focusTarget ? 0.08 : 0.22;
+      aaFireAcc += dt;
+      if (aaFireAcc >= fireRate) {
+        aaFireAcc = 0;
+        const target = focusTarget ?? flyingTargets[aaTracerCursor % flyingTargets.length];
+        const bat = aaBatteries[aaTracerCursor % aaBatteries.length];
+        const tr = aaTracers[aaTracerCursor % aaTracers.length];
+        aaTracerCursor++;
+
+        const spread = focusTarget ? 7 : 18;
+        const tx = target.x + (Math.random() - 0.5) * spread;
+        const ty = target.y + (Math.random() - 0.5) * spread * 0.6;
+        const tz = target.z + (Math.random() - 0.5) * spread;
+        const dx = tx - bat.x;
+        const dy = ty - bat.y;
+        const dz = tz - bat.z;
+        const dist = Math.max(10, Math.hypot(dx, dy, dz));
+        const spd = 290;
+
+        tr.age = 0;
+        tr.life = dist / spd;
+        tr.sx = bat.x;
+        tr.sy = bat.y;
+        tr.sz = bat.z;
+        tr.vx = (dx / dist) * spd;
+        tr.vy = (dy / dist) * spd;
+        tr.vz = (dz / dist) * spd;
+        tr.mesh.position.set(bat.x, bat.y, bat.z);
+        tr.mesh.lookAt(tx, ty, tz);
+        tr.mesh.visible = true;
+      }
+
+      const flakRate = focusTarget ? 0.14 : 0.36;
+      aaFlakAcc += dt;
+      if (aaFlakAcc >= flakRate) {
+        aaFlakAcc = 0;
+        const target = focusTarget ?? flyingTargets[aaFlakCursor % flyingTargets.length];
+        const fl = aaFlakBursts[aaFlakCursor % aaFlakBursts.length];
+        aaFlakCursor++;
+
+        const spread = focusTarget ? 11 : 28;
+        fl.age = 0;
+        fl.life = 1.35;
+        fl.x = target.x + (Math.random() - 0.5) * spread;
+        fl.y = target.y + (Math.random() - 0.5) * 14;
+        fl.z = target.z + (Math.random() - 0.5) * spread;
+        fl.smoke.position.set(fl.x, fl.y, fl.z);
+        fl.flash.position.set(fl.x, fl.y, fl.z);
+        fl.smoke.visible = true;
+        fl.flash.visible = true;
+      }
+    }
+
+    for (let i = 0; i < aaTracers.length; i++) {
+      const tr = aaTracers[i];
+      if (!tr.mesh.visible) continue;
+      tr.age += dt;
+      if (tr.age >= tr.life) {
+        tr.mesh.visible = false;
+        continue;
+      }
+      tr.mesh.position.set(tr.sx + tr.vx * tr.age, tr.sy + tr.vy * tr.age, tr.sz + tr.vz * tr.age);
+    }
+
+    for (let i = 0; i < aaFlakBursts.length; i++) {
+      const fl = aaFlakBursts[i];
+      if (!fl.smoke.visible) continue;
+      fl.age += dt;
+      if (fl.age >= fl.life) {
+        fl.smoke.visible = false;
+        fl.flash.visible = false;
+        continue;
+      }
+      const t = fl.age / fl.life;
+      const sSz = 7 + t * 14;
+      fl.smoke.scale.set(sSz, sSz, 1);
+      (fl.smoke.material as THREE.SpriteMaterial).opacity = 0.78 * (1 - t);
+      if (t < 0.22) {
+        const fSz = 9 + t * 24;
+        fl.flash.visible = true;
+        fl.flash.scale.set(fSz, fSz, 1);
+        (fl.flash.material as THREE.SpriteMaterial).opacity = 1 - t / 0.22;
+      } else {
+        fl.flash.visible = false;
       }
     }
   }
 
-  // Pooled Bomb / Rocket + Yellow Ground Warning Circle Visuals (zero runtime allocations)
-  const MAX_VISUAL_BOMBS = 10;
+  // Pooled Bomb / Rocket / Crash Zone + Yellow/Red-Orange Ground Warning Circle Visuals (zero runtime allocations)
+  const MAX_VISUAL_BOMBS = 14;
   interface BombVisualSlot {
     ringOuter: THREE.Mesh;
     fillDisc: THREE.Mesh;
@@ -1696,17 +1992,16 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
     visualSlots.push({ ringOuter, fillDisc, fuseRing, projGroup, bombMesh, rocketMesh });
   }
 
-  function syncBombVisuals(strikes: ReadonlyArray<BombStrike>, simTime: number): void {
+  function syncBombVisuals(
+    strikes: ReadonlyArray<BombStrike>,
+    simTime: number,
+    aircraft?: ReadonlyArray<RaidAircraft>,
+  ): void {
     const pulse = 0.8 + 0.2 * Math.sin(simTime * 11);
-    for (let i = 0; i < MAX_VISUAL_BOMBS; i++) {
-      const slot = visualSlots[i];
-      if (i >= strikes.length) {
-        slot.ringOuter.visible = false;
-        slot.fillDisc.visible = false;
-        slot.fuseRing.visible = false;
-        slot.projGroup.visible = false;
-        continue;
-      }
+    let slotIdx = 0;
+
+    for (let i = 0; i < strikes.length && slotIdx < MAX_VISUAL_BOMBS; i++, slotIdx++) {
+      const slot = visualSlots[slotIdx];
       const s = strikes[i];
       const frac = Math.min(1, Math.max(0, 1 - s.fuseRemaining / Math.max(0.05, s.fuseTotal)));
       const yRing = s.groundY + 0.16;
@@ -1714,12 +2009,16 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
       slot.ringOuter.visible = true;
       slot.ringOuter.position.set(s.x, yRing + 0.03, s.z);
       slot.ringOuter.scale.setScalar(s.radius);
-      (slot.ringOuter.material as THREE.MeshBasicMaterial).opacity = 0.85 * pulse;
+      const outerMat = slot.ringOuter.material as THREE.MeshBasicMaterial;
+      outerMat.color.setHex(0xffea1a);
+      outerMat.opacity = 0.85 * pulse;
 
       slot.fillDisc.visible = true;
       slot.fillDisc.position.set(s.x, yRing, s.z);
       slot.fillDisc.scale.setScalar(s.radius);
-      (slot.fillDisc.material as THREE.MeshBasicMaterial).opacity = 0.2 + frac * 0.18;
+      const fillMat = slot.fillDisc.material as THREE.MeshBasicMaterial;
+      fillMat.color.setHex(0xffcc00);
+      fillMat.opacity = 0.2 + frac * 0.18;
 
       slot.fuseRing.visible = true;
       slot.fuseRing.position.set(s.x, yRing + 0.02, s.z);
@@ -1733,6 +2032,44 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
       if (s.kind === 'bomb') {
         slot.bombMesh.rotation.y += 0.08;
       }
+    }
+
+    if (aircraft) {
+      for (let i = 0; i < aircraft.length && slotIdx < MAX_VISUAL_BOMBS; i++) {
+        const p = aircraft[i];
+        if (p.state !== 'crashing') continue;
+        const slot = visualSlots[slotIdx++];
+        const yRing = p.crashTargetGroundY + 0.18;
+        const crashFrac = Math.min(1, Math.max(0, 1 - (p.y - p.crashTargetGroundY) / Math.max(20, p.altitude)));
+
+        slot.ringOuter.visible = true;
+        slot.ringOuter.position.set(p.crashTargetX, yRing + 0.04, p.crashTargetZ);
+        slot.ringOuter.scale.setScalar(AIR_RAID_CONFIG.crashBombRadiusM);
+        const outerMat = slot.ringOuter.material as THREE.MeshBasicMaterial;
+        outerMat.color.setHex(0xff4a1a);
+        outerMat.opacity = 0.92 * pulse;
+
+        slot.fillDisc.visible = true;
+        slot.fillDisc.position.set(p.crashTargetX, yRing, p.crashTargetZ);
+        slot.fillDisc.scale.setScalar(AIR_RAID_CONFIG.crashBombRadiusM);
+        const fillMat = slot.fillDisc.material as THREE.MeshBasicMaterial;
+        fillMat.color.setHex(0xff5a1f);
+        fillMat.opacity = 0.2 + crashFrac * 0.22;
+
+        slot.fuseRing.visible = true;
+        slot.fuseRing.position.set(p.crashTargetX, yRing + 0.02, p.crashTargetZ);
+        slot.fuseRing.scale.setScalar(Math.max(1.0, AIR_RAID_CONFIG.crashBombRadiusM * crashFrac));
+
+        slot.projGroup.visible = false;
+      }
+    }
+
+    for (; slotIdx < MAX_VISUAL_BOMBS; slotIdx++) {
+      const slot = visualSlots[slotIdx];
+      slot.ringOuter.visible = false;
+      slot.fillDisc.visible = false;
+      slot.fuseRing.visible = false;
+      slot.projGroup.visible = false;
     }
   }
 
@@ -1749,11 +2086,12 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
     sky,
     sun,
     sun.target,
+    aaDynamicGroup,
     ...clouds,
     ...plumes.map((p) => p.sp),
     ...fireSprites.map((f) => f.sp),
     ...cutsceneBombers.map((b) => b.group),
-    ...raidBombers.map((b) => b.group),
+    ...raidBombers.flatMap((b) => [b.group, ...b.smokeTrail]),
     ...visualSlots.flatMap((v) => [v.ringOuter, v.fillDisc, v.fuseRing, v.projGroup]),
   ]);
   for (const child of root.children) {
@@ -1943,7 +2281,7 @@ export function createLondonWorld(scene: THREE.Scene): LondonWorld {
     objJitter: 8,
     setBlitzAtmosphere,
     updateCutsceneBombers,
-    updateRaidBombers,
+    syncRaidAircraft,
     syncBombVisuals,
     isSpotOpenForBomb,
   };

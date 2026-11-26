@@ -3,17 +3,17 @@ import { createWorld, type GameWorld } from './world';
 import { createCityWorld } from './city';
 import { createLondonWorld, type LondonWorld } from './london';
 import {
+  AIR_RAID_CONFIG,
   BOMBARDMENT_DURATION_SEC,
-  createBombStrike,
-  getBombardmentIntervalSec,
-  getMaxConcurrentBombs,
+  createAirRaidState,
   isBombardmentMode,
   isLondonMap,
-  pickStrikeCandidate,
   resolveMapAndModeOnMapChange,
   resolveMapAndModeOnModeChange,
+  stepAirRaid,
   stepBombStrikes,
   stepCutscene,
+  type AirRaidState,
   type BombStrike,
 } from './bombardment';
 import { Tank } from './tank';
@@ -381,11 +381,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   let cutsceneElapsed = 0;
   let cutsceneBomberSfxPlayed = false;
   const bombStrikes: BombStrike[] = [];
-  let nextBombId = 1;
-  let bombSpawnAcc = 0;
-  let bombAnchorX = 0;
-  let bombAnchorZ = 0;
-  let bombStillSec = 0;
+  let airRaidState: AirRaidState = createAirRaidState();
   let bombersRetreating = false;
   const smokeClouds: SmokeCloud[] = [];
   let smokeEmitAcc = 0;
@@ -809,10 +805,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     updateModeScoreHud();
     minimap.update(allTanksList, tank, cam.yaw, spectateTarget, 0, true);
     bombStrikes.length = 0;
-    bombSpawnAcc = 0;
-    bombAnchorX = tank.root.position.x;
-    bombAnchorZ = tank.root.position.z;
-    bombStillSec = 0;
+    airRaidState = createAirRaidState();
     bombersRetreating = false;
     if (isFirstRound && isLondonMap(currentMap) && isBombardmentMode(currentModeId)) {
       cutsceneActive = true;
@@ -1080,8 +1073,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       cutsceneElapsed = 0;
       cutsceneBomberSfxPlayed = false;
       bombStrikes.length = 0;
+      airRaidState = createAirRaidState();
       bombersRetreating = false;
-      if (isLondonWorld(world)) world.syncBombVisuals([], simTime);
+      if (isLondonWorld(world)) {
+        world.syncRaidAircraft([], simTime, 0, false, false);
+        world.syncBombVisuals([], simTime);
+      }
       roundPhase = 'active';
       roundEndT = 0;
       pendingRoundMatchWinner = null;
@@ -1157,6 +1154,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     cutsceneElapsed = 0;
     cutsceneBomberSfxPlayed = false;
     bombStrikes.length = 0;
+    airRaidState = createAirRaidState();
     bombersRetreating = false;
     survivalRemaining = def.survivalSeconds ?? 0;
     survivalElapsed = 0;
@@ -3372,7 +3370,7 @@ export function initGame(mountEl: HTMLElement): () => void {
           dt,
           cs.phase === 'calm_sky' || cs.phase === 'bombers_passing' || cs.phase === 'final_prompt',
         );
-        world.updateRaidBombers(tank.root.position, simTime, dt, false, false);
+        world.syncRaidAircraft(airRaidState.aircraft, simTime, dt, false, false);
         world.syncBombVisuals([], simTime);
       }
 
@@ -3386,7 +3384,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
       if (cs.phase === 'combat') {
         cutsceneActive = false;
-        bombSpawnAcc = 1.4;
+        airRaidState = createAirRaidState();
         hideCutsceneOverlay();
         if (isLondonWorld(world)) {
           world.setBlitzAtmosphere(1);
@@ -3565,42 +3563,61 @@ export function initGame(mountEl: HTMLElement): () => void {
     resolveEnvironmentImpacts();
 
     if (isBombardmentMode(activeMode.id) && isLondonWorld(world)) {
-      world.updateRaidBombers(tank.root.position, simTime, dt, !matchEnded || bombersRetreating, bombersRetreating);
       if (!matchEnded && tank.alive) {
-        const movedDist = Math.hypot(tank.root.position.x - bombAnchorX, tank.root.position.z - bombAnchorZ);
-        if (movedDist > 6.5) {
-          bombAnchorX = tank.root.position.x;
-          bombAnchorZ = tank.root.position.z;
-          bombStillSec = 0;
-        } else {
-          bombStillSec += dt;
+        const raidEv = stepAirRaid(airRaidState, bombStrikes, {
+          dt,
+          playerX: tank.root.position.x,
+          playerZ: tank.root.position.z,
+          playerHeading: tank.heading,
+          playerSpeed: tank.speed,
+          playerAlive: tank.alive,
+          worldLimit: world.limit,
+          heightAt: world.heightAt,
+          isSpotOpen: world.isSpotOpenForBomb,
+          config: AIR_RAID_CONFIG,
+        });
+
+        if (raidEv.raidJustStarted) {
+          audio.play('bomberFlyover', null, 0.65, true);
         }
 
-        const totalSec = activeMode.survivalSeconds || BOMBARDMENT_DURATION_SEC;
-        const interval = getBombardmentIntervalSec(survivalElapsed, totalSec);
-        bombSpawnAcc += dt;
-        if (bombSpawnAcc >= interval) {
-          bombSpawnAcc = 0;
-          const maxBombs = getMaxConcurrentBombs(survivalElapsed, totalSec);
-          if (bombStrikes.length < maxBombs) {
-            const cand = pickStrikeCandidate({
-              elapsedSec: survivalElapsed,
-              totalSec,
-              playerX: tank.root.position.x,
-              playerZ: tank.root.position.z,
-              playerHeading: tank.heading,
-              playerSpeed: tank.speed,
-              stillSec: bombStillSec,
-              worldLimit: world.limit,
-              heightAt: world.heightAt,
-              isSpotOpen: world.isSpotOpenForBomb,
-              existingStrikes: bombStrikes,
-            });
-            if (cand) {
-              bombStrikes.push(
-                createBombStrike(nextBombId++, cand.x, world.heightAt(cand.x, cand.z), cand.z, cand.kind),
-              );
+        for (let i = 0; i < raidEv.shotDownAircraft.length; i++) {
+          const downed = raidEv.shotDownAircraft[i];
+          const leftInSky = airRaidState.aircraft.filter(
+            (a) => a.state === 'approaching' || a.state === 'egress',
+          ).length;
+          audio.play('airBomb', new THREE.Vector3(downed.x, downed.y, downed.z), 0.55);
+          showMsg(
+            downed.role === 'area'
+              ? t('msgAaShotDownArea', { left: leftInSky })
+              : t('msgAaShotDownPrimary', { left: leftInSky }),
+            '#ffd27a',
+          );
+        }
+
+        for (let i = 0; i < raidEv.crashExplosions.length; i++) {
+          const cr = raidEv.crashExplosions[i];
+          emitAirBombExplosion(cr.x, cr.groundY, cr.z, cr.radius);
+          audio.play('airBomb', new THREE.Vector3(cr.x, cr.groundY + 1, cr.z), 1.0);
+          const distToPlayer = Math.hypot(cr.x - tank.root.position.x, cr.z - tank.root.position.z);
+          if (distToPlayer < 130) {
+            shake = Math.max(shake, clamp(1 - distToPlayer / 130, 0.25, 1.15));
+          }
+          if (cr.hitPlayer && tank.alive) {
+            tank.hp = Math.max(0, tank.hp - cr.damage);
+            if (tank.hp <= 0) {
+              tank.destroy(true);
+              shake = Math.max(shake, 1.5);
+              showMsg(t('msgBomberCrashHit'), '#ff4c2a');
+              world.syncRaidAircraft(airRaidState.aircraft, simTime, dt, true, false);
+              world.syncBombVisuals(bombStrikes, simTime, airRaidState.aircraft);
+              handleTankDestroyed(tank, null, t('suffixPlaneCrash'));
+              render();
+              scheduleNext();
+              return;
             }
+            shake = Math.max(shake, 1.05);
+            showMsg(t('msgBomberCrashHit'), '#ff6a4a');
           }
         }
 
@@ -3623,19 +3640,31 @@ export function initGame(mountEl: HTMLElement): () => void {
             shake = Math.max(shake, clamp(1 - distToPlayer / 90, 0.15, 0.85));
           }
           if (ev.hitPlayer && tank.alive) {
-            tank.hp = 0;
-            tank.destroy(true);
-            shake = Math.max(shake, 1.35);
-            showMsg(t('msgBombardmentHit'), '#ff4c2a');
-            world.syncBombVisuals(bombStrikes, simTime);
-            handleTankDestroyed(tank, null, t('suffixAirBomb'));
-            render();
-            scheduleNext();
-            return;
+            tank.hp = Math.max(0, tank.hp - ev.damage);
+            if (tank.hp <= 0) {
+              tank.destroy(true);
+              shake = Math.max(shake, 1.35);
+              showMsg(t('msgBombardmentHit'), '#ff4c2a');
+              world.syncRaidAircraft(airRaidState.aircraft, simTime, dt, true, false);
+              world.syncBombVisuals(bombStrikes, simTime, airRaidState.aircraft);
+              handleTankDestroyed(tank, null, t('suffixAirBomb'));
+              render();
+              scheduleNext();
+              return;
+            }
+            shake = Math.max(shake, 0.85);
+            showMsg(t('msgBombardmentHit'), '#ff6a4a');
           }
         }
       }
-      world.syncBombVisuals(bombStrikes, simTime);
+      world.syncRaidAircraft(
+        airRaidState.aircraft,
+        simTime,
+        dt,
+        airRaidState.started && (!matchEnded || bombersRetreating),
+        bombersRetreating,
+      );
+      world.syncBombVisuals(bombStrikes, simTime, airRaidState.aircraft);
     }
 
     if (activeMode.survivalSeconds && activeMode.survivalSeconds > 0 && !matchEnded) {
@@ -3659,7 +3688,7 @@ export function initGame(mountEl: HTMLElement): () => void {
           bombStrikes.length = 0;
           if (isLondonWorld(world)) {
             world.syncBombVisuals([], simTime);
-            world.updateRaidBombers(tank.root.position, simTime, dt, true, true);
+            world.syncRaidAircraft(airRaidState.aircraft, simTime, dt, true, true);
           }
           showMsg(t('msgBombardmentSurvived'), '#8fe36a');
         }
@@ -3975,6 +4004,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     },
     get activeBombs() {
       return bombStrikes;
+    },
+    get airRaid() {
+      return airRaidState;
     },
     get survivalRemaining() {
       return survivalRemaining;

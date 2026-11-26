@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AIR_RAID_CONFIG,
   BOMBARDMENT_DURATION_SEC,
   BOMBARDMENT_MODE_ID,
   BOMBARDMENT_REWARD_SILVER,
@@ -9,6 +10,8 @@ import {
   MAX_BOMB_DIAMETER_M,
   MAX_BOMB_RADIUS_M,
   TANK_HIT_MARGIN_M,
+  createAirRaidConfig,
+  createAirRaidState,
   createBombStrike,
   isBombardmentMode,
   isLondonMap,
@@ -17,6 +20,8 @@ import {
   pickStrikeCandidate,
   resolveMapAndModeOnMapChange,
   resolveMapAndModeOnModeChange,
+  selectNextAaTarget,
+  stepAirRaid,
   stepBombStrikes,
   stepCutscene,
   type BombStrike,
@@ -200,3 +205,224 @@ test('Anti-camp targeting drops lethal overlapping strikes when tank stands stil
   }
   assert.ok(hitCount >= 1, 'Expected stationary AFK tank to be hit by bombardment');
 });
+
+test('Air raid respects 2.5s start delay, spawns 7 planes (1 exact, 1 predictive, 5 area), and drops bombs only on physical arrival', () => {
+  let seed = 42;
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const cfg = createAirRaidConfig();
+  assert.ok(cfg.startDelaySec >= 2 && cfg.startDelaySec <= 3);
+  assert.equal(cfg.phaseDurationSec, 300);
+  assert.equal(cfg.totalAircraft, 7);
+
+  const raid = createAirRaidState();
+  const strikes: BombStrike[] = [];
+
+  // During first 2.4s: no aircraft appear and no bombs spawn
+  for (let i = 0; i < 24; i++) {
+    const ev = stepAirRaid(raid, strikes, {
+      dt: 0.1,
+      playerX: 0,
+      playerZ: -240,
+      playerHeading: 0,
+      playerSpeed: 0,
+      playerAlive: true,
+      worldLimit: 480,
+      heightAt: () => 0,
+      config: cfg,
+      rng,
+    });
+    assert.equal(ev.raidJustStarted, false);
+    assert.equal(raid.started, false);
+    assert.equal(raid.aircraft.length, 0);
+    assert.equal(strikes.length, 0);
+  }
+
+  // Crossing 2.5s spawns exactly 7 aircraft (1 exact, 1 predictive, 5 area), with 0 instant bombs
+  const startEv = stepAirRaid(raid, strikes, {
+    dt: 0.2,
+    playerX: 0,
+    playerZ: -240,
+    playerHeading: 0,
+    playerSpeed: 0,
+    playerAlive: true,
+    worldLimit: 480,
+    heightAt: () => 0,
+    config: cfg,
+    rng,
+  });
+  assert.equal(startEv.raidJustStarted, true);
+  assert.equal(raid.started, true);
+  assert.equal(raid.aircraft.length, 7);
+  assert.equal(raid.aircraft.filter((p) => p.role === 'exact').length, 1);
+  assert.equal(raid.aircraft.filter((p) => p.role === 'predictive').length, 1);
+  assert.equal(raid.aircraft.filter((p) => p.role === 'area').length, 5);
+  assert.equal(strikes.length, 0, 'Bombs must not spawn until planes physically fly to drop coordinates');
+
+  // Step until the exact plane physically flies to stationary tank at (0, -240) and releases its bomb
+  let exactBombSeen = false;
+  let exactBombHit = false;
+  for (let step = 0; step < 120; step++) {
+    const ev = stepAirRaid(raid, strikes, {
+      dt: 0.1,
+      playerX: 0,
+      playerZ: -240,
+      playerHeading: 0,
+      playerSpeed: 0,
+      playerAlive: true,
+      worldLimit: 480,
+      heightAt: () => 0,
+      config: cfg,
+      rng,
+    });
+    for (const b of ev.droppedBombs) {
+      if (Math.hypot(b.x - 0, b.z - -240) <= cfg.dropTriggerDistanceM + 0.5) {
+        exactBombSeen = true;
+      }
+    }
+    const dets = stepBombStrikes(strikes, 0.1, 0, -240, true);
+    for (const d of dets) {
+      if (d.hitPlayer) exactBombHit = true;
+    }
+  }
+  assert.equal(exactBombSeen, true, 'Exact bomber physically reaches stationary tank and releases bomb there');
+  assert.equal(exactBombHit, true, 'Stationary tank is hit by exact bomber drop');
+});
+
+test('Predictive bomber locks lead target early so a turning tank can dodge it', () => {
+  let seed = 99;
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const cfg = createAirRaidConfig();
+  const raid = createAirRaidState();
+  const strikes: BombStrike[] = [];
+
+  // Advance past start delay while tank drives north (+Z) at 13 m/s
+  let px = 0;
+  let pz = -240;
+  let heading = 0;
+  const speed = 13;
+
+  for (let i = 0; i < 26; i++) {
+    pz += speed * 0.1;
+    stepAirRaid(raid, strikes, {
+      dt: 0.1,
+      playerX: px,
+      playerZ: pz,
+      playerHeading: heading,
+      playerSpeed: speed,
+      playerAlive: true,
+      worldLimit: 480,
+      heightAt: () => 0,
+      config: cfg,
+      rng,
+    });
+  }
+
+  const predPlane = raid.aircraft.find((p) => p.role === 'predictive')!;
+  assert.ok(predPlane);
+
+  // Wait until predictive bomber enters lock freeze window, then steer 90 deg east (+X)
+  let lockedAtZ = 0;
+  let droppedPredBomb: BombStrike | null = null;
+  for (let step = 0; step < 80; step++) {
+    if (predPlane.targetLocked && heading === 0) {
+      heading = Math.PI / 2; // Sharp 90-degree turn after predictive target locked!
+      lockedAtZ = predPlane.targetZ;
+    }
+    px += Math.sin(heading) * speed * 0.1;
+    pz += Math.cos(heading) * speed * 0.1;
+    const ev = stepAirRaid(raid, strikes, {
+      dt: 0.1,
+      playerX: px,
+      playerZ: pz,
+      playerHeading: heading,
+      playerSpeed: speed,
+      playerAlive: true,
+      worldLimit: 480,
+      heightAt: () => 0,
+      config: cfg,
+      rng,
+    });
+    if (predPlane.bombReleasedOnPass && !droppedPredBomb && ev.droppedBombs.length > 0) {
+      // Find bomb dropped closest to predictive plane target
+      droppedPredBomb = ev.droppedBombs.reduce((best, cur) =>
+        Math.hypot(cur.x - predPlane.targetX, cur.z - predPlane.targetZ) <
+        Math.hypot(best.x - predPlane.targetX, best.z - predPlane.targetZ)
+          ? cur
+          : best,
+      );
+    }
+    stepBombStrikes(strikes, 0.1, px, pz, true);
+  }
+  assert.ok(lockedAtZ !== 0, 'Predictive bomber should freeze lock before arrival');
+  assert.ok(droppedPredBomb !== null, 'Predictive bomber should release bomb at locked lead coordinates');
+  assert.equal(
+    isTankCaughtInBomb(px, pz, droppedPredBomb.x, droppedPredBomb.z, droppedPredBomb.radius),
+    false,
+    'Turning away after predictive lock should allow player to dodge',
+  );
+});
+
+test('AA defense shoots down all 5 area bombers first and the 2 primary bombers strictly last, causing big crash explosions', () => {
+  let seed = 17;
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const cfg = createAirRaidConfig();
+  assert.ok(cfg.crashBombRadiusM > cfg.normalBombRadiusM, 'Crashed plane radius must exceed normal bomb radius');
+  assert.ok(cfg.crashBombDamage > cfg.normalBombDamage, 'Crashed plane damage must exceed normal bomb damage');
+
+  const raid = createAirRaidState();
+  const strikes: BombStrike[] = [];
+  const downedOrder: string[] = [];
+  const crashEvents: Array<{ radius: number; damage: number; x: number; z: number }> = [];
+
+  // Simulate full 300s phase
+  for (let tick = 0; tick < 3050; tick++) {
+    const ev = stepAirRaid(raid, strikes, {
+      dt: 0.1,
+      playerX: 40,
+      playerZ: -120,
+      playerHeading: 0,
+      playerSpeed: 0,
+      playerAlive: false,
+      worldLimit: 480,
+      heightAt: () => 0,
+      config: cfg,
+      rng,
+    });
+    for (const s of ev.shotDownAircraft) {
+      downedOrder.push(s.role);
+    }
+    for (const c of ev.crashExplosions) {
+      crashEvents.push({ radius: c.radius, damage: c.damage, x: c.x, z: c.z });
+    }
+    stepBombStrikes(strikes, 0.1, 40, -120, false);
+  }
+
+  assert.equal(downedOrder.length, 7, 'All 7 bombers should be shot down over the 5-minute phase');
+  assert.deepEqual(
+    downedOrder.slice(0, 5),
+    ['area', 'area', 'area', 'area', 'area'],
+    'AA must strictly destroy all 5 random area bombers before touching exact or predictive bombers',
+  );
+  assert.deepEqual(
+    new Set(downedOrder.slice(5, 7)),
+    new Set(['exact', 'predictive']),
+    'The 2 primary bombers must be shot down strictly last',
+  );
+  assert.equal(crashEvents.length, 7, 'Every shot-down bomber must crash onto the map and explode');
+  for (const ce of crashEvents) {
+    assert.equal(ce.radius, cfg.crashBombRadiusM);
+    assert.equal(ce.damage, cfg.crashBombDamage);
+    assert.ok(Math.abs(ce.x) <= 480 && Math.abs(ce.z) <= 480);
+  }
+  assert.equal(selectNextAaTarget(raid.aircraft, rng), null);
+});
+

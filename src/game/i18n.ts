@@ -381,6 +381,9 @@ const DICT_RU: TranslationDict = {
   msgMausBurned: 'МАУС СЖЁГ ВАС ОГНЕМЁТОМ!',
   msgBombardmentHit: 'ПРЯМОЕ ПОПАДАНИЕ АВИАБОМБЫ!',
   msgBombardmentSurvived: 'НАЛЁТ ОТБИТ! БОМБАРДИРОВЩИКИ УХОДЯТ!',
+  msgAaShotDownArea: 'ПВО СБИЛО БОМБАРДИРОВЩИК! ОСТАЛОСЬ В НЕБЕ: {left}',
+  msgAaShotDownPrimary: 'ПВО ПОДБИЛО ОСНОВНОЙ БОМБАРДИРОВЩИК! ОСТАЛОСЬ: {left}',
+  msgBomberCrashHit: 'УПАВШИЙ САМОЛЁТ НАКРЫЛ ВАС ВЗРЫВОМ!',
   msgMgOutToast: 'ПАТРОНЫ ПУЛЕМЁТА КОНЧИЛИСЬ',
   msgTrophyIntercept: 'КАЗ «TROPHY» ПЕРЕХВАТИЛ СНАРЯД!',
   msgTrophyEnemyBlocked: 'СНАРЯД ПЕРЕХВАЧЕН КАЗ «TROPHY»!',
@@ -405,6 +408,7 @@ const DICT_RU: TranslationDict = {
   suffixFlame: ' [ОГНЕМЁТ]',
   suffixMg: ' [ПУЛЕМЁТ]',
   suffixAirBomb: ' [АВИАБОМБА]',
+  suffixPlaneCrash: ' [СБИТЫЙ САМОЛЁТ]',
 
   // HitCam
   hcPen: 'Попадание',
@@ -760,6 +764,9 @@ const DICT_SR: TranslationDict = {
   msgMausBurned: 'MAUS VAS JE SPALIO BACAČEM PLAMENA!',
   msgBombardmentHit: 'DIREKTAN POGODAK AVIO-BOMBE!',
   msgBombardmentSurvived: 'NAPAD ODBIJEN! BOMBARDERI SE POVLAČE!',
+  msgAaShotDownArea: 'PVO OBORILA BOMBARDER! PREOSTALO: {left}',
+  msgAaShotDownPrimary: 'PVO POGODILA GLAVNI BOMBARDER! PREOSTALO: {left}',
+  msgBomberCrashHit: 'PAD AVIONA VAS JE RAZNEO!',
   msgMgOutToast: 'NESTAO JE METAKA ZA MITRALJEZ',
   msgTrophyIntercept: 'APS «TROPHY» PRESREO GRANATU!',
   msgTrophyEnemyBlocked: 'GRANATU PRESREO APS «TROPHY»!',
@@ -784,6 +791,7 @@ const DICT_SR: TranslationDict = {
   suffixFlame: ' [BACAČ PLAMENA]',
   suffixMg: ' [MITRALJEZ]',
   suffixAirBomb: ' [AVIO-BOMBA]',
+  suffixPlaneCrash: ' [OBORENI AVION]',
 
   // HitCam
   hcPen: 'Pogodak',
@@ -1139,6 +1147,9 @@ const DICT_EN: TranslationDict = {
   msgMausBurned: 'THE MAUS INCINERATED YOU WITH FLAMETHROWER!',
   msgBombardmentHit: 'DIRECT AERIAL BOMB HIT!',
   msgBombardmentSurvived: 'AIR RAID SURVIVED! BOMBERS TURNING BACK!',
+  msgAaShotDownArea: 'AA SHOT DOWN A BOMBER! AIRCRAFT LEFT: {left}',
+  msgAaShotDownPrimary: 'AA HIT A PRIMARY HUNTER BOMBER! LEFT: {left}',
+  msgBomberCrashHit: 'CRASHING BOMBER BLAST CAUGHT YOU!',
   msgMgOutToast: 'MACHINE GUN IS OUT OF AMMO',
   msgTrophyIntercept: 'TROPHY APS INTERCEPTED SHELL!',
   msgTrophyEnemyBlocked: 'SHELL INTERCEPTED BY TROPHY APS!',
@@ -1163,6 +1174,7 @@ const DICT_EN: TranslationDict = {
   suffixFlame: ' [FLAMETHROWER]',
   suffixMg: ' [MACHINE GUN]',
   suffixAirBomb: ' [AIR BOMB]',
+  suffixPlaneCrash: ' [DOWNED AIRCRAFT]',
 
   // HitCam
   hcPen: 'Hit',

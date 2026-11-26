@@ -5,8 +5,17 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const [repoOwner, repoName] = (process.env.GITHUB_REPOSITORY || '').split('/');
+  const isUserPagesRepo =
+    !!repoOwner && repoName?.toLowerCase() === `${repoOwner.toLowerCase()}.github.io`;
+  const base =
+    process.env.VITE_BASE ||
+    (process.env.GITHUB_ACTIONS === 'true' && repoName && !isUserPagesRepo
+      ? `/${repoName}/`
+      : '/');
+
   return {
-    base: '/',
+    base,
     plugins: [
       // ...
       react(),

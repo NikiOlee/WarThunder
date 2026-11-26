@@ -142,6 +142,7 @@ export function createUI(h: UIHandlers) {
     maps: $('mapPanel'),
     modes: $('modePanel'),
     history: $('historyPanel'),
+    credits: $('creditsPanel'),
     hangar: $('hangarScreen'),
     matchEnd: $('matchEndPanel'),
   };
@@ -207,6 +208,8 @@ export function createUI(h: UIHandlers) {
     if (bHistory) bHistory.textContent = t('btnHistory');
     const bCtl = $('bCtl');
     if (bCtl) bCtl.textContent = t('btnControls');
+    const bCredits = $('bCredits');
+    if (bCredits) bCredits.textContent = t('btnCredits');
     // Note: bLang text remains invariant «Язык/Language/Jezik»
     const playEaster = $('playEaster');
     if (playEaster) playEaster.textContent = t('playEaster');
@@ -310,6 +313,26 @@ export function createUI(h: UIHandlers) {
     if (bReset) bReset.textContent = t('btnReset');
     const bBack = $('bBack');
     if (bBack) bBack.textContent = t('btnBack');
+
+    // Credits Panel
+    const creditsH2 = document.querySelector('#creditsPanel h2');
+    if (creditsH2) creditsH2.textContent = t('creditsTitle');
+    const creditsTag = $('creditsTag');
+    if (creditsTag) creditsTag.textContent = t('creditsTag');
+    const creditsArbuzName = $('creditsArbuzName');
+    if (creditsArbuzName) creditsArbuzName.textContent = t('creditsArbuzName');
+    const creditsArbuzRole = $('creditsArbuzRole');
+    if (creditsArbuzRole) creditsArbuzRole.textContent = t('creditsArbuzRole');
+    const creditsMandarinName = $('creditsMandarinName');
+    if (creditsMandarinName) creditsMandarinName.textContent = t('creditsMandarinName');
+    const creditsMandarinRole = $('creditsMandarinRole');
+    if (creditsMandarinRole) creditsMandarinRole.textContent = t('creditsMandarinRole');
+    const creditsMadeWithLabel = $('creditsMadeWithLabel');
+    if (creditsMadeWithLabel) creditsMadeWithLabel.textContent = t('creditsMadeWithLabel');
+    const creditsToolsList = $('creditsToolsList');
+    if (creditsToolsList) creditsToolsList.textContent = t('creditsToolsList');
+    const bCreditsBack = $('bCreditsBack');
+    if (bCreditsBack) bCreditsBack.textContent = t('btnBack');
 
     // Scoreboard
     const sbSub = document.querySelector('#scoreboard .sb-sub');
@@ -589,6 +612,14 @@ export function createUI(h: UIHandlers) {
   $('bCtl').onclick = () => {
     click();
     openSettings('main', 'controls');
+  };
+  $('bCredits').onclick = () => {
+    click();
+    show('credits');
+  };
+  $('bCreditsBack').onclick = () => {
+    click();
+    show('main');
   };
   $('bResume').onclick = () => {
     click();

@@ -78,3 +78,63 @@ export function tryFireMg(state: MachineGunState, spec: MachineGunSpec): boolean
 export function isMgExhausted(state: MachineGunState): boolean {
   return state.magAmmo <= 0 && state.reserveAmmo <= 0;
 }
+
+const DEG = Math.PI / 180;
+export const MG_MAX_ELEV = 85 * DEG;
+export const MG_FRONT_MIN_ELEV = -15 * DEG;
+export const MG_REAR_MIN_ELEV = -13 * DEG;
+export const MG_SIDE_MIN_ELEV = -21 * DEG;
+
+function wrapPi(a: number): number {
+  a = (a + Math.PI) % (Math.PI * 2);
+  if (a < 0) a += Math.PI * 2;
+  return a - Math.PI;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Returns the minimum hull-local depression angle (radians, negative) for the
+ * roof-mounted / free-aim MG at the given hull-relative azimuth `relYaw`.
+ * Blocks only the very bottom where the tank's own hull obstructs firing.
+ */
+export function computeMgMinLocalElev(relYaw: number): number {
+  const c = Math.cos(relYaw);
+  const frontOrRear = c >= 0 ? MG_FRONT_MIN_ELEV : MG_REAR_MIN_ELEV;
+  return MG_SIDE_MIN_ELEV + (frontOrRear - MG_SIDE_MIN_ELEV) * (c * c);
+}
+
+/**
+ * Resolves hull-relative MG yaw (full 360°) and hull-relative MG elevation
+ * (up to +85°, clamped at the bottom only by hull clearance).
+ */
+export function resolveMgAim(params: {
+  alive: boolean;
+  heading: number;
+  pitchUp: number;
+  rollLeftUp: number;
+  aimYaw: number;
+  aimElev: number;
+  prevYaw?: number;
+  prevElev?: number;
+}): { mgYaw: number; mgElev: number; minLocalElev: number; clampedBottom: boolean } {
+  if (!params.alive) {
+    const yaw = params.prevYaw ?? 0;
+    return {
+      mgYaw: yaw,
+      mgElev: params.prevElev ?? 0,
+      minLocalElev: computeMgMinLocalElev(yaw),
+      clampedBottom: false,
+    };
+  }
+  const mgYaw = wrapPi(params.aimYaw - params.heading);
+  const tilt = params.pitchUp * Math.cos(mgYaw) + params.rollLeftUp * Math.sin(mgYaw);
+  const rawLocalElev = params.aimElev - tilt;
+  const minLocalElev = computeMgMinLocalElev(mgYaw);
+  const clampedBottom = rawLocalElev < minLocalElev - 1e-4;
+  const mgElev = clamp(rawLocalElev, minLocalElev, MG_MAX_ELEV);
+  return { mgYaw, mgElev, minLocalElev, clampedBottom };
+}
+

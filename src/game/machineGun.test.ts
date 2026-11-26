@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  MG_FRONT_MIN_ELEV,
+  MG_MAX_ELEV,
+  MG_REAR_MIN_ELEV,
+  MG_SIDE_MIN_ELEV,
+  computeMgMinLocalElev,
   createMgState,
   isMgExhausted,
+  resolveMgAim,
   startMgReload,
   stepMgState,
   tryFireMg,
@@ -127,3 +133,74 @@ test('resolveMgHit always deals sub-1 HP damage without fuel instant-kill', () =
   const clamped = resolveMgHit('hull', 5.0);
   assert.ok(clamped.damage < 1);
 });
+
+test('resolveMgAim shoots freely in 360 deg and steeply upward, blocking only the hull bottom', () => {
+  const DEG = Math.PI / 180;
+  // Front, rear, and sides hull-clearance bounds
+  assert.ok(Math.abs(computeMgMinLocalElev(0) - MG_FRONT_MIN_ELEV) < 1e-6);
+  assert.ok(Math.abs(computeMgMinLocalElev(Math.PI) - MG_REAR_MIN_ELEV) < 1e-6);
+  assert.ok(Math.abs(computeMgMinLocalElev(Math.PI / 2) - MG_SIDE_MIN_ELEV) < 1e-6);
+  assert.ok(Math.abs(computeMgMinLocalElev(-Math.PI / 2) - MG_SIDE_MIN_ELEV) < 1e-6);
+
+  // Shooting almost straight up (+75 deg) behind the tank (180 deg) works freely
+  const upRear = resolveMgAim({
+    alive: true,
+    heading: 0,
+    pitchUp: 0,
+    rollLeftUp: 0,
+    aimYaw: Math.PI,
+    aimElev: 75 * DEG,
+  });
+  assert.equal(upRear.clampedBottom, false);
+  assert.ok(Math.abs(Math.abs(upRear.mgYaw) - Math.PI) < 1e-6);
+  assert.ok(Math.abs(upRear.mgElev - 75 * DEG) < 1e-6);
+
+  // Shooting above +85 deg clamps cleanly to MG_MAX_ELEV
+  const tooHigh = resolveMgAim({
+    alive: true,
+    heading: 0,
+    pitchUp: 0,
+    rollLeftUp: 0,
+    aimYaw: 0.4,
+    aimElev: 89 * DEG,
+  });
+  assert.equal(tooHigh.clampedBottom, false);
+  assert.ok(Math.abs(tooHigh.mgElev - MG_MAX_ELEV) < 1e-6);
+
+  // Shooting straight down into the bottom over front hull clamps at MG_FRONT_MIN_ELEV
+  const bottomFront = resolveMgAim({
+    alive: true,
+    heading: 0,
+    pitchUp: 0,
+    rollLeftUp: 0,
+    aimYaw: 0,
+    aimElev: -45 * DEG,
+  });
+  assert.equal(bottomFront.clampedBottom, true);
+  assert.ok(Math.abs(bottomFront.mgElev - MG_FRONT_MIN_ELEV) < 1e-6);
+
+  // Over the side (-18 deg) is allowed because sides clear lower than front/rear (-21 deg min)
+  const sideLow = resolveMgAim({
+    alive: true,
+    heading: 0,
+    pitchUp: 0,
+    rollLeftUp: 0,
+    aimYaw: Math.PI / 2,
+    aimElev: -18 * DEG,
+  });
+  assert.equal(sideLow.clampedBottom, false);
+  assert.ok(Math.abs(sideLow.mgElev - -18 * DEG) < 1e-6);
+
+  // Hull pitched uphill (+10 deg) prevents shooting into the raised uphill front glacis
+  const uphill = resolveMgAim({
+    alive: true,
+    heading: 0,
+    pitchUp: 10 * DEG,
+    rollLeftUp: 0,
+    aimYaw: 0,
+    aimElev: -10 * DEG,
+  });
+  assert.equal(uphill.clampedBottom, true);
+  assert.ok(Math.abs(uphill.mgElev - MG_FRONT_MIN_ELEV) < 1e-6);
+});
+

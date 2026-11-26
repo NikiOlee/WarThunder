@@ -123,7 +123,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     {
       id: 'city',
       name: 'Город',
-      desc: 'Разрушенный войной город: руины, обломки стен, воронки и трещины в асфальте. Серая мгла, тесные улицы, ближний бой.',
+      desc: 'Солнечный мегаполис: центральный парк с фонтаном, жилые многоэтажки и стеклянные башни на востоке, промзона с градирнями и контейнерами на западе. Широкие проспекты, прострелы и плотный городской бой.',
       build: createCityWorld,
     },
     {
@@ -446,6 +446,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   const keys: Record<string, boolean> = Object.create(null);
   const cam = { yaw: 0, pitch: 0.2 };
   const aim = { yaw: 0, elev: 0, point: new THREE.Vector3(), range: null as number | null };
+  const mgAim = { yaw: 0, elev: 0 };
   let binocFrozen = false;
   let kstamHolding = false;
   let kstamLockProg = 0;
@@ -781,6 +782,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('dead').style.display = 'none';
     aim.yaw = 0;
     aim.elev = 0;
+    mgAim.yaw = 0;
+    mgAim.elev = 0;
     cam.yaw = 0;
     cam.pitch = 0.2;
     mode = 'third';
@@ -1763,6 +1766,17 @@ export function initGame(mountEl: HTMLElement): () => void {
       aim.yaw = Math.atan2(_t.x, _t.z);
       aim.elev = Math.atan2(_t.y, horiz) + (ballComp ? dropAngle(range) : 0);
     }
+
+    tank.mgPivotWorld(_g);
+    _t.subVectors(p, _g);
+    const mgHoriz = Math.hypot(_t.x, _t.z);
+    if (_t.dot(_dir) > 0 && _t.length() > 2.2 && mgHoriz > 0.35) {
+      mgAim.yaw = Math.atan2(_t.x, _t.z);
+      mgAim.elev = Math.atan2(_t.y, mgHoriz);
+    } else {
+      mgAim.yaw = cam.yaw;
+      mgAim.elev = cam.pitch;
+    }
   }
 
   function updateCamera(dt: number) {
@@ -1774,8 +1788,8 @@ export function initGame(mountEl: HTMLElement): () => void {
       camera.updateProjectionMatrix();
     }
 
-    const lo = activeCamMode === 'third' ? -0.4 : -0.5;
-    const hi = activeCamMode === 'third' ? 1.2 : activeCamMode === 'sniper' ? 0.6 : 1.2;
+    const lo = activeCamMode === 'third' ? -0.95 : -0.58;
+    const hi = activeCamMode === 'third' ? 1.35 : activeCamMode === 'sniper' ? 0.65 : 1.35;
     cam.pitch = clamp(cam.pitch, lo, hi);
     if (cam.yaw > Math.PI) cam.yaw -= Math.PI * 2;
     else if (cam.yaw < -Math.PI) cam.yaw += Math.PI * 2;
@@ -2000,6 +2014,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     rtxt: $('reloadTxt'),
     cross: $('crosshair'),
     gun: $('gunMark'),
+    mgMark: $('mgMark'),
     mv: $('mv'),
     hp: $('hpFill'),
     kills: $('kills'),
@@ -2126,6 +2141,11 @@ export function initGame(mountEl: HTMLElement): () => void {
     gunMargin: '',
     gunLeft: '',
     gunTop: '',
+    mgDisplay: '',
+    mgSize: '',
+    mgMargin: '',
+    mgLeft: '',
+    mgTop: '',
     specVisible: false,
     specName: '',
     specHp: '',
@@ -2178,13 +2198,12 @@ export function initGame(mountEl: HTMLElement): () => void {
   const _ip = new THREE.Vector3();
   const _iv = new THREE.Vector3();
   const _ip2 = new THREE.Vector3();
-  function predictImpact(): THREE.Vector3 {
-    _ip.copy(_gm);
-    _iv.copy(_gd).multiplyScalar(activePlayerMuzzleVelocity());
+  function predictBallisticImpact(origin: THREE.Vector3, dir: THREE.Vector3, velocity: number, maxR: number, maxSteps = 480): THREE.Vector3 {
+    _ip.copy(origin);
+    _iv.copy(dir).multiplyScalar(velocity);
     const h = SUBSTEP;
     let dist = 0;
-    const maxR = tank.stats.maxRange;
-    for (let i = 0; i < 480; i++) {
+    for (let i = 0; i < maxSteps; i++) {
       _ip2.copy(_ip);
       const sp = _iv.length();
       _iv.multiplyScalar(Math.max(0, 1 - DRAG_K * sp * h));
@@ -2197,6 +2216,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (Math.abs(_ip.x) > 700 || Math.abs(_ip.z) > 700 || _ip.y < -60) break;
     }
     return _ip;
+  }
+  function predictImpact(): THREE.Vector3 {
+    return predictBallisticImpact(_gm, _gd, activePlayerMuzzleVelocity(), tank.stats.maxRange, 480);
+  }
+  function predictMgImpact(): THREE.Vector3 {
+    return predictBallisticImpact(_gm, _gd, tank.stats.mg.muzzleVelocity, tank.stats.mg.maxRange, 240);
   }
 
   function updateHud(dt: number) {
@@ -2656,6 +2681,10 @@ export function initGame(mountEl: HTMLElement): () => void {
         hudCache.gunDisplay = 'none';
         el.gun.style.display = 'none';
       }
+      if (hudCache.mgDisplay !== 'none') {
+        hudCache.mgDisplay = 'none';
+        el.mgMark.style.display = 'none';
+      }
       return;
     }
 
@@ -2690,6 +2719,40 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (topPx !== hudCache.gunTop) {
         hudCache.gunTop = topPx;
         el.gun.style.top = topPx;
+      }
+    }
+
+    tank.mgMuzzleWorld(_gm);
+    tank.mgDirection(_gd);
+    const mgImpact = predictMgImpact();
+    _pr.copy(mgImpact).project(camera);
+    if (_pr.z > 1 || _pr.z < -1) {
+      if (hudCache.mgDisplay !== 'none') {
+        hudCache.mgDisplay = 'none';
+        el.mgMark.style.display = 'none';
+      }
+    } else {
+      if (hudCache.mgDisplay !== 'block') {
+        hudCache.mgDisplay = 'block';
+        el.mgMark.style.display = 'block';
+      }
+      const msz = mode === 'third' ? 12 : 10;
+      const mszPx = msz + 'px';
+      if (mszPx !== hudCache.mgSize) {
+        hudCache.mgSize = mszPx;
+        hudCache.mgMargin = -msz / 2 + 'px';
+        el.mgMark.style.width = el.mgMark.style.height = mszPx;
+        el.mgMark.style.marginLeft = el.mgMark.style.marginTop = hudCache.mgMargin;
+      }
+      const mLeftPx = Math.round((_pr.x * 0.5 + 0.5) * innerWidth) + 'px';
+      const mTopPx = Math.round((-_pr.y * 0.5 + 0.5) * innerHeight) + 'px';
+      if (mLeftPx !== hudCache.mgLeft) {
+        hudCache.mgLeft = mLeftPx;
+        el.mgMark.style.left = mLeftPx;
+      }
+      if (mTopPx !== hudCache.mgTop) {
+        hudCache.mgTop = mTopPx;
+        el.mgMark.style.top = mTopPx;
       }
     }
   }
@@ -3515,6 +3578,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     tank.update(dt, input, ballistics.fx);
     if (tank.alive && !matchEnded) {
       tank.updateTurret(dt, aim.yaw, aim.elev);
+      tank.updateMgAim(mgAim.yaw, mgAim.elev);
     }
     tank.root.updateMatrixWorld(true);
 
@@ -3735,6 +3799,8 @@ export function initGame(mountEl: HTMLElement): () => void {
           tank.reset(world.spawnPlayer.x + 70, world.spawnPlayer.z, 0, getSelectedTankId());
           aim.yaw = 0;
           aim.elev = 0;
+          mgAim.yaw = 0;
+          mgAim.elev = 0;
           cam.yaw = 0;
           playerDeadT = 0;
           deadEl.style.display = 'none';

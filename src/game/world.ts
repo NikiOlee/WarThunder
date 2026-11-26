@@ -16,12 +16,28 @@ import {
 export const WORLD_SIZE = 1000;
 export const WORLD_LIMIT = 480;
 export const SPAWN = { x: 0, z: -420 };
+export const SPAWN_B = { x: 0, z: 420 };
 
 const SPAWN_H = 3;
-const TOWN = { x: 90, z: 300 };
-const FLAT = [
-  { x: SPAWN.x, z: SPAWN.z, r0: 45, r1: 110, h: SPAWN_H },
-  { x: TOWN.x, z: TOWN.z, r0: 80, r1: 150, h: 6 },
+const TOWN = { x: 210, z: 0 };
+const SPAWN_X_OFFSETS = [0, -45, 45, -90, 90, -135];
+
+export function hillsSpawnA(i: number): { x: number; z: number; heading: number } {
+  const idx = ((i % SPAWN_X_OFFSETS.length) + SPAWN_X_OFFSETS.length) % SPAWN_X_OFFSETS.length;
+  return { x: SPAWN_X_OFFSETS[idx], z: idx === 0 ? -420 : -432, heading: 0 };
+}
+
+export function hillsSpawnB(i: number): { x: number; z: number; heading: number } {
+  const idx = ((i % SPAWN_X_OFFSETS.length) + SPAWN_X_OFFSETS.length) % SPAWN_X_OFFSETS.length;
+  return { x: SPAWN_X_OFFSETS[idx], z: idx === 0 ? 420 : 432, heading: Math.PI };
+}
+
+export const HILLS_OBJECTIVES: Array<{ x: number; z: number }> = [
+  { x: -160, z: 0 },
+  { x: 0, z: 0 },
+  { x: 210, z: 0 },
+  { x: 0, z: -140 },
+  { x: 0, z: 140 },
 ];
 
 export interface ObstacleBox {
@@ -130,16 +146,26 @@ export function mulberry32(a: number): () => number {
   };
 }
 
-export function heightAt(x: number, z: number): number {
-  let h = (fbm(x * 0.0032 + 11.3, z * 0.0032 + 7.7, 5) - 0.5) * 2 * 34;
+function rawReliefAt(x: number, z: number): number {
+  let h = (fbm(x * 0.0032 + 11.3, z * 0.0032 + 7.7, 5) - 0.5) * 2 * 40;
   const r = 1 - Math.abs(fbm(x * 0.0055 + 3.1, z * 0.0055 + 19.4, 3) * 2 - 1);
-  h += r * r * 20 - 6;
-  h += (fbm(x * 0.045, z * 0.045, 2) - 0.5) * 2.2;
+  h += r * r * 24 - 7;
+  h += (fbm(x * 0.045, z * 0.045, 2) - 0.5) * 2.5;
+  return h;
+}
+
+export function heightAt(x: number, z: number): number {
+  // Smooth mirror symmetry across z = 0 so both teams have identical terrain, cover, and sightlines
+  let h = 0.5 * (rawReliefAt(x, z) + rawReliefAt(x, -z));
   h += smooth(380, 500, Math.max(Math.abs(x), Math.abs(z))) * 70;
-  for (const f of FLAT) {
-    const m = smooth(f.r0, f.r1, Math.hypot(x - f.x, z - f.z));
-    h = f.h + (h - f.h) * m;
-  }
+
+  const spawnDist = Math.min(Math.hypot(x - SPAWN.x, z - SPAWN.z), Math.hypot(x - SPAWN_B.x, z - SPAWN_B.z));
+  const mSpawn = smooth(95, 155, spawnDist);
+  h = SPAWN_H + (h - SPAWN_H) * mSpawn;
+
+  const mTown = smooth(76, 142, Math.hypot(x - TOWN.x, z - TOWN.z));
+  h = 6 + (h - 6) * mTown;
+
   return h;
 }
 
@@ -500,7 +526,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
   const obstacles: ObstacleBox[] = [];
   const rand = mulberry32(1337);
 
-  const sunDir = new THREE.Vector3(0.55, 0.62, 0.38).normalize();
+  const sunDir = new THREE.Vector3(0.66, 0.68, 0.08).normalize();
   const sun = new THREE.DirectionalLight(0xfff1d6, 2.6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -564,7 +590,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     sky.add(emblemMesh);
 
     const baseUrl =
-      (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/WarThunder/';
+      (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -663,10 +689,11 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       normalAt(x, z, n);
       const slope = 1 - n.y;
       c.copy(grassLow).lerp(grassHigh, smooth(0, 30, h));
-      c.lerp(dry, fbm(x * 0.02 + 40, z * 0.02 + 9, 3) * 0.7);
+      const dryMix = 0.5 * (fbm(x * 0.02 + 40, z * 0.02 + 9, 3) + fbm(x * 0.02 + 40, -z * 0.02 + 9, 3));
+      c.lerp(dry, dryMix * 0.7);
       c.lerp(rock, Math.max(smooth(0.16, 0.38, slope), smooth(48, 75, h)));
       const dT = Math.hypot(x - TOWN.x, z - TOWN.z);
-      const dS = Math.hypot(x - SPAWN.x, z - SPAWN.z);
+      const dS = Math.min(Math.hypot(x - SPAWN.x, z - SPAWN.z), Math.hypot(x - SPAWN_B.x, z - SPAWN_B.z));
       c.lerp(dirt, Math.max(0, 1 - dT / 70) * 0.75 + Math.max(0, 1 - dS / 55) * 0.55);
       const j = 0.9 + hash2(i, 77) * 0.2;
       col[i * 3] = c.r * j;
@@ -728,57 +755,62 @@ export function createWorld(scene: THREE.Scene): GameWorld {
   const roofGeo = new THREE.ConeGeometry(1, 1, 4);
   roofGeo.rotateY(Math.PI / 4);
   for (let gx = -3; gx <= 3; gx++) {
-    for (let gz = -3; gz <= 3; gz++) {
+    for (let gz = 1; gz <= 3; gz++) {
       if (gx === 0 || rand() < 0.28) continue;
       const cx = TOWN.x + gx * 30 + (rand() - 0.5) * 6;
-      const cz = TOWN.z + gz * 30 + (rand() - 0.5) * 6;
+      const dz = gz * 30 + (rand() - 0.5) * 6;
       const w = 10 + rand() * 8;
       const d = 10 + rand() * 6;
       const hgt = 6 + rand() * 5;
-      let lo = 1e9;
-      let hi = -1e9;
-      for (const [sx, sz] of [
-        [-1, -1],
-        [1, -1],
-        [-1, 1],
-        [1, 1],
-        [0, 0],
-      ]) {
-        const hh = heightAt(cx + (sx * w) / 2, cz + (sz * d) / 2);
-        lo = Math.min(lo, hh);
-        hi = Math.max(hi, hh);
-      }
       const wallColHex = wallColors[Math.floor(rand() * wallColors.length)];
       const mat = new THREE.MeshStandardMaterial({
         color: wallColHex,
         roughness: 0.95,
         flatShading: true,
       });
-      const top = hi + hgt;
-      const wallBox = addBox(cx - w / 2, lo - 1.5, cz - d / 2, cx + w / 2, top, cz + d / 2, mat);
-      const roof = new THREE.Mesh(roofGeo, roofMat);
-      roof.scale.set(w * 0.78, 3.2, d * 0.78);
-      roof.position.set(cx, top + 1.6, cz);
-      roof.castShadow = true;
-      root.add(roof);
-
       const lowColor = new THREE.Color(wallColHex).lerp(new THREE.Color(0x8a3b2a), 0.22);
-      const lowProxy = new THREE.Mesh(lowProxyGeo, new THREE.MeshLambertMaterial({ color: lowColor }));
-      const totalH = top + 2.4 - (lo - 1.5);
-      lowProxy.scale.set(w, totalH, d);
-      lowProxy.position.set(cx, (lo - 1.5 + top + 2.4) * 0.5, cz);
-      lowProxy.visible = false;
-      root.add(lowProxy);
-      if (wallBox.mesh) {
-        houseItems.push({
-          wall: wallBox.mesh,
-          roof,
-          lowProxy,
-          box: new THREE.Box3(
-            new THREE.Vector3(cx - w / 2, lo - 1.5, cz - d / 2),
-            new THREE.Vector3(cx + w / 2, top + 3.2, cz + d / 2),
-          ),
-        });
+      const lowMat = new THREE.MeshLambertMaterial({ color: lowColor });
+
+      for (const zSign of [1, -1]) {
+        const cz = TOWN.z + zSign * dz;
+        let lo = 1e9;
+        let hi = -1e9;
+        for (const [sx, sz] of [
+          [-1, -1],
+          [1, -1],
+          [-1, 1],
+          [1, 1],
+          [0, 0],
+        ]) {
+          const hh = heightAt(cx + (sx * w) / 2, cz + (sz * d) / 2);
+          lo = Math.min(lo, hh);
+          hi = Math.max(hi, hh);
+        }
+        const top = hi + hgt;
+        const wallBox = addBox(cx - w / 2, lo - 1.5, cz - d / 2, cx + w / 2, top, cz + d / 2, mat);
+        const roof = new THREE.Mesh(roofGeo, roofMat);
+        roof.scale.set(w * 0.78, 3.2, d * 0.78);
+        roof.position.set(cx, top + 1.6, cz);
+        roof.castShadow = true;
+        root.add(roof);
+
+        const lowProxy = new THREE.Mesh(lowProxyGeo, lowMat);
+        const totalH = top + 2.4 - (lo - 1.5);
+        lowProxy.scale.set(w, totalH, d);
+        lowProxy.position.set(cx, (lo - 1.5 + top + 2.4) * 0.5, cz);
+        lowProxy.visible = false;
+        root.add(lowProxy);
+        if (wallBox.mesh) {
+          houseItems.push({
+            wall: wallBox.mesh,
+            roof,
+            lowProxy,
+            box: new THREE.Box3(
+              new THREE.Vector3(cx - w / 2, lo - 1.5, cz - d / 2),
+              new THREE.Vector3(cx + w / 2, top + 3.2, cz + d / 2),
+            ),
+          });
+        }
       }
     }
   }
@@ -787,27 +819,30 @@ export function createWorld(scene: THREE.Scene): GameWorld {
   const concrete = new THREE.MeshStandardMaterial({ color: 0x8d8c86, roughness: 1, flatShading: true });
   let placed = 0;
   let tries = 0;
-  while (placed < 16 && tries++ < 400) {
+  while (placed < 8 && tries++ < 400) {
     const x = (rand() - 0.5) * 520;
-    const z = -330 + rand() * 520;
-    if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 90 || Math.abs(x) < 14) continue;
-    if (Math.hypot(x - TOWN.x, z - TOWN.z) < 95) continue;
+    const zPos = 45 + rand() * 285;
+    if (Math.hypot(x - SPAWN_B.x, zPos - SPAWN_B.z) < 110 || Math.abs(x) < 16) continue;
+    if (Math.hypot(x - TOWN.x, zPos - TOWN.z) < 105) continue;
     const long = rand() < 0.5;
     const w = long ? 8 : 3;
     const d = long ? 3 : 8;
     const hgt = 2.6;
-    const hh = Math.max(
-      heightAt(x - w / 2, z - d / 2),
-      heightAt(x + w / 2, z + d / 2),
-      heightAt(x - w / 2, z + d / 2),
-      heightAt(x + w / 2, z - d / 2),
-    );
-    const b = addBox(x - w / 2, hh - 2, z - d / 2, x + w / 2, hh + hgt, z + d / 2, concrete);
-    if (b.mesh) {
-      barrierItems.push({
-        mesh: b.mesh,
-        box: new THREE.Box3(b.min.clone(), b.max.clone()),
-      });
+    for (const zSign of [-1, 1]) {
+      const z = zSign * zPos;
+      const hh = Math.max(
+        heightAt(x - w / 2, z - d / 2),
+        heightAt(x + w / 2, z + d / 2),
+        heightAt(x - w / 2, z + d / 2),
+        heightAt(x + w / 2, z - d / 2),
+      );
+      const b = addBox(x - w / 2, hh - 2, z - d / 2, x + w / 2, hh + hgt, z + d / 2, concrete);
+      if (b.mesh) {
+        barrierItems.push({
+          mesh: b.mesh,
+          box: new THREE.Box3(b.min.clone(), b.max.clone()),
+        });
+      }
     }
     placed++;
   }
@@ -815,29 +850,31 @@ export function createWorld(scene: THREE.Scene): GameWorld {
   const rangeBoardItems: Array<{ board: THREE.Mesh; posts: THREE.Mesh[]; box: THREE.Box3 }> = [];
   const postMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 1 });
   const postGeo = new THREE.CylinderGeometry(0.15, 0.15, 5, 6);
-  for (const dist of [150, 300, 400, 500]) {
-    const z = SPAWN.z + dist;
-    const x = 0;
-    const hh = Math.max(heightAt(x - 3, z), heightAt(x + 3, z)) + 0.2;
+  for (const dist of [150, 300]) {
     const faceMat = new THREE.MeshStandardMaterial({ map: boardTexture(dist + ' m'), roughness: 0.9 });
     const plain = new THREE.MeshStandardMaterial({ color: 0xdedbcd, roughness: 0.9 });
     const mats = [plain, plain, plain, plain, faceMat, faceMat];
-    const o = addBox(x - 3, hh + 1.2, z - 0.2, x + 3, hh + 4.4, z + 0.2, mats);
-    const posts: THREE.Mesh[] = [];
-    for (const px of [-2.2, 2.2]) {
-      const post = new THREE.Mesh(postGeo, postMat);
-      post.position.set(px, hh + 0.8, z);
-      post.castShadow = true;
-      root.add(post);
-      posts.push(post);
-    }
-    if (o.mesh) {
-      o.mesh.userData.range = dist;
-      rangeBoardItems.push({
-        board: o.mesh,
-        posts,
-        box: new THREE.Box3(new THREE.Vector3(x - 3.2, hh - 2, z - 0.8), new THREE.Vector3(x + 3.2, hh + 4.6, z + 0.8)),
-      });
+    for (const zSign of [-1, 1]) {
+      const z = zSign * (420 - dist);
+      const x = 0;
+      const hh = Math.max(heightAt(x - 3, z), heightAt(x + 3, z)) + 0.2;
+      const o = addBox(x - 3, hh + 1.2, z - 0.2, x + 3, hh + 4.4, z + 0.2, mats);
+      const posts: THREE.Mesh[] = [];
+      for (const px of [-2.2, 2.2]) {
+        const post = new THREE.Mesh(postGeo, postMat);
+        post.position.set(px, hh + 0.8, z);
+        post.castShadow = true;
+        root.add(post);
+        posts.push(post);
+      }
+      if (o.mesh) {
+        o.mesh.userData.range = dist;
+        rangeBoardItems.push({
+          board: o.mesh,
+          posts,
+          box: new THREE.Box3(new THREE.Vector3(x - 3.2, hh - 2, z - 0.8), new THREE.Vector3(x + 3.2, hh + 4.6, z + 0.8)),
+        });
+      }
     }
   }
 
@@ -874,7 +911,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     const lowCrownMat = new THREE.MeshLambertMaterial({ flatShading: true });
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4f3a26, roughness: 1 });
 
-    const N = 520;
+    const PAIRS = 260;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
@@ -884,45 +921,52 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     const n = new THREE.Vector3();
 
     const treeData: Array<{ matrix: THREE.Matrix4; color: THREE.Color; sector: number }> = [];
+    let pairs = 0;
     let count = 0;
     let att = 0;
-    while (count < N && att++ < 6000) {
+    while (pairs < PAIRS && att++ < 6000) {
       const x = (rand() - 0.5) * 900;
-      const z = (rand() - 0.5) * 900;
-      if (Math.abs(x) < 22 && z < 300) continue;
-      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 70 || Math.hypot(x - TOWN.x, z - TOWN.z) < 105) continue;
-      const h = heightAt(x, z);
+      const zPos = 10 + rand() * 440;
+      if (Math.abs(x) < 22) continue;
+      if (Math.hypot(x - SPAWN_B.x, zPos - SPAWN_B.z) < 75 || Math.hypot(x - TOWN.x, zPos - TOWN.z) < 105) continue;
+      const h = heightAt(x, zPos);
       if (h > 42) continue;
-      normalAt(x, z, n);
+      normalAt(x, zPos, n);
       if (n.y < 0.9) continue;
-      if (fbm(x * 0.012 + 5, z * 0.012 + 2, 3) < 0.42) continue;
+      const grove = 0.5 * (fbm(x * 0.012 + 5, zPos * 0.012 + 2, 3) + fbm(x * 0.012 + 5, -zPos * 0.012 + 2, 3));
+      if (grove < 0.42) continue;
       const sc2 = 0.8 + rand() * 0.9;
       const sy = sc2 * (0.9 + rand() * 0.4);
       const yaw = rand() * 6.28;
       const ty = h - 0.2;
-      q.setFromAxisAngle(up, yaw);
-      m.compose(p.set(x, ty, z), q, s.set(sc2, sy, sc2));
       col.setHSL(0.27 + rand() * 0.05, 0.45, 0.2 + rand() * 0.08);
-      const sector = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
-      treeData.push({ matrix: m.clone(), color: col.clone(), sector });
-      treeStates.push({
-        index: count,
-        x,
-        y: ty,
-        z,
-        baseYaw: yaw,
-        sx: sc2,
-        sy,
-        sz: sc2,
-        trunkRadius: 0.55 * sc2,
-        state: 'standing',
-        fallProgress: 0,
-        fallDirX: 0,
-        fallDirZ: 1,
-        tiltAngle: 0,
-        targetTilt: 1.46,
-      });
-      count++;
+      for (const zSign of [1, -1]) {
+        const z = zSign * zPos;
+        const mYaw = zSign === 1 ? yaw : Math.PI - yaw;
+        q.setFromAxisAngle(up, mYaw);
+        m.compose(p.set(x, ty, z), q, s.set(sc2, sy, sc2));
+        const sector = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
+        treeData.push({ matrix: m.clone(), color: col.clone(), sector });
+        treeStates.push({
+          index: count,
+          x,
+          y: ty,
+          z,
+          baseYaw: mYaw,
+          sx: sc2,
+          sy,
+          sz: sc2,
+          trunkRadius: 0.55 * sc2,
+          state: 'standing',
+          fallProgress: 0,
+          fallDirX: 0,
+          fallDirZ: 1,
+          tiltAngle: 0,
+          targetTilt: 1.46,
+        });
+        count++;
+      }
+      pairs++;
     }
 
     const sectorBuckets: number[][] = Array.from({ length: SECTOR_COUNT }, () => []);
@@ -1026,7 +1070,7 @@ export function createWorld(scene: THREE.Scene): GameWorld {
           transformed.z += cos(uTime*1.3 + ip.z*0.31) * 0.14 * position.y;`,
         );
     };
-    const N = 26000;
+    const GRASS_PAIRS = 13000;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const p = new THREE.Vector3();
@@ -1039,23 +1083,27 @@ export function createWorld(scene: THREE.Scene): GameWorld {
       { length: SECTOR_COUNT },
       () => [],
     );
-    let count = 0;
+    let grassPairs = 0;
     let att = 0;
-    while (count < N && att++ < 90000) {
+    while (grassPairs < GRASS_PAIRS && att++ < 90000) {
       const x = (rand() - 0.5) * 920;
-      const z = (rand() - 0.5) * 920;
-      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 40) continue;
-      const h = heightAt(x, z);
+      const zPos = 1 + rand() * 459;
+      if (Math.hypot(x - SPAWN_B.x, zPos - SPAWN_B.z) < 42) continue;
+      const h = heightAt(x, zPos);
       if (h > 40) continue;
-      normalAt(x, z, n);
+      normalAt(x, zPos, n);
       if (n.y < 0.86) continue;
       const hs = 0.7 + rand() * 0.9;
-      q.setFromAxisAngle(up, rand() * 6.28);
-      m.compose(p.set(x, h - 0.05, z), q, sc3.set(hs * 1.3, hs, hs * 1.3));
+      const yaw = rand() * 6.28;
       col.setHSL(0.22 + rand() * 0.07, 0.5, 0.42 + rand() * 0.18);
-      const sec = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
-      grassBuckets[sec].push({ m: m.clone(), c: col.clone(), x, y: h, z });
-      count++;
+      for (const zSign of [1, -1]) {
+        const z = zSign * zPos;
+        q.setFromAxisAngle(up, zSign === 1 ? yaw : Math.PI - yaw);
+        m.compose(p.set(x, h - 0.05, z), q, sc3.set(hs * 1.3, hs, hs * 1.3));
+        const sec = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
+        grassBuckets[sec].push({ m: m.clone(), c: col.clone(), x, y: h, z });
+      }
+      grassPairs++;
     }
     for (let sec = 0; sec < SECTOR_COUNT; sec++) {
       const b = grassBuckets[sec];
@@ -1076,35 +1124,40 @@ export function createWorld(scene: THREE.Scene): GameWorld {
 
     const rockGeo = new THREE.IcosahedronGeometry(1, 0);
     const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a867c, roughness: 1, flatShading: true });
-    const R = 140;
+    const ROCK_PAIRS = 70;
     const rockBuckets: Array<Array<{ m: THREE.Matrix4; c: THREE.Color; x: number; y: number; z: number; r: number }>> = Array.from(
       { length: SECTOR_COUNT },
       () => [],
     );
     let rc = 0;
     att = 0;
-    while (rc < R && att++ < 5000) {
+    while (rc < ROCK_PAIRS && att++ < 5000) {
       const x = (rand() - 0.5) * 900;
-      const z = (rand() - 0.5) * 900;
-      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 60 || Math.abs(x) < 8 || Math.hypot(x - TOWN.x, z - TOWN.z) < 90) continue;
-      if (Math.abs(z + 432) < 18 && Math.abs(x) < 145) continue;
-      if (Math.abs(z - 330) < 18 && Math.abs(x) < 200) continue;
+      const zPos = 14 + rand() * 436;
+      if (Math.hypot(x - SPAWN_B.x, zPos - SPAWN_B.z) < 65 || Math.abs(x) < 12 || Math.hypot(x - TOWN.x, zPos - TOWN.z) < 95) continue;
+      if (Math.abs(zPos - 432) < 22 && Math.abs(x) < 150) continue;
       const s0 = 0.8 + rand() * rand() * 4.5;
-      const ry = heightAt(x, z) + s0 * 0.25;
-      q.setFromEuler(new THREE.Euler(rand() * 3, rand() * 6, rand() * 3));
-      m.compose(p.set(x, ry, z), q, sc3.set(s0 * 1.3, s0 * 0.8, s0));
+      const ry = heightAt(x, zPos) + s0 * 0.25;
+      const rxEuler = rand() * 3;
+      const ryEuler = rand() * 6;
+      const rzEuler = rand() * 3;
       col.setHSL(0.1, 0.06, 0.38 + rand() * 0.18);
       const rockR = Math.max(0.9, s0 * 1.02);
-      obstacles.push({
-        min: new THREE.Vector3(x - rockR, ry - s0 * 0.8, z - rockR),
-        max: new THREE.Vector3(x + rockR, ry + s0 * 0.8, z + rockR),
-        kind: 'rock',
-        rockX: x,
-        rockZ: z,
-        rockRadius: rockR,
-      });
-      const sec = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
-      rockBuckets[sec].push({ m: m.clone(), c: col.clone(), x, y: ry, z, r: rockR });
+      for (const zSign of [1, -1]) {
+        const z = zSign * zPos;
+        q.setFromEuler(new THREE.Euler(zSign * rxEuler, ryEuler, zSign * rzEuler));
+        m.compose(p.set(x, ry, z), q, sc3.set(s0 * 1.3, s0 * 0.8, s0));
+        obstacles.push({
+          min: new THREE.Vector3(x - rockR, ry - s0 * 0.8, z - rockR),
+          max: new THREE.Vector3(x + rockR, ry + s0 * 0.8, z + rockR),
+          kind: 'rock',
+          rockX: x,
+          rockZ: z,
+          rockRadius: rockR,
+        });
+        const sec = sectorIndexFor(x, z, WORLD_SIZE / 2, SECTOR_GRID);
+        rockBuckets[sec].push({ m: m.clone(), c: col.clone(), x, y: ry, z, r: rockR });
+      }
       rc++;
     }
     for (let sec = 0; sec < SECTOR_COUNT; sec++) {
@@ -1303,13 +1356,9 @@ export function createWorld(scene: THREE.Scene): GameWorld {
     exposure: 1,
     grade: { sat: 1.08, tint: [1, 1, 1] },
     spawnPlayer: { x: SPAWN.x, z: SPAWN.z, heading: 0 },
-    spawnA: (i: number) => ({ x: -70 + i * 45, z: -432, heading: 0 }),
-    spawnB: (i: number) => ({ x: -170 + i * 38, z: 330, heading: Math.PI }),
-    objectives: [
-      { x: -140, z: -90 },
-      { x: -10, z: 20 },
-      { x: 120, z: 150 },
-    ],
+    spawnA: hillsSpawnA,
+    spawnB: hillsSpawnB,
+    objectives: HILLS_OBJECTIVES,
     objJitter: 30,
   };
 }

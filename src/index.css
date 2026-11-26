@@ -83,6 +83,20 @@ html, body {
   box-shadow: 0 0 3px #000;
 }
 
+#mgMark {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid #b8c0ca;
+  border-radius: 50%;
+  box-sizing: border-box;
+  pointer-events: none;
+  box-shadow: 0 0 3px #000, inset 0 0 2px rgba(0, 0, 0, 0.55);
+}
+
 .hud {
   position: fixed;
   pointer-events: none;
@@ -183,6 +197,7 @@ body.thermal-active #thermalOverlay {
 body.menu .hud,
 body.menu #crosshair,
 body.menu #gunMark,
+body.menu #mgMark,
 body.menu #kstamReticle,
 body.menu #thermalOverlay,
 body.menu #weakspotHud,
@@ -198,6 +213,7 @@ body.menu #spectatorBar,
 body.cutscene-active .hud,
 body.cutscene-active #crosshair,
 body.cutscene-active #gunMark,
+body.cutscene-active #mgMark,
 body.cutscene-active #kstamReticle,
 body.cutscene-active #thermalOverlay,
 body.cutscene-active #weakspotHud,
@@ -2309,6 +2325,67 @@ select {
   color: #9aa58a;
   background: rgba(20, 25, 16, 0.88);
   border: 1px dashed #4f5a40;
+}
+
+/* ---- credits panel ---- */
+#creditsPanel {
+  width: min(560px, 94vw);
+}
+
+.credits-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  background: rgba(20, 25, 16, 0.9);
+  border: 1px solid #4f5a40;
+}
+
+.credits-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 10px 12px;
+  background: rgba(28, 34, 22, 0.88);
+  border: 1px solid rgba(120, 130, 100, 0.28);
+  border-left: 3px solid #ffd27a;
+}
+
+.credits-name {
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: #ffd27a;
+}
+
+.credits-role {
+  font-size: 13px;
+  color: #e8e6d8;
+}
+
+.credits-tools-box {
+  margin-top: 4px;
+  padding: 12px 14px;
+  text-align: center;
+  background: rgba(16, 20, 13, 0.92);
+  border: 1px solid rgba(120, 130, 100, 0.32);
+}
+
+.credits-tools-label {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #9aa58a;
+  margin-bottom: 6px;
+}
+
+.credits-tools-list {
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 0.6px;
+  color: #f3e4b8;
 }
 
 /* ---- language selector panel ---- */

@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { getTankSpec, type TankSpec } from './tanks';
-import { createMgState, startMgReload, stepMgState, tryFireMg, type MachineGunState } from './machineGun';
+import {
+  createMgState,
+  resolveMgAim,
+  startMgReload,
+  stepMgState,
+  tryFireMg,
+  type MachineGunState,
+} from './machineGun';
 import { createApsState, stepApsState, type TrophyApsState } from './aps';
 import {
   activateAbility,
@@ -296,6 +303,16 @@ export class Tank {
 
   turretYaw = 0;
   gunElev = 0;
+  mgYaw = 0;
+  mgElev = 0;
+  private _mgIndependent = false;
+  private _mgQuat = new THREE.Quaternion();
+  private _mgYawQuat = new THREE.Quaternion();
+  private _mgPitchQuat = new THREE.Quaternion();
+  private _mgAxisY = new THREE.Vector3(0, 1, 0);
+  private _mgAxisX = new THREE.Vector3(1, 0, 0);
+  private _mgPivotTmp = new THREE.Vector3();
+  private _mgDirTmp = new THREE.Vector3();
   reloadTimer = 0;
   private _lastReloadDuration = 4.0;
   recoil = 0;
@@ -3773,7 +3790,28 @@ export class Tank {
     });
     this.turretYaw = next.turretYaw;
     this.gunElev = next.gunElev;
+    if (!this._mgIndependent) {
+      this.mgYaw = this.turretYaw;
+      this.mgElev = this.gunElev;
+    }
     this._applyPose();
+  }
+
+  updateMgAim(aimYaw: number, aimElev: number): void {
+    if (!this.alive) return;
+    this._mgIndependent = true;
+    const next = resolveMgAim({
+      alive: this.alive,
+      heading: this.heading,
+      pitchUp: this._pitchUp,
+      rollLeftUp: this._rollLeftUp,
+      aimYaw,
+      aimElev,
+      prevYaw: this.mgYaw,
+      prevElev: this.mgElev,
+    });
+    this.mgYaw = next.mgYaw;
+    this.mgElev = next.mgElev;
   }
 
   immobilize(sec: number): void {
@@ -3865,6 +3903,9 @@ export class Tank {
     this.yawRate = 0;
     this.turretYaw = 0;
     this.gunElev = 0;
+    this.mgYaw = 0;
+    this.mgElev = 0;
+    this._mgIndependent = false;
     this.reloadTimer = 0;
     this._lastReloadDuration = this.stats.reload;
     this.recoil = 0;
@@ -4049,7 +4090,7 @@ export class Tank {
     const pos = new THREE.Vector3();
     const dir = new THREE.Vector3();
     this.mgMuzzleWorld(pos);
-    this.gunDirection(dir);
+    this.mgDirection(dir);
     const sp = mg.spread;
     if (sp > 0) {
       dir.x += (Math.random() * 2 - 1) * sp;
@@ -4078,10 +4119,31 @@ export class Tank {
     this.muzzle.updateWorldMatrix(true, false);
     return this.muzzle.getWorldPosition(out);
   }
+  mgPivotWorld(out: THREE.Vector3): THREE.Vector3 {
+    this.hullGroup.updateWorldMatrix(true, false);
+    const roofY = this.turretGroup.position.y + 0.72;
+    return this.hullGroup.localToWorld(out.set(0, roofY, 0));
+  }
+  mgDirection(out: THREE.Vector3): THREE.Vector3 {
+    if (!this._mgIndependent) {
+      return this.gunDirection(out);
+    }
+    this.hullGroup.updateWorldMatrix(true, false);
+    this.hullGroup.getWorldQuaternion(this._mgQuat);
+    this._mgYawQuat.setFromAxisAngle(this._mgAxisY, this.mgYaw);
+    this._mgPitchQuat.setFromAxisAngle(this._mgAxisX, -this.mgElev);
+    this._mgQuat.multiply(this._mgYawQuat).multiply(this._mgPitchQuat);
+    return out.set(0, 0, 1).applyQuaternion(this._mgQuat).normalize();
+  }
   mgMuzzleWorld(out: THREE.Vector3): THREE.Vector3 {
-    const obj = this.mgMuzzle || this.muzzle;
-    obj.updateWorldMatrix(true, false);
-    return obj.getWorldPosition(out);
+    if (!this._mgIndependent) {
+      const obj = this.mgMuzzle || this.muzzle;
+      obj.updateWorldMatrix(true, false);
+      return obj.getWorldPosition(out);
+    }
+    this.mgPivotWorld(this._mgPivotTmp);
+    this.mgDirection(this._mgDirTmp);
+    return out.copy(this._mgPivotTmp).addScaledVector(this._mgDirTmp, 1.05);
   }
   flameMuzzleWorld(out: THREE.Vector3): THREE.Vector3 {
     const obj = this.flameMuzzle || this.muzzle;

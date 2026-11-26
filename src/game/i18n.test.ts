@@ -229,6 +229,10 @@ test('Maps localize correctly in ru, sr, and en', () => {
   assert.equal(getMapText('city', 'sr').name, 'Grad');
   assert.equal(getMapText('city', 'en').name, 'City');
 
+  assert.ok(getMapText('city', 'ru').desc.includes('Солнечный мегаполис'));
+  assert.ok(getMapText('city', 'sr').desc.includes('Sunčana metropola'));
+  assert.ok(getMapText('city', 'en').desc.includes('Sunny modern metropolis'));
+
   assert.equal(getMapText('london', 'ru').name, 'Лондон');
   assert.equal(/\d/.test(getMapText('london', 'ru').name), false);
   assert.equal(getMapText('london', 'sr').name, 'London');
@@ -354,3 +358,20 @@ test('HUD units and all literal t() calls in src/ resolve in every dictionary', 
     }
   }
 });
+
+test('Credits panel strings exist in all languages with required authors and tools', () => {
+  assert.equal(t('btnCredits', undefined, 'ru'), 'ТИТРЫ');
+  assert.equal(t('creditsTitle', undefined, 'ru'), 'ТИТРЫ');
+  assert.equal(t('creditsArbuzName', undefined, 'ru'), 'Арбуз');
+  assert.equal(t('creditsArbuzRole', undefined, 'ru'), 'главный вайбкодер');
+  assert.equal(t('creditsMandarinName', undefined, 'ru'), 'Мандарин');
+  assert.equal(t('creditsMandarinRole', undefined, 'ru'), 'промптер (писатель промтов)');
+  assert.equal(t('creditsMadeWithLabel', undefined, 'ru'), 'Сделано при помощи:');
+  assert.equal(t('creditsToolsList', undefined, 'ru'), 'Claude Sonnet 5.5 и Gemini 4 Hydrogen');
+
+  for (const lang of SUPPORTED_LANGUAGES) {
+    assert.ok(DICTIONARIES[lang].creditsToolsList.includes('Claude Sonnet 5.5'));
+    assert.ok(DICTIONARIES[lang].creditsToolsList.includes('Gemini 4 Hydrogen'));
+  }
+});
+

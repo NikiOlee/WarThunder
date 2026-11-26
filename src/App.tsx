@@ -27,6 +27,7 @@ export default function App() {
       </div>
       <div id="crosshair" />
       <div id="gunMark" />
+      <div id="mgMark" data-testid="mg-mark" />
       <div id="cutsceneOverlay" className="hidden" data-testid="cutscene-overlay" aria-live="polite">
         <div id="cutsceneTopCaption" data-testid="cutscene-top-caption" />
         <div id="cutsceneCenterCaption" data-testid="cutscene-center-caption" />
@@ -419,6 +420,9 @@ export default function App() {
               <button type="button" className="btn dim menu-edge-btn" id="bCtl">
                 УПРАВЛЕНИЕ
               </button>
+              <button type="button" className="btn dim menu-edge-btn" id="bCredits" data-testid="btn-credits">
+                ТИТРЫ
+              </button>
               <button type="button" className="btn dim menu-edge-btn" id="bLang" data-testid="btn-lang">
                 Язык/Language/Jezik
               </button>
@@ -564,6 +568,44 @@ export default function App() {
               СБРОС
             </button>
             <button type="button" className="btn dim" id="bBack">
+              НАЗАД
+            </button>
+          </div>
+        </div>
+
+        <div id="creditsPanel" className="panel hidden" data-testid="credits-panel">
+          <h2>ТИТРЫ</h2>
+          <div className="tag" id="creditsTag">
+            КОМАНДА ПРОЕКТА
+          </div>
+          <div className="credits-card">
+            <div className="credits-row">
+              <span className="credits-name" id="creditsArbuzName">
+                Арбуз
+              </span>
+              <span className="credits-role" id="creditsArbuzRole">
+                главный вайбкодер
+              </span>
+            </div>
+            <div className="credits-row">
+              <span className="credits-name" id="creditsMandarinName">
+                Мандарин
+              </span>
+              <span className="credits-role" id="creditsMandarinRole">
+                промптер (писатель промтов)
+              </span>
+            </div>
+            <div className="credits-tools-box">
+              <div className="credits-tools-label" id="creditsMadeWithLabel">
+                Сделано при помощи:
+              </div>
+              <div className="credits-tools-list" id="creditsToolsList">
+                Claude Sonnet 5.5 и Gemini 4 Hydrogen
+              </div>
+            </div>
+          </div>
+          <div className="foot">
+            <button type="button" className="btn dim" id="bCreditsBack" data-testid="credits-back">
               НАЗАД
             </button>
           </div>

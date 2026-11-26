@@ -57,6 +57,7 @@ const DICT_RU: TranslationDict = {
   btnSettings: 'НАСТРОЙКИ',
   btnHistory: 'ИСТОРИЯ БОЁВ',
   btnControls: 'УПРАВЛЕНИЕ',
+  btnCredits: 'ТИТРЫ',
   btnLanguage: 'Язык/Language/Jezik',
 
   // Language panel
@@ -179,6 +180,16 @@ const DICT_RU: TranslationDict = {
 
   // Pause
   pauseTitle: 'ПАУЗА',
+
+  // Credits
+  creditsTitle: 'ТИТРЫ',
+  creditsTag: 'КОМАНДА ПРОЕКТА',
+  creditsArbuzName: 'Арбуз',
+  creditsArbuzRole: 'главный вайбкодер',
+  creditsMandarinName: 'Мандарин',
+  creditsMandarinRole: 'промптер (писатель промтов)',
+  creditsMadeWithLabel: 'Сделано при помощи:',
+  creditsToolsList: 'Claude Sonnet 5.5 и Gemini 4 Hydrogen',
 
   // Match End
   meVictory: 'ПОБЕДА!',
@@ -440,6 +451,7 @@ const DICT_SR: TranslationDict = {
   btnSettings: 'PODEŠAVANJA',
   btnHistory: 'ISTORIJA BORBI',
   btnControls: 'KONTROLE',
+  btnCredits: 'ZASLUGE',
   btnLanguage: 'Язык/Language/Jezik',
 
   // Language panel
@@ -562,6 +574,16 @@ const DICT_SR: TranslationDict = {
 
   // Pause
   pauseTitle: 'PAUZA',
+
+  // Credits
+  creditsTitle: 'ZASLUGE',
+  creditsTag: 'TIM PROJEKTA',
+  creditsArbuzName: 'Arbuz',
+  creditsArbuzRole: 'glavni vajbkoder',
+  creditsMandarinName: 'Mandarin',
+  creditsMandarinRole: 'prompter (pisac promptova)',
+  creditsMadeWithLabel: 'Napravljeno uz pomoć:',
+  creditsToolsList: 'Claude Sonnet 5.5 i Gemini 4 Hydrogen',
 
   // Match End
   meVictory: 'POBEDA!',
@@ -823,6 +845,7 @@ const DICT_EN: TranslationDict = {
   btnSettings: 'SETTINGS',
   btnHistory: 'BATTLE HISTORY',
   btnControls: 'CONTROLS',
+  btnCredits: 'CREDITS',
   btnLanguage: 'Язык/Language/Jezik',
 
   // Language panel
@@ -945,6 +968,16 @@ const DICT_EN: TranslationDict = {
 
   // Pause
   pauseTitle: 'PAUSE',
+
+  // Credits
+  creditsTitle: 'CREDITS',
+  creditsTag: 'PROJECT TEAM',
+  creditsArbuzName: 'Arbuz',
+  creditsArbuzRole: 'lead vibe coder',
+  creditsMandarinName: 'Mandarin',
+  creditsMandarinRole: 'prompter (prompt writer)',
+  creditsMadeWithLabel: 'Made with:',
+  creditsToolsList: 'Claude Sonnet 5.5 and Gemini 4 Hydrogen',
 
   // Match End
   meVictory: 'VICTORY!',
@@ -1662,7 +1695,7 @@ export const MAPS_LOCALIZED: Record<SupportedLanguage, Record<string, MapLocaliz
     },
     city: {
       name: 'Город',
-      desc: 'Разрушенный войной город: руины, обломки стен, воронки и трещины в асфальте. Серая мгла, тесные улицы, ближний бой.',
+      desc: 'Солнечный мегаполис: центральный парк с фонтаном, жилые многоэтажки и стеклянные башни на востоке, промзона с градирнями и контейнерами на западе. Широкие проспекты, прострелы и плотный городской бой.',
     },
     london: {
       name: 'Лондон',
@@ -1676,7 +1709,7 @@ export const MAPS_LOCALIZED: Record<SupportedLanguage, Record<string, MapLocaliz
     },
     city: {
       name: 'Grad',
-      desc: 'Ratom razrušen grad: ruševine, krhotine zidova, krateri i pukotine u asfaltu. Sivo sivilo, uske ulice, borba na blizinu.',
+      desc: 'Sunčana metropola: centralni park sa fontanom, stambene višespratnice i staklene kule na istoku, industrijska zona sa rashladnim tornjevima i kontejnerima na zapadu. Široki bulevari, duge linije paljbe i dinamična gradska borba.',
     },
     london: {
       name: 'London',
@@ -1690,7 +1723,7 @@ export const MAPS_LOCALIZED: Record<SupportedLanguage, Record<string, MapLocaliz
     },
     city: {
       name: 'City',
-      desc: 'War-torn urban area: ruins, collapsed masonry, shell craters, and cracked asphalt. Gray haze, narrow streets, close-quarters combat.',
+      desc: 'Sunny modern metropolis: a central park with a fountain monument, panel high-rises and glass towers in the east, and an industrial district with cooling towers and shipping containers in the west. Wide avenues, flanking lanes, and dynamic urban combat.',
     },
     london: {
       name: 'London',

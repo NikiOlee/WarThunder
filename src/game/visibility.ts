@@ -54,6 +54,7 @@ export function sectorIndexFor(x: number, z: number, worldHalf: number, gridSize
 
 export class VisibilityController {
   fovScale = 1;
+  lodScale = 1;
   readonly camPos = new THREE.Vector3();
   readonly stats: VisibilityStats = {
     visibleTanks: 0,
@@ -63,6 +64,10 @@ export class VisibilityController {
     visibleSectors: 0,
     culledSectors: 0,
   };
+
+  setLodScale(scale: number): void {
+    this.lodScale = Number.isFinite(scale) ? Math.max(0.4, Math.min(1.8, scale)) : 1;
+  }
 
   updateFromCamera(camera: THREE.PerspectiveCamera): void {
     camera.updateMatrixWorld();
@@ -97,7 +102,7 @@ export class VisibilityController {
   }
 
   effectiveDistanceTo(x: number, y: number, z: number): number {
-    return this.distanceTo(x, y, z) * this.fovScale;
+    return (this.distanceTo(x, y, z) * this.fovScale) / this.lodScale;
   }
 
   boxEffectiveDistance(box: THREE.Box3): number {
@@ -107,6 +112,6 @@ export class VisibilityController {
     const dx = Math.max(0, Math.abs(_camPos.x - cx) - (box.max.x - box.min.x) * 0.5);
     const dy = Math.max(0, Math.abs(_camPos.y - cy) - (box.max.y - box.min.y) * 0.5);
     const dz = Math.max(0, Math.abs(_camPos.z - cz) - (box.max.z - box.min.z) * 0.5);
-    return Math.sqrt(dx * dx + dy * dy + dz * dz) * this.fovScale;
+    return (Math.sqrt(dx * dx + dy * dy + dz * dz) * this.fovScale) / this.lodScale;
   }
 }

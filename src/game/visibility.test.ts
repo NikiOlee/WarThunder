@@ -69,3 +69,20 @@ test('sectorIndexFor cleanly partitions coordinates inside [-worldHalf, worldHal
   assert.equal(sectorIndexFor(-9999, -9999, 500, 4), 0);
   assert.equal(sectorIndexFor(9999, 9999, 500, 4), 15);
 });
+
+test('VisibilityController lodScale scales effective distances smoothly', () => {
+  const cam = new THREE.PerspectiveCamera(55, 16 / 9, 0.5, 1500);
+  cam.position.set(0, 5, 0);
+  cam.lookAt(0, 5, 100);
+
+  const vis = new VisibilityController();
+  vis.updateFromCamera(cam);
+  const baseEff = vis.effectiveDistanceTo(0, 5, 150);
+
+  vis.setLodScale(1.5);
+  assert.ok(vis.effectiveDistanceTo(0, 5, 150) < baseEff);
+
+  vis.setLodScale(0.5);
+  assert.ok(vis.effectiveDistanceTo(0, 5, 150) > baseEff);
+});
+

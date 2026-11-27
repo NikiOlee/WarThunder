@@ -767,6 +767,7 @@ body.bombardment-active #modeLabel {
   font-size: 12px;
   color: #9fe39a;
   display: none;
+  font-variant-numeric: tabular-nums;
 }
 
 #dead {
@@ -3323,5 +3324,282 @@ body.play[data-control="touch"] #weakspotHud {
     display: none;
   }
 }
+
+/* ---- extended graphics & pc benchmark ---- */
+.gfx-sec-head {
+  margin-top: 12px;
+  padding: 6px 0 4px;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #ffd27a;
+  border-bottom: 1px solid rgba(255, 210, 122, 0.28);
+}
+
+.bench-launch-box {
+  margin: 10px 0 12px;
+  padding: 12px 14px;
+  background: rgba(24, 30, 18, 0.9);
+  border: 1px solid rgba(255, 210, 122, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bench-launch-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.bench-launch-title {
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1.5px;
+  color: #ffd27a;
+  margin-bottom: 3px;
+}
+
+.bench-launch-desc {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #c6c3ad;
+}
+
+.bench-start-btn {
+  width: auto !important;
+  flex-shrink: 0;
+  margin: 0 !important;
+  padding: 10px 16px !important;
+  font-size: 12px !important;
+  letter-spacing: 1.5px !important;
+  white-space: nowrap;
+}
+
+body.benchmark-active .hud,
+body.benchmark-active #crosshair,
+body.benchmark-active #gunMark,
+body.benchmark-active #mgMark,
+body.benchmark-active #scope,
+body.benchmark-active #hitcam,
+body.benchmark-active #touchHud,
+body.benchmark-active #dead {
+  display: none !important;
+}
+
+#benchmarkHud {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 94vw);
+  padding: 9px 14px 10px;
+  background: rgba(12, 16, 10, 0.86);
+  border: 1px solid rgba(255, 210, 122, 0.52);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+  z-index: 9;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(6px);
+}
+
+.bench-hud-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.bench-hud-title {
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1.6px;
+  color: #ffd27a;
+  white-space: nowrap;
+}
+
+.bench-hud-timer {
+  font-size: 12px;
+  color: #e4e1cc;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.bench-stop-btn {
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  color: #ffd27a;
+  background: rgba(42, 48, 30, 0.9);
+  border: 1px solid #8a8c5a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bench-stop-btn:hover {
+  background: rgba(255, 110, 80, 0.22);
+  border-color: #ff8c6b;
+  color: #fff;
+}
+
+.bench-progress-track {
+  height: 4px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.12);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.bench-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #b79c4c, #ffd27a);
+  transition: width 0.08s linear;
+}
+
+.bench-hud-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.bench-stat-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3px 6px;
+  background: rgba(20, 26, 16, 0.72);
+  border: 1px solid rgba(118, 128, 92, 0.35);
+}
+
+.bench-stat-cell span {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: #9aa58a;
+}
+
+.bench-stat-cell b {
+  font-size: 14px;
+  color: #f4f1df;
+}
+
+#benchmarkResultPanel {
+  width: min(620px, 94vw);
+}
+
+.bench-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-metric {
+  padding: 9px 12px;
+  background: rgba(22, 28, 18, 0.9);
+  border: 1px solid rgba(112, 122, 88, 0.48);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bench-metric span {
+  font-size: 12px;
+  color: #b7b59d;
+}
+
+.bench-metric b {
+  font-size: 15px;
+  color: #ffd27a;
+}
+
+.bench-recommend {
+  padding: 9px 12px;
+  margin-bottom: 12px;
+  background: rgba(26, 33, 20, 0.92);
+  border: 1px solid rgba(143, 227, 106, 0.42);
+  color: #cfe8be;
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.bench-profiles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bench-prof-btn {
+  width: 100%;
+  text-align: left;
+  padding: 11px 14px;
+  font-family: inherit;
+  background: rgba(24, 30, 19, 0.92);
+  border: 1px solid #5f6b50;
+  color: #e8e6d8;
+  cursor: pointer;
+}
+
+.bench-prof-btn:hover {
+  background: rgba(40, 48, 28, 0.96);
+  border-color: #ffd27a;
+}
+
+.bench-prof-btn.recommended {
+  border-color: #ffd27a;
+  box-shadow: inset 0 0 0 1px rgba(255, 210, 122, 0.28);
+}
+
+.bench-prof-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bench-prof-title {
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: #ffd27a;
+}
+
+.bench-prof-badge {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  padding: 2px 7px;
+  color: #8fe36a;
+  background: rgba(16, 26, 14, 0.95);
+  border: 1px solid rgba(143, 227, 106, 0.55);
+  white-space: nowrap;
+}
+
+.bench-prof-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #c2bfa7;
+}
+
+@media (max-width: 640px) {
+  .bench-launch-box {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bench-hud-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bench-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 

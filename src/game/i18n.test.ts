@@ -375,3 +375,16 @@ test('Credits panel strings exist in all languages with required authors and too
   }
 });
 
+test('Extended graphics and benchmark strings exist across all languages', () => {
+  assert.equal(t('benchBtnMaxFps', undefined, 'ru'), 'Максимум ФПС');
+  assert.equal(t('benchBtnMaxGfx', undefined, 'ru'), 'Максимальная графика');
+  assert.equal(t('benchBtn60Fps', undefined, 'ru'), '60 ФПС');
+  for (const lang of SUPPORTED_LANGUAGES) {
+    assert.ok(DICTIONARIES[lang].benchStartBtn.length > 0);
+    assert.ok(DICTIONARIES[lang].setFpsLimit.length > 0);
+    assert.ok(DICTIONARIES[lang].setShadowType.length > 0);
+    assert.ok(DICTIONARIES[lang].setLodScale.length > 0);
+  }
+});
+
+

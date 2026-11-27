@@ -20,7 +20,15 @@ import { Tank } from './tank';
 import { BallisticsSystem, G, DRAG_K, SUBSTEP } from './ballistics';
 import { Bot, pickRandomBotTankId, setMap } from './bots';
 import { JuggernautBoss, BOSS_RAM_DISTANCE } from './boss';
-import { settings, onSettings, setSetting, keyName, type GameSettings } from './settings';
+import { settings, onSettings, setSetting, applySettingsPatch, keyName, type GameSettings } from './settings';
+import {
+  BENCHMARK_DURATION_SEC,
+  BENCHMARK_STRESS_GRAPHICS,
+  BenchmarkCollector,
+  buildGraphicsProfile,
+  sampleBenchmarkCameraPose,
+  type BenchmarkProfileId,
+} from './benchmark';
 import { isMgExhausted } from './machineGun';
 import { audio } from './audio';
 import { HitCam } from './hitcam';
@@ -106,6 +114,16 @@ export function initGame(mountEl: HTMLElement): () => void {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   mountEl.innerHTML = '';
   mountEl.appendChild(renderer.domElement);
+
+  const onWebglContextLost = (e: Event) => {
+    e.preventDefault();
+  };
+  const onWebglContextRestored = () => {
+    applyGraphics();
+    idleFrames = 0;
+  };
+  renderer.domElement.addEventListener('webglcontextlost', onWebglContextLost);
+  renderer.domElement.addEventListener('webglcontextrestored', onWebglContextRestored);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xd2dde6);
@@ -356,7 +374,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     flags.ai = true;
     flags.timeScale = 1;
   }
-  let state: 'menu' | 'play' | 'pause' | 'matchEnd' = 'menu';
+  let state: 'menu' | 'play' | 'pause' | 'matchEnd' | 'benchmark' = 'menu';
+  let cachedSceneEnv: THREE.Texture | null = scene.environment;
   let idleFrames = 0;
   let hangarOpen = false;
   let battleStarted = false;
@@ -460,10 +479,35 @@ export function initGame(mountEl: HTMLElement): () => void {
   const minimap = new Minimap($<HTMLCanvasElement>('minimap'));
   minimap.setWorld(world);
 
+  function syncVisualGrade() {
+    const expBias = settings.exposureBias || 1;
+    const satBias = settings.colorSaturation || 1;
+    if (hangarOpen) {
+      renderer.toneMappingExposure = hangarShowcase.world.exposure * expBias;
+      if (gradePass) {
+        gradePass.uniforms.sat.value = hangarShowcase.world.grade.sat * satBias;
+        gradePass.uniforms.tint.value.set(...hangarShowcase.world.grade.tint);
+      }
+    } else if (state === 'menu') {
+      renderer.toneMappingExposure = menuShowcase.world.exposure * expBias;
+      if (gradePass) {
+        gradePass.uniforms.sat.value = menuShowcase.world.grade.sat * satBias;
+        gradePass.uniforms.tint.value.set(...menuShowcase.world.grade.tint);
+      }
+    } else {
+      renderer.toneMappingExposure = world.exposure * expBias;
+      if (gradePass) {
+        gradePass.uniforms.sat.value = world.grade.sat * satBias;
+        gradePass.uniforms.tint.value.set(...world.grade.tint);
+      }
+    }
+  }
+
   function applyGraphics() {
     idleFrames = 0;
     const sun = world.sun;
-    const pr = isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.5) * settings.resolution;
+    const dprCap = settings.dprCap || 1.5;
+    const pr = isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, dprCap) * settings.resolution;
     renderer.setPixelRatio(pr);
     renderer.setSize(innerWidth, innerHeight);
     if (composer) {
@@ -473,8 +517,27 @@ export function initGame(mountEl: HTMLElement): () => void {
     sun.castShadow = !isSoftwareGl && settings.shadows !== 'off';
     menuShowcase.world.sun.castShadow = !isSoftwareGl && settings.shadows !== 'off';
     hangarShowcase.world.sun.castShadow = !isSoftwareGl && settings.shadows !== 'off';
-    const ms = settings.shadows === 'high' ? 2048 : 1024;
-    if (!isSoftwareGl && sun.shadow.mapSize.x !== ms) {
+
+    const shadowSizes: Record<GameSettings['shadows'], number> = {
+      off: 512,
+      low: 512,
+      medium: 1024,
+      high: 2048,
+      ultra: 4096,
+    };
+    const ms = shadowSizes[settings.shadows] || 1024;
+    const nextShadowType =
+      settings.shadowType === 'basic'
+        ? THREE.BasicShadowMap
+        : settings.shadowType === 'pcf'
+          ? THREE.PCFShadowMap
+          : THREE.PCFSoftShadowMap;
+    const shadowTypeChanged = !isSoftwareGl && renderer.shadowMap.type !== nextShadowType;
+    if (shadowTypeChanged) {
+      renderer.shadowMap.type = nextShadowType;
+      renderer.shadowMap.needsUpdate = true;
+    }
+    if (!isSoftwareGl && (sun.shadow.mapSize.x !== ms || shadowTypeChanged)) {
       sun.shadow.mapSize.set(ms, ms);
       if (sun.shadow.map) {
         sun.shadow.map.dispose();
@@ -483,9 +546,16 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
     if (bloomPass) bloomPass.strength = settings.bloom;
     world.setGrass(settings.grass);
-    const f = ({ low: 0.4, medium: 0.7, high: 1 } as const)[settings.drawDist] || 1;
+    const f = ({ low: 0.4, medium: 0.7, high: 1, ultra: 1.28 } as const)[settings.drawDist] || 1;
     (scene.fog as THREE.Fog).far = world.fogFar * f;
     (scene.fog as THREE.Fog).near = world.fogNear * Math.min(1, f);
+    vis.setLodScale(settings.lodScale);
+    ballistics.fx.setDensity(settings.particles);
+    if (cachedSceneEnv) {
+      scene.environment = settings.envReflections ? cachedSceneEnv : null;
+    }
+    syncVisualGrade();
+    $('fps').style.display = flags.fps || settings.showFps ? 'block' : 'none';
     $('vignette').style.display = settings.vignette ? 'block' : 'none';
     $('help').style.display = settings.hints && settings.controlMode !== 'touch' ? 'block' : 'none';
     $('hitcam').dataset.on = settings.hitcam ? '1' : '0';
@@ -516,7 +586,31 @@ export function initGame(mountEl: HTMLElement): () => void {
     }
   }
 
-  const GFX_KEYS = new Set(['shadows', 'post', 'bloom', 'grass', 'drawDist', 'resolution', 'vignette', 'hitcam', 'hints', 'keys', 'controlMode', 'touchSens', 'language', '*']);
+  const GFX_KEYS = new Set([
+    'fpsLimit',
+    'shadows',
+    'shadowType',
+    'post',
+    'bloom',
+    'grass',
+    'drawDist',
+    'resolution',
+    'dprCap',
+    'lodScale',
+    'particles',
+    'envReflections',
+    'colorSaturation',
+    'exposureBias',
+    'vignette',
+    'showFps',
+    'hitcam',
+    'hints',
+    'keys',
+    'controlMode',
+    'touchSens',
+    'language',
+    '*',
+  ]);
   const unsubSettings = onSettings((k) => {
     if (k === 'language') {
       applyDocumentLanguage();
@@ -539,11 +633,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   });
 
   function applyMenuShowcaseLook() {
-    renderer.toneMappingExposure = menuShowcase.world.exposure;
-    if (gradePass) {
-      gradePass.uniforms.sat.value = menuShowcase.world.grade.sat;
-      gradePass.uniforms.tint.value.set(...menuShowcase.world.grade.tint);
-    }
+    syncVisualGrade();
   }
 
   function syncMenuTank(tankId: string) {
@@ -555,13 +645,11 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function applyMapLook() {
     world.createEnvironment(renderer);
+    cachedSceneEnv = scene.environment;
+    scene.environment = settings.envReflections ? cachedSceneEnv : null;
     (scene.background as THREE.Color).setHex(world.background);
     (scene.fog as THREE.Fog).color.setHex(world.fogColor);
-    renderer.toneMappingExposure = world.exposure;
-    if (gradePass) {
-      gradePass.uniforms.sat.value = world.grade.sat;
-      gradePass.uniforms.tint.value.set(...world.grade.tint);
-    }
+    syncVisualGrade();
   }
 
   function loadMap(id: string) {
@@ -1226,11 +1314,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         previewTank.setDetailLevel('high', !isSoftwareGl);
         previewTank.turretYaw = Math.sin(menuAngle * 0.55) * 0.24;
         previewTank.root.updateMatrixWorld(true);
-        renderer.toneMappingExposure = hangarShowcase.world.exposure;
-        if (gradePass) {
-          gradePass.uniforms.sat.value = hangarShowcase.world.grade.sat;
-          gradePass.uniforms.tint.value.set(...hangarShowcase.world.grade.tint);
-        }
+        syncVisualGrade();
         if (engineReady) {
           camera.fov = 52;
           menuCamera(0);
@@ -1252,6 +1336,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         }
       }
     },
+    startBenchmark: () => startBenchmark(),
   });
 
   applyDocumentLanguage();
@@ -1480,7 +1565,10 @@ export function initGame(mountEl: HTMLElement): () => void {
       return;
     }
     if (e.code === 'Escape') {
-      if (state === 'play' && (fallback || isSoftwareGl)) openPause();
+      if (state === 'benchmark') {
+        e.preventDefault();
+        finishBenchmark(false);
+      } else if (state === 'play' && (fallback || isSoftwareGl)) openPause();
       else if (state === 'pause') resumeGame();
       else if (state === 'menu' && hangarOpen) ui.show('main');
       return;
@@ -2552,7 +2640,7 @@ export function initGame(mountEl: HTMLElement): () => void {
       el.dmg.innerHTML = d;
     }
 
-    if (flags.fps) {
+    if (flags.fps || settings.showFps) {
       fpsAcc += dt;
       fpsN++;
       if (fpsAcc > 0.5) {
@@ -2995,6 +3083,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   function handleTankDestroyed(target: Tank, owner: Tank | null, suffix = '') {
+    if (state === 'benchmark') return;
     if (target.isBoss) {
       target.matchDeaths++;
       if (owner === tank) {
@@ -3350,6 +3439,290 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   let disposed = false;
   let frameId = 0;
+  let lastPacedMs = performance.now();
+
+  const benchmark = {
+    active: false,
+    from: 'main',
+    prevSettings: {} as Partial<GameSettings>,
+    prevMap: 'hills',
+    prevModeId: DEFAULT_MODE_ID,
+    prevBattleStarted: false,
+    elapsed: 0,
+    warmupFrames: 0,
+    explosionAcc: 0,
+    explosionSeq: 0,
+    collector: new BenchmarkCollector(),
+  };
+
+  function captureGraphicsSettings(): Partial<GameSettings> {
+    return {
+      fpsLimit: settings.fpsLimit,
+      shadows: settings.shadows,
+      shadowType: settings.shadowType,
+      post: settings.post,
+      bloom: settings.bloom,
+      grass: settings.grass,
+      drawDist: settings.drawDist,
+      resolution: settings.resolution,
+      dprCap: settings.dprCap,
+      lodScale: settings.lodScale,
+      particles: settings.particles,
+      envReflections: settings.envReflections,
+      colorSaturation: settings.colorSaturation,
+      exposureBias: settings.exposureBias,
+      vignette: settings.vignette,
+      showFps: settings.showFps,
+      fov: settings.fov,
+    };
+  }
+
+  function spawnBenchmarkExplosion(seq: number) {
+    const angle = seq * 1.85;
+    const rad = 18 + (seq % 4) * 11;
+    const ex = Math.cos(angle) * rad;
+    const ez = Math.sin(angle * 0.85) * rad;
+    const gy = world.heightAt(ex, ez);
+    emitAirBombExplosion(ex, gy, ez, 9.5);
+    for (let s = 0; s < 4; s++) {
+      ballistics.fx.emit({
+        x: ex + (Math.random() - 0.5) * 4,
+        y: gy + 1.2 + Math.random() * 1.4,
+        z: ez + (Math.random() - 0.5) * 4,
+        vx: (Math.random() - 0.5) * 2.5,
+        vy: 2.2 + Math.random() * 2.5,
+        vz: (Math.random() - 0.5) * 2.5,
+        life: 3.2 + Math.random() * 1.4,
+        s0: 4.5,
+        s1: 16.5,
+        r: 0.22,
+        g: 0.2,
+        b: 0.19,
+        a: 0.82,
+        drag: 0.7,
+      });
+    }
+  }
+
+  function startBenchmark() {
+    if (benchmark.active) return;
+    benchmark.active = true;
+    benchmark.from = ui.from || 'main';
+    benchmark.prevSettings = captureGraphicsSettings();
+    benchmark.prevMap = selectedMap;
+    benchmark.prevModeId = currentModeId;
+    benchmark.prevBattleStarted = battleStarted;
+    benchmark.elapsed = 0;
+    benchmark.warmupFrames = 0;
+    benchmark.explosionAcc = 0.5;
+    benchmark.explosionSeq = 0;
+    benchmark.collector.reset();
+
+    if (gcon.open) gcon.close();
+    setScoreboardOpen(false);
+    mouseDown = false;
+    fireQueued = false;
+    touchCtl?.reset();
+    if (document.pointerLockElement) document.exitPointerLock();
+    locked = false;
+    audio.engineSilence();
+    audio.music('off');
+
+    if (selectedMap !== 'hills') {
+      loadMap('hills');
+    }
+    syncTeamRoster(getModeDef('tdm100'));
+
+    ballistics.clear();
+    smokeClouds.length = 0;
+    clearGalixGrenades();
+    tank.god = true;
+    tank.root.visible = false;
+    tank.root.position.set(0, -180, 0);
+
+    // Arrange 6 bots across the central hills combat corridor
+    let idxA = 0;
+    let idxB = 0;
+    for (let i = 0; i < bots.length; i++) {
+      const b = bots[i];
+      b.respawn({ randomTank: true });
+      if (b.team === 'A') {
+        const bx = -46 + idxA * 38;
+        const bz = -68 - (idxA % 2) * 16;
+        b.tank.reset(bx, bz, 0.08 * (idxA - 1), b.tank.spec.id);
+        idxA++;
+      } else {
+        const bx = -44 + idxB * 36;
+        const bz = 66 + (idxB % 2) * 18;
+        b.tank.reset(bx, bz, Math.PI + 0.08 * (idxB - 1), b.tank.spec.id);
+        idxB++;
+      }
+    }
+
+    applySettingsPatch(BENCHMARK_STRESS_GRAPHICS, false);
+    state = 'benchmark';
+    hangarOpen = false;
+    ui.show(null);
+    document.body.classList.remove('menu', 'play', 'thermal-active', 'cutscene-active', 'bombardment-active');
+    document.body.classList.add('benchmark-active');
+    document.body.dataset.state = 'benchmark';
+
+    applyMapLook();
+    applyGraphics();
+
+    $('benchmarkHud').classList.remove('hidden');
+    $('benchTimerTxt').textContent = t('benchHudProgress', {
+      cur: '0.0',
+      total: String(BENCHMARK_DURATION_SEC),
+    });
+    ($('benchBarFill') as HTMLElement).style.width = '0%';
+    $('benchLiveFpsVal').textContent = '--';
+    $('benchFrameMsVal').textContent = '-- ms';
+    $('benchAvgFpsVal').textContent = '--';
+    $('benchLowFpsVal').textContent = '--';
+
+    // Immediate opening blast so action begins at t=0
+    spawnBenchmarkExplosion(0);
+    spawnBenchmarkExplosion(2);
+    lastPacedMs = performance.now();
+  }
+
+  function finishBenchmark(completed: boolean) {
+    if (!benchmark.active) return;
+    benchmark.active = false;
+    const summary = benchmark.collector.finalize(benchmark.elapsed);
+    const restoreFrom = benchmark.from || 'main';
+    const restorePrevMap = benchmark.prevMap;
+    const restorePrevMode = benchmark.prevModeId;
+    const restorePrevStarted = benchmark.prevBattleStarted;
+
+    $('benchmarkHud').classList.add('hidden');
+    document.body.classList.remove('benchmark-active');
+
+    ballistics.clear();
+    smokeClouds.length = 0;
+    clearGalixGrenades();
+    tank.god = false;
+    tank.root.visible = true;
+
+    applySettingsPatch(benchmark.prevSettings, false);
+
+    if (currentMap !== restorePrevMap) {
+      loadMap(restorePrevMap);
+    }
+    syncTeamRoster(getModeDef(restorePrevMode));
+    battleStarted = restorePrevStarted;
+    tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
+    for (const b of bots) b.respawn();
+
+    if (restoreFrom === 'pause' && restorePrevStarted) {
+      state = 'pause';
+      document.body.classList.add('play');
+      document.body.dataset.state = 'paused';
+      applyMapLook();
+    } else {
+      state = 'menu';
+      document.body.classList.remove('play');
+      document.body.classList.add('menu');
+      document.body.dataset.state = 'title';
+      syncMenuTank(getSelectedTankId());
+      applyMenuShowcaseLook();
+      camera.fov = 48;
+      menuCamera(0);
+    }
+    applyGraphics();
+
+    if (!completed) {
+      ui.openSettings(restoreFrom, 'graphics');
+      return;
+    }
+
+    ui.showBenchmarkResults(
+      summary,
+      (profileId: BenchmarkProfileId) => {
+        const patch = buildGraphicsProfile(profileId, summary.avgFps);
+        applySettingsPatch(patch, true);
+        ui.openSettings(restoreFrom, 'graphics');
+      },
+      () => {
+        ui.openSettings(restoreFrom, 'graphics');
+      },
+    );
+  }
+
+  const onBenchStopClick = () => {
+    audio.ui('click');
+    finishBenchmark(false);
+  };
+  $('bBenchStop').addEventListener('click', onBenchStopClick);
+
+  function stepBenchmarkFrame(dt: number, rawDt: number) {
+    benchmark.elapsed += dt;
+    benchmark.warmupFrames++;
+    if (benchmark.warmupFrames > 2) {
+      benchmark.collector.recordFrame(rawDt);
+    }
+
+    simTime += dt;
+    benchmark.explosionAcc += dt;
+    if (benchmark.explosionAcc >= 1.15) {
+      benchmark.explosionAcc -= 1.15;
+      benchmark.explosionSeq++;
+      spawnBenchmarkExplosion(benchmark.explosionSeq);
+    }
+
+    const benchTeamA = bots.filter((b) => b.team === 'A').map((b) => b.tank);
+    const benchTeamB = bots.filter((b) => b.team === 'B').map((b) => b.tank);
+    for (let i = 0; i < bots.length; i++) {
+      const b = bots[i];
+      b.update(dt, b.team === 'A' ? benchTeamB : benchTeamA, ballistics.fx, {
+        respawns: true,
+        botRespawns: true,
+        respawnDelay: 3,
+        allies: b.team === 'A' ? benchTeamA : benchTeamB,
+        smokeClouds,
+        simTime,
+      });
+    }
+    ballistics.update(dt);
+
+    const pose = sampleBenchmarkCameraPose(
+      benchmark.elapsed / BENCHMARK_DURATION_SEC,
+      (x, z) => world.heightAt(x, z),
+    );
+    camera.fov = 62;
+    camera.updateProjectionMatrix();
+    camera.position.set(pose.x, pose.y, pose.z);
+    camera.lookAt(pose.lookX, pose.lookY, pose.lookZ);
+
+    vis.updateFromCamera(camera);
+    for (let i = 0; i < bots.length; i++) {
+      const tk = bots[i].tank;
+      const p = tk.root.position;
+      const inFrustum = vis.isSphereVisible(p.x, p.y + 1.5, p.z, 5.2);
+      const effDist = vis.effectiveDistanceTo(p.x, p.y + 1.5, p.z);
+      tk.setDetailLevel(resolveTankLod(inFrustum, effDist, 1400), effDist < 140);
+    }
+    world.update(camera.position, camera.position, dt, vis);
+    ballistics.fx.setViewScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)));
+
+    const live = benchmark.collector.getLiveStats();
+    const progPct = clamp((benchmark.elapsed / BENCHMARK_DURATION_SEC) * 100, 0, 100);
+    $('benchTimerTxt').textContent = t('benchHudProgress', {
+      cur: Math.min(BENCHMARK_DURATION_SEC, benchmark.elapsed).toFixed(1),
+      total: String(BENCHMARK_DURATION_SEC),
+    });
+    ($('benchBarFill') as HTMLElement).style.width = `${progPct.toFixed(1)}%`;
+    $('benchLiveFpsVal').textContent = live.liveFps > 0 ? String(live.liveFps) : '--';
+    $('benchFrameMsVal').textContent = live.frameTimeMs > 0 ? `${live.frameTimeMs.toFixed(1)} ms` : '-- ms';
+    $('benchAvgFpsVal').textContent = live.avgFps > 0 ? String(live.avgFps) : '--';
+    $('benchLowFpsVal').textContent = live.onePercentLowFps > 0 ? String(live.onePercentLowFps) : '--';
+
+    render();
+    if (benchmark.elapsed >= BENCHMARK_DURATION_SEC) {
+      finishBenchmark(true);
+    }
+  }
 
   function afterDraw(cb: () => void) {
     const gl = renderer.getContext() as WebGL2RenderingContext;
@@ -3377,10 +3750,27 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function stepFrame() {
     if (disposed) return;
+    const nowMs = performance.now();
+    if (!isSoftwareGl && settings.fpsLimit > 0 && state !== 'benchmark') {
+      const minIntervalMs = 1000 / settings.fpsLimit;
+      if (nowMs - lastPacedMs < minIntervalMs - 1.5) {
+        scheduleNext();
+        return;
+      }
+      lastPacedMs = nowMs - ((nowMs - lastPacedMs) % minIntervalMs);
+    } else {
+      lastPacedMs = nowMs;
+    }
+
     const rawDt = clock.getDelta();
     let dt = Math.min(rawDt, 0.05);
 
     if (state !== 'pause' && state !== 'matchEnd') idleFrames = 0;
+    if (state === 'benchmark') {
+      stepBenchmarkFrame(dt, rawDt);
+      scheduleNext();
+      return;
+    }
     if (state === 'menu') {
       if (hangarOpen) {
         previewTank.update(dt, { throttle: 0, steer: 0, brake: true }, null);
@@ -4104,6 +4494,10 @@ export function initGame(mountEl: HTMLElement): () => void {
     $('bSbClose').removeEventListener('click', onSbClose);
     $('bSpecPrev').removeEventListener('click', onSpecPrev);
     $('bSpecNext').removeEventListener('click', onSpecNext);
+    $('bBenchStop').removeEventListener('click', onBenchStopClick);
+    renderer.domElement.removeEventListener('webglcontextlost', onWebglContextLost);
+    renderer.domElement.removeEventListener('webglcontextrestored', onWebglContextRestored);
+    document.body.classList.remove('benchmark-active');
     touchCtl?.dispose();
     clearThermalVisuals();
     audio.engineSilence();

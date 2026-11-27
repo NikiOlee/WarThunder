@@ -94,12 +94,21 @@ export interface GameSettings {
   controlChosen: boolean;
   invertY: boolean;
   fov: number;
-  shadows: 'off' | 'medium' | 'high';
+  fpsLimit: 0 | 30 | 60 | 120;
+  shadows: 'off' | 'low' | 'medium' | 'high' | 'ultra';
+  shadowType: 'basic' | 'pcf' | 'soft';
   bloom: number;
   post: boolean;
   grass: number;
-  drawDist: 'low' | 'medium' | 'high';
+  drawDist: 'low' | 'medium' | 'high' | 'ultra';
   resolution: number;
+  dprCap: 1 | 1.5 | 2;
+  lodScale: number;
+  particles: number;
+  envReflections: boolean;
+  colorSaturation: number;
+  exposureBias: number;
+  showFps: boolean;
   vignette: boolean;
   hitcam: boolean;
   hints: boolean;
@@ -121,12 +130,21 @@ export const DEFAULTS: GameSettings = {
   controlChosen: false,
   invertY: false,
   fov: 60,
+  fpsLimit: 0,
   shadows: 'high',
+  shadowType: 'soft',
   bloom: 0.45,
   post: true,
   grass: 1,
   drawDist: 'high',
   resolution: 1,
+  dprCap: 1.5,
+  lodScale: 1,
+  particles: 1,
+  envReflections: true,
+  colorSaturation: 1,
+  exposureBias: 1,
+  showFps: false,
   vignette: true,
   hitcam: true,
   hints: true,
@@ -181,6 +199,18 @@ export function setSetting<K extends keyof GameSettings>(k: K, v: GameSettings[K
   settings[k] = v;
   persist();
   emit(String(k), v);
+}
+
+export function applySettingsPatch(patch: Partial<GameSettings>, persistPatch = true): void {
+  for (const k in patch) {
+    if (k === 'keys' || !(k in DEFAULTS)) continue;
+    const val = patch[k as keyof GameSettings];
+    if (val !== undefined) {
+      (settings as unknown as Record<string, unknown>)[k] = val;
+    }
+  }
+  if (persistPatch) persist();
+  emit('*', null);
 }
 
 export function setKeyBind(action: KeyAction, code: string): void {

@@ -171,6 +171,7 @@ class Pool {
 
 export class Particles {
   uniforms = { uScale: { value: 800 } };
+  density = 1;
   glow: Pool;
   smoke: Pool;
 
@@ -178,8 +179,38 @@ export class Particles {
     this.glow = new Pool(scene, 750, true, this.uniforms);
     this.smoke = new Pool(scene, 950, false, this.uniforms);
   }
+  setDensity(d: number): void {
+    this.density = Number.isFinite(d) ? Math.max(0.25, Math.min(1.5, d)) : 1;
+  }
   emit(o: ParticleEmitOptions): void {
-    (o.additive ? this.glow : this.smoke).add(o);
+    if (this.density < 0.999) {
+      const keepChance = o.additive ? Math.max(0.45, this.density) : this.density;
+      if (Math.random() > keepChance) return;
+    }
+    const pool = o.additive ? this.glow : this.smoke;
+    if (this.density > 1.05) {
+      const boost = 1 + (this.density - 1) * 0.22;
+      pool.add({
+        ...o,
+        s0: (o.s0 ?? 1) * boost,
+        s1: (o.s1 ?? 1) * boost,
+      });
+      if (!o.additive && Math.random() < (this.density - 1) * 0.55) {
+        pool.add({
+          ...o,
+          x: o.x + rnd(-0.35, 0.35),
+          y: o.y + rnd(0, 0.35),
+          z: o.z + rnd(-0.35, 0.35),
+          vx: (o.vx || 0) * 0.8 + rnd(-1.2, 1.2),
+          vy: (o.vy || 0) * 0.85 + rnd(0.2, 1.4),
+          vz: (o.vz || 0) * 0.8 + rnd(-1.2, 1.2),
+          life: (o.life || 1) * 0.85,
+          a: (o.a ?? 1) * 0.72,
+        });
+      }
+      return;
+    }
+    pool.add(o);
   }
   setViewScale(px: number): void {
     this.uniforms.uScale.value = px;

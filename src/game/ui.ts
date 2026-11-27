@@ -34,10 +34,11 @@ import {
   setLanguage,
   t,
 } from './i18n';
+import type { BenchmarkProfileId, BenchmarkSummary } from './benchmark';
 
 interface SettingItem {
   k?: keyof GameSettings;
-  t: 'range' | 'check' | 'select' | 'keys';
+  t: 'range' | 'check' | 'select' | 'keys' | 'section';
   l?: string;
   min?: number;
   max?: number;
@@ -72,14 +73,101 @@ function getLocalizedTabs(): Record<string, { label: string; items: SettingItem[
     graphics: {
       label: t('tabGraphics'),
       items: [
-        { k: 'shadows', t: 'select', l: t('setShadows'), opts: [['off', t('optOff')], ['medium', t('optMed')], ['high', t('optHigh')]] },
+        { t: 'section', l: t('gfxSecPerf') },
+        {
+          k: 'fpsLimit',
+          t: 'select',
+          num: true,
+          l: t('setFpsLimit'),
+          opts: [
+            [0, t('optFpsUnlimited')],
+            [120, '120 FPS'],
+            [60, '60 FPS'],
+            [30, '30 FPS'],
+          ],
+        },
+        {
+          k: 'resolution',
+          t: 'select',
+          num: true,
+          l: t('setResolution'),
+          opts: [
+            [0.5, '50%'],
+            [0.6, '60%'],
+            [0.8, '80%'],
+            [1, '100%'],
+            [1.25, '125%'],
+          ],
+        },
+        {
+          k: 'dprCap',
+          t: 'select',
+          num: true,
+          l: t('setDprCap'),
+          opts: [
+            [1, '1.0x'],
+            [1.5, '1.5x'],
+            [2, '2.0x'],
+          ],
+        },
+        { k: 'showFps', t: 'check', l: t('setShowFps') },
+        { t: 'section', l: t('gfxSecLighting') },
+        {
+          k: 'shadows',
+          t: 'select',
+          l: t('setShadows'),
+          opts: [
+            ['off', t('optOff')],
+            ['low', t('optLow')],
+            ['medium', t('optMed')],
+            ['high', t('optHigh')],
+            ['ultra', t('optUltra')],
+          ],
+        },
+        {
+          k: 'shadowType',
+          t: 'select',
+          l: t('setShadowType'),
+          opts: [
+            ['basic', t('optShadowBasic')],
+            ['pcf', t('optShadowPcf')],
+            ['soft', t('optShadowSoft')],
+          ],
+        },
+        { k: 'envReflections', t: 'check', l: t('setEnvReflections') },
         { k: 'post', t: 'check', l: t('setPost') },
-        { k: 'bloom', t: 'range', l: t('setBloom'), min: 0, max: 1, step: 0.05 },
-        { k: 'grass', t: 'select', num: true, l: t('setGrass'), opts: [[0, t('optOff')], [0.5, t('optMed')], [1, t('optHigh')]] },
-        { k: 'drawDist', t: 'select', l: t('setDrawDist'), opts: [['low', t('optLow')], ['medium', t('optMed')], ['high', t('optHigh')]] },
-        { k: 'resolution', t: 'select', num: true, l: t('setResolution'), opts: [[0.6, '60%'], [0.8, '80%'], [1, '100%']] },
-        { k: 'fov', t: 'range', l: t('setFov'), min: 50, max: 95, step: 1 },
+        { k: 'bloom', t: 'range', l: t('setBloom'), min: 0, max: 1.2, step: 0.05 },
+        { k: 'colorSaturation', t: 'range', l: t('setColorSat'), min: 0.6, max: 1.4, step: 0.05 },
+        { k: 'exposureBias', t: 'range', l: t('setExposure'), min: 0.7, max: 1.4, step: 0.05 },
         { k: 'vignette', t: 'check', l: t('setVignette') },
+        { t: 'section', l: t('gfxSecWorld') },
+        {
+          k: 'drawDist',
+          t: 'select',
+          l: t('setDrawDist'),
+          opts: [
+            ['low', t('optLow')],
+            ['medium', t('optMed')],
+            ['high', t('optHigh')],
+            ['ultra', t('optUltra')],
+          ],
+        },
+        { k: 'lodScale', t: 'range', l: t('setLodScale'), min: 0.5, max: 1.5, step: 0.05 },
+        {
+          k: 'grass',
+          t: 'select',
+          num: true,
+          l: t('setGrass'),
+          opts: [
+            [0, t('optOff')],
+            [0.25, '25%'],
+            [0.5, t('optMed')],
+            [0.75, '75%'],
+            [1, t('optHigh')],
+          ],
+        },
+        { k: 'particles', t: 'range', l: t('setParticles'), min: 0.25, max: 1.5, step: 0.05 },
+        { k: 'fov', t: 'range', l: t('setFov'), min: 50, max: 95, step: 1 },
       ],
     },
     game: {
@@ -128,6 +216,7 @@ export interface UIHandlers {
   onSelectTank: (tankId: string) => void;
   onPreviewTank?: (tankId: string) => void;
   onHangarToggle: (open: boolean) => void;
+  startBenchmark: () => void;
 }
 
 export function createUI(h: UIHandlers) {
@@ -145,6 +234,7 @@ export function createUI(h: UIHandlers) {
     credits: $('creditsPanel'),
     hangar: $('hangarScreen'),
     matchEnd: $('matchEndPanel'),
+    benchmarkResult: $('benchmarkResultPanel'),
   };
 
   document.body.dataset.control = settings.controlMode;
@@ -156,6 +246,11 @@ export function createUI(h: UIHandlers) {
     show(which: string | null) {},
     openSettings(from: string, tTab?: string) {},
     showMatchEnd(summary: MatchEndSummary) {},
+    showBenchmarkResults(
+      summary: BenchmarkSummary,
+      onChooseProfile: (id: BenchmarkProfileId) => void,
+      onBack: () => void,
+    ) {},
     refreshSilver() {},
     updateAllStaticTexts() {},
     renderLanguageCards() {},
@@ -414,6 +509,43 @@ export function createUI(h: UIHandlers) {
     if (thTag) thTag.textContent = t('hudThermalTag');
     const wsHdr = $('weakspotHdr');
     if (wsHdr) wsHdr.textContent = t('hudWeakspotHdr');
+
+    // Benchmark HUD & Results Modal
+    const benchHudTitle = $('benchHudTitle');
+    if (benchHudTitle) benchHudTitle.textContent = t('benchHudTitle');
+    const benchLiveFpsLbl = $('benchLiveFpsLbl');
+    if (benchLiveFpsLbl) benchLiveFpsLbl.textContent = t('benchLiveFps');
+    const benchFrameMsLbl = $('benchFrameMsLbl');
+    if (benchFrameMsLbl) benchFrameMsLbl.textContent = t('benchFrameMs');
+    const benchAvgFpsLbl = $('benchAvgFpsLbl');
+    if (benchAvgFpsLbl) benchAvgFpsLbl.textContent = t('benchAvgFps');
+    const benchLowFpsLbl = $('benchLowFpsLbl');
+    if (benchLowFpsLbl) benchLowFpsLbl.textContent = t('benchOnePctLow');
+    const bBenchStop = $('bBenchStop');
+    if (bBenchStop) bBenchStop.textContent = t('benchStopBtn');
+
+    const benchResultTitle = $('benchResultTitle');
+    if (benchResultTitle) benchResultTitle.textContent = t('benchResultTitle');
+    const benchResultTag = $('benchResultTag');
+    if (benchResultTag) benchResultTag.textContent = t('benchResultTag');
+    const benchTitleMaxFps = $('benchTitleMaxFps');
+    if (benchTitleMaxFps) benchTitleMaxFps.textContent = t('benchBtnMaxFps');
+    const benchDescMaxFps = $('benchDescMaxFps');
+    if (benchDescMaxFps) benchDescMaxFps.textContent = t('benchDescMaxFps');
+    const benchTitleMaxGfx = $('benchTitleMaxGfx');
+    if (benchTitleMaxGfx) benchTitleMaxGfx.textContent = t('benchBtnMaxGfx');
+    const benchDescMaxGfx = $('benchDescMaxGfx');
+    if (benchDescMaxGfx) benchDescMaxGfx.textContent = t('benchDescMaxGfx');
+    const benchTitle60Fps = $('benchTitle60Fps');
+    if (benchTitle60Fps) benchTitle60Fps.textContent = t('benchBtn60Fps');
+    const benchDesc60Fps = $('benchDesc60Fps');
+    if (benchDesc60Fps) benchDesc60Fps.textContent = t('benchDesc60Fps');
+    for (const badgeId of ['benchRecMaxFps', 'benchRecMaxGfx', 'benchRec60Fps']) {
+      const bEl = $(badgeId);
+      if (bEl) bEl.textContent = t('benchRecommendedBadge');
+    }
+    const bBenchBack = $('bBenchBack');
+    if (bBenchBack) bBenchBack.textContent = t('benchBackToSettings');
   }
   ui.updateAllStaticTexts = updateAllStaticTexts;
 
@@ -673,6 +805,49 @@ export function createUI(h: UIHandlers) {
       <div class="me-row silver"><span>${t('meRowBalance')}</span><b>${s.totalSilver} ${silverWord}</b></div>
     `;
     show('matchEnd');
+  };
+
+  ui.showBenchmarkResults = (summary, onChooseProfile, onBack) => {
+    const metricsEl = $('benchResultMetrics');
+    metricsEl.innerHTML = `
+      <div class="bench-metric"><span>${t('benchMetricAvg')}</span><b>${summary.avgFps} FPS</b></div>
+      <div class="bench-metric"><span>${t('benchMetricLow')}</span><b>${summary.onePercentLowFps} FPS</b></div>
+      <div class="bench-metric"><span>${t('benchMetricMinMax')}</span><b>${summary.minFps} / ${summary.maxFps}</b></div>
+      <div class="bench-metric"><span>${t('benchMetricFrameMs')}</span><b>${summary.avgFrameTimeMs.toFixed(1)} ms</b></div>
+    `;
+
+    const recEl = $('benchRecommendTxt');
+    recEl.textContent =
+      summary.recommendedProfile === 'max_gfx'
+        ? t('benchRecMaxGfx')
+        : summary.recommendedProfile === 'fps_60'
+          ? t('benchRec60Fps')
+          : t('benchRecMaxFps');
+
+    const mapBtns: Array<[BenchmarkProfileId, string, string]> = [
+      ['max_fps', 'bBenchMaxFps', 'benchRecMaxFps'],
+      ['max_gfx', 'bBenchMaxGfx', 'benchRecMaxGfx'],
+      ['fps_60', 'bBench60Fps', 'benchRec60Fps'],
+    ];
+
+    for (const [profileId, btnId, badgeId] of mapBtns) {
+      const btn = $(btnId);
+      const badge = $(badgeId);
+      const isRec = summary.recommendedProfile === profileId;
+      btn.classList.toggle('recommended', isRec);
+      badge.classList.toggle('hidden', !isRec);
+      btn.onclick = () => {
+        click();
+        onChooseProfile(profileId);
+      };
+    }
+
+    $('bBenchBack').onclick = () => {
+      click();
+      onBack();
+    };
+
+    show('benchmarkResult');
   };
 
   function renderHistory(): void {
@@ -1028,11 +1203,50 @@ export function createUI(h: UIHandlers) {
       body.appendChild(modeRow);
     }
 
+    if (tab === 'graphics') {
+      const benchBox = document.createElement('div');
+      benchBox.className = 'bench-launch-box';
+
+      const benchCopy = document.createElement('div');
+      benchCopy.className = 'bench-launch-copy';
+
+      const benchTitle = document.createElement('div');
+      benchTitle.className = 'bench-launch-title';
+      benchTitle.textContent = t('benchCardTitle');
+
+      const benchDesc = document.createElement('div');
+      benchDesc.className = 'bench-launch-desc';
+      benchDesc.textContent = t('benchCardDesc');
+
+      benchCopy.append(benchTitle, benchDesc);
+
+      const startBtn = document.createElement('button');
+      startBtn.type = 'button';
+      startBtn.id = 'bStartBenchmark';
+      startBtn.className = 'btn bench-start-btn';
+      startBtn.dataset.testid = 'btn-start-benchmark';
+      startBtn.textContent = t('benchStartBtn');
+      startBtn.onclick = () => {
+        click();
+        h.startBenchmark();
+      };
+
+      benchBox.append(benchCopy, startBtn);
+      body.appendChild(benchBox);
+    }
+
     const currentTabDef = tabsMap[tab] || tabsMap.sound;
     for (const it of currentTabDef.items) {
       if (it.controlOnly && it.controlOnly !== settings.controlMode) continue;
       if (it.t === 'keys') {
         renderKeys(body);
+        continue;
+      }
+      if (it.t === 'section') {
+        const sec = document.createElement('div');
+        sec.className = 'gfx-sec-head';
+        sec.textContent = it.l || '';
+        body.appendChild(sec);
         continue;
       }
       const key = it.k!;

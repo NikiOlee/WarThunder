@@ -204,6 +204,41 @@ export default function App() {
       </div>
       <div id="dead" />
 
+      <div id="benchmarkHud" className="hidden" data-testid="benchmark-hud" aria-live="polite">
+        <div className="bench-hud-top">
+          <span id="benchHudTitle" className="bench-hud-title">
+            ТЕСТ МОЩНОСТИ ПК · УЛЬТРА
+          </span>
+          <span id="benchTimerTxt" className="bench-hud-timer">
+            0.0 / 16 с
+          </span>
+          <button type="button" className="bench-stop-btn" id="bBenchStop" data-testid="btn-bench-stop">
+            ОСТАНОВИТЬ
+          </button>
+        </div>
+        <div className="bench-progress-track">
+          <div id="benchBarFill" className="bench-progress-fill" />
+        </div>
+        <div className="bench-hud-stats">
+          <div className="bench-stat-cell">
+            <span id="benchLiveFpsLbl">FPS</span>
+            <b id="benchLiveFpsVal">--</b>
+          </div>
+          <div className="bench-stat-cell">
+            <span id="benchFrameMsLbl">КАДР</span>
+            <b id="benchFrameMsVal">-- ms</b>
+          </div>
+          <div className="bench-stat-cell">
+            <span id="benchAvgFpsLbl">СРЕДНИЙ</span>
+            <b id="benchAvgFpsVal">--</b>
+          </div>
+          <div className="bench-stat-cell">
+            <span id="benchLowFpsLbl">1% LOW</span>
+            <b id="benchLowFpsVal">--</b>
+          </div>
+        </div>
+      </div>
+
       <div id="touchHud" className="hud" data-testid="touch-hud">
         <div className="touch-top-bar">
           <button type="button" className="tbtn tbtn-top" id="tBtnScore" data-touch-control="true" data-testid="touch-btn-score">
@@ -607,6 +642,61 @@ export default function App() {
           <div className="foot">
             <button type="button" className="btn dim" id="bCreditsBack" data-testid="credits-back">
               НАЗАД
+            </button>
+          </div>
+        </div>
+
+        <div id="benchmarkResultPanel" className="panel hidden" data-testid="benchmark-result-panel">
+          <h2 id="benchResultTitle">РЕЗУЛЬТАТЫ ТЕСТА ПК</h2>
+          <div className="tag" id="benchResultTag">
+            ПРОЛЁТ ЗАВЕРШЁН · ВЫБЕРИТЕ РЕЖИМ ГРАФИКИ
+          </div>
+          <div id="benchResultMetrics" className="bench-metrics-grid" />
+          <div id="benchRecommendTxt" className="bench-recommend" />
+          <div className="bench-profiles">
+            <button type="button" className="bench-prof-btn" id="bBenchMaxFps" data-testid="btn-bench-max-fps">
+              <div className="bench-prof-head">
+                <span className="bench-prof-title" id="benchTitleMaxFps">
+                  Максимум ФПС
+                </span>
+                <span className="bench-prof-badge hidden" id="benchRecMaxFps">
+                  РЕКОМЕНДУЕМ
+                </span>
+              </div>
+              <div className="bench-prof-desc" id="benchDescMaxFps">
+                Лёгкие тени, отключённая трава и постобработка, масштаб 80%, без лимита FPS.
+              </div>
+            </button>
+            <button type="button" className="bench-prof-btn" id="bBenchMaxGfx" data-testid="btn-bench-max-gfx">
+              <div className="bench-prof-head">
+                <span className="bench-prof-title" id="benchTitleMaxGfx">
+                  Максимальная графика
+                </span>
+                <span className="bench-prof-badge hidden" id="benchRecMaxGfx">
+                  РЕКОМЕНДУЕМ
+                </span>
+              </div>
+              <div className="bench-prof-desc" id="benchDescMaxGfx">
+                Ультра-тени 4096px, мягкая фильтрация, максимум травы, частиц, отражений и свечения.
+              </div>
+            </button>
+            <button type="button" className="bench-prof-btn" id="bBench60Fps" data-testid="btn-bench-60-fps">
+              <div className="bench-prof-head">
+                <span className="bench-prof-title" id="benchTitle60Fps">
+                  60 ФПС
+                </span>
+                <span className="bench-prof-badge hidden" id="benchRec60Fps">
+                  РЕКОМЕНДУЕМ
+                </span>
+              </div>
+              <div className="bench-prof-desc" id="benchDesc60Fps">
+                Автоподбор качества под ваш ПК со стабильной фиксацией 60 кадров/с.
+              </div>
+            </button>
+          </div>
+          <div className="foot">
+            <button type="button" className="btn dim" id="bBenchBack" data-testid="btn-bench-back">
+              Назад в настройки
             </button>
           </div>
         </div>

@@ -554,6 +554,15 @@ export interface ImpactEvent {
   };
 }
 
+export interface MissEvent {
+  owner: Tank | null;
+  point: THREE.Vector3;
+  kind: 'ground' | 'obstacle' | 'range' | 'kstam';
+  isMg: boolean;
+  hadTankImpact: boolean;
+  suppressMissVoice: boolean;
+}
+
 interface Projectile {
   pos: THREE.Vector3;
   prev: THREE.Vector3;
@@ -562,6 +571,8 @@ interface Projectile {
   dist: number;
   acc: number;
   snapped?: boolean;
+  hadTankImpact?: boolean;
+  suppressMissVoice?: boolean;
   group: THREE.Group;
   trail: THREE.Line;
   trailPos: Float32Array;
@@ -604,6 +615,7 @@ export class BallisticsSystem {
   listeners: Array<(e: ImpactEvent) => void> = [];
   tankListeners: Array<(e: TankHitEvent) => void> = [];
   apsListeners: Array<(e: ApsInterceptEvent) => void> = [];
+  missListeners: Array<(e: MissEvent) => void> = [];
   targets: Tank[] = [];
 
   private _inv = new Map<Tank, THREE.Matrix4>();
@@ -673,6 +685,9 @@ export class BallisticsSystem {
   }
   onApsIntercept(fn: (e: ApsInterceptEvent) => void): void {
     this.apsListeners.push(fn);
+  }
+  onMiss(fn: (e: MissEvent) => void): void {
+    this.missListeners.push(fn);
   }
   addTarget(tank: Tank): void {
     this.targets.push(tank);
@@ -848,6 +863,7 @@ export class BallisticsSystem {
   }
 
   private _tankImpact(p: Projectile, hit: NonNullable<ReturnType<BallisticsSystem['_targetHit']>>) {
+    p.hadTankImpact = true;
     const isMg = p.shell.type === 'MG';
     const speed = p.vel.length();
     const t = hit.tank;
@@ -1085,6 +1101,7 @@ export class BallisticsSystem {
     ignoreArmor,
     fixedDamage,
     ignoreAps,
+    suppressMissVoice = false,
     owner = null,
   }: {
     pos: THREE.Vector3;
@@ -1099,6 +1116,7 @@ export class BallisticsSystem {
     ignoreArmor?: boolean;
     fixedDamage?: number;
     ignoreAps?: boolean;
+    suppressMissVoice?: boolean;
     owner?: Tank | null;
   }): void {
     const isMg = type === 'MG';
@@ -1154,6 +1172,7 @@ export class BallisticsSystem {
       age: 0,
       dist: 0,
       acc: 0,
+      suppressMissVoice,
       group,
       trail,
       trailPos: tp,
@@ -1328,6 +1347,7 @@ export class BallisticsSystem {
     this.light.position.set(pt.x, pt.y + 2.5, pt.z);
     this.lightT = 1.8;
 
+    let hitAnyTank = !!directHitTank;
     // Enemy-only AoE splash (allied tanks strictly receive 0 damage)
     for (const t of this.targets) {
       if (!t.alive || t === directHitTank) continue;
@@ -1341,6 +1361,7 @@ export class BallisticsSystem {
           ? (p.shell.fixedDamage ?? 500)
           : computeKstamSplashDamage(dist, k.splashRadius, k.maxSplashDmg, isAllyOrSelf);
       if (dmg <= 0 || t.god) continue;
+      hitAnyTank = true;
       t.hp -= dmg;
       let destroyed = false;
       if (t.hp <= 0 && t.alive) {
@@ -1377,6 +1398,17 @@ export class BallisticsSystem {
           },
         });
       }
+    }
+    if (!hitAnyTank) {
+      const missEv: MissEvent = {
+        owner,
+        point: pt.clone(),
+        kind: 'kstam',
+        isMg: false,
+        hadTankImpact: !!p.hadTankImpact,
+        suppressMissVoice: !!p.suppressMissVoice,
+      };
+      for (const fn of this.missListeners) fn(missEv);
     }
   }
 
@@ -1825,6 +1857,17 @@ export class BallisticsSystem {
       }
       if (hit) {
         this._impact(p, hit);
+        if (p.shell.type !== 'MG' && (hit.kind === 'ground' || hit.kind === 'obstacle')) {
+          const missEv: MissEvent = {
+            owner: p.owner,
+            point: hit.point.clone(),
+            kind: hit.kind,
+            isMg: false,
+            hadTankImpact: !!p.hadTankImpact,
+            suppressMissVoice: !!p.suppressMissVoice,
+          };
+          for (const fn of this.missListeners) fn(missEv);
+        }
         this._remove(i);
         continue;
       }
@@ -1844,11 +1887,31 @@ export class BallisticsSystem {
             a: 0.35,
             drag: 1.5,
           });
+          const missEv: MissEvent = {
+            owner: p.owner,
+            point: p.pos.clone(),
+            kind: 'range',
+            isMg: false,
+            hadTankImpact: !!p.hadTankImpact,
+            suppressMissVoice: !!p.suppressMissVoice,
+          };
+          for (const fn of this.missListeners) fn(missEv);
         }
         this._remove(i);
         continue;
       }
       if (p.age > MAX_AGE || Math.abs(p.pos.x) > lim || Math.abs(p.pos.z) > lim || p.pos.y < -80) {
+        if (p.shell.type !== 'MG') {
+          const missEv: MissEvent = {
+            owner: p.owner,
+            point: p.pos.clone(),
+            kind: 'range',
+            isMg: false,
+            hadTankImpact: !!p.hadTankImpact,
+            suppressMissVoice: !!p.suppressMissVoice,
+          };
+          for (const fn of this.missListeners) fn(missEv);
+        }
         this._remove(i);
         continue;
       }

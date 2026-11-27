@@ -542,9 +542,7 @@ class AudioSys {
     if (!this.ctx && !this.init()) return;
     const ctx = this.ctx;
     if (!ctx) return;
-    if (ctx.state === 'suspended') {
-      void ctx.resume().catch(() => {});
-    }
+    const resumePromise = ctx.state === 'suspended' ? ctx.resume().catch(() => {}) : null;
     this.stopVoice();
     const token = this.voiceToken;
     const startBuffer = (buffer: AudioBuffer | null) => {
@@ -574,9 +572,18 @@ class AudioSys {
 
     const cached = this.voiceBuffers.get(cue);
     if (cached) {
-      startBuffer(cached);
+      if (resumePromise) {
+        void resumePromise.then(() => startBuffer(cached));
+      } else {
+        startBuffer(cached);
+      }
     } else {
-      void this._loadVoice(cue).then(startBuffer);
+      const loadPromise = this._loadVoice(cue);
+      if (resumePromise) {
+        void Promise.all([resumePromise, loadPromise]).then(([, buf]) => startBuffer(buf));
+      } else {
+        void loadPromise.then(startBuffer);
+      }
     }
   }
 

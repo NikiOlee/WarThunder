@@ -31,7 +31,7 @@ import {
 } from './benchmark';
 import { isMgExhausted } from './machineGun';
 import { audio } from './audio';
-import { resolveVoiceCueForHit } from './voice';
+import { resolveVoiceCueForHit, resolveVoiceCueForMiss } from './voice';
 import { HitCam } from './hitcam';
 import { Minimap } from './minimap';
 import { GameConsole, type ConsoleGameAPI } from './console';
@@ -3047,7 +3047,6 @@ export function initGame(mountEl: HTMLElement): () => void {
     for (const k in keys) keys[k] = false;
     if (document.pointerLockElement) document.exitPointerLock();
     audio.engineSilence();
-    audio.stopVoice();
     audio.musicFadeOut(0.45);
     if (victorySilver > 0) {
       addSilver(victorySilver);
@@ -3153,6 +3152,7 @@ export function initGame(mountEl: HTMLElement): () => void {
 
       if (target === tank) {
         recordPlayerDeath();
+        audio.playVoice('playerDeath');
       }
 
       if (owner === tank && target.team === 'B') {
@@ -3418,13 +3418,15 @@ export function initGame(mountEl: HTMLElement): () => void {
   ballistics.onTankHit((e) => {
     const voiceCue = resolveVoiceCueForHit({
       isPlayerOwner: e.owner === tank,
-      isSelfTarget: e.target === tank,
+      isPlayerTarget: e.target === tank,
       isMg: !!e.isMg,
       result: e.result,
       destroyed: e.destroyed,
       isBenchmark: state === 'benchmark',
     });
-    if (voiceCue) audio.playVoice(voiceCue);
+    if (voiceCue && !(e.target === tank && e.destroyed)) {
+      audio.playVoice(voiceCue);
+    }
 
     if (e.owner === tank) {
       if (!e.isMg && e.target.team === 'B') {
@@ -3454,6 +3456,18 @@ export function initGame(mountEl: HTMLElement): () => void {
       const suffix = e.result === 'fuel' ? t('suffixFuel') : e.isMg ? t('suffixMg') : '';
       handleTankDestroyed(e.target, e.owner, suffix);
     }
+  });
+
+  ballistics.onMiss((e) => {
+    const missCue = resolveVoiceCueForMiss({
+      isPlayerOwner: e.owner === tank,
+      isPlayerAlive: tank.alive,
+      isMg: e.isMg,
+      hadTankImpact: e.hadTankImpact,
+      suppressMissVoice: e.suppressMissVoice,
+      isBenchmark: state === 'benchmark',
+    });
+    if (missCue) audio.playVoice(missCue);
   });
 
   ballistics.onApsIntercept((e) => {
@@ -4163,6 +4177,7 @@ export function initGame(mountEl: HTMLElement): () => void {
             }
             shake = Math.max(shake, 1.05);
             showMsg(t('msgBomberCrashHit'), '#ff6a4a');
+            audio.playVoice('weWereHit');
           }
         }
 
@@ -4199,6 +4214,7 @@ export function initGame(mountEl: HTMLElement): () => void {
             }
             shake = Math.max(shake, 0.85);
             showMsg(t('msgBombardmentHit'), '#ff6a4a');
+            audio.playVoice('weWereHit');
           }
         }
       }
@@ -4344,14 +4360,15 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (!spectating && firingPrimary && (locked || touchActive) && mode !== 'binoc' && !consoleOpen && !scoreboardOpen) {
       const shot = tank.fire();
       if (shot) {
+        const isSkyShot = shot.dir.y > 0.08 && isShotIntoSky(shot.dir.y, aim.range, !!world.raycast(shot.pos, shot.dir, 650));
         recordPlayerShot();
-        ballistics.fire({ ...shot, owner: tank });
+        ballistics.fire({ ...shot, owner: tank, suppressMissVoice: isSkyShot });
         if (shot.type === 'DM63') {
           showMsg(t('msgDm63Fired'), '#78f0ff');
         }
         kick += mode === 'third' ? 0.018 : 0.0035;
         shake = mode === 'third' ? 0.18 : 0;
-        if (shot.dir.y > 0.08 && isShotIntoSky(shot.dir.y, aim.range, !!world.raycast(shot.pos, shot.dir, 650))) {
+        if (isSkyShot) {
           showMsg(t('skyEaster'), '#ffd27a');
           lastSkyMsgTime = simTime;
           audio.playVoice('skyEaster');

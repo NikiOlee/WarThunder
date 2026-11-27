@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { settings, onSettings } from './settings';
+import { ALL_VOICE_CUES, resolveVoiceAssetUrl, type VoiceCueId } from './voice';
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -112,6 +113,11 @@ class AudioSys {
   private bossDistNode: WaveShaperNode | null = null;
   private bossDriveGain: GainNode | null = null;
   noiseBuf!: AudioBuffer;
+  private voiceBuffers = new Map<VoiceCueId, AudioBuffer>();
+  private voiceLoads = new Map<VoiceCueId, Promise<AudioBuffer | null>>();
+  private activeVoiceSource: AudioBufferSourceNode | null = null;
+  private activeVoiceGain: GainNode | null = null;
+  private voiceToken = 0;
 
   constructor() {
     onSettings(() => this.applyVolumes());
@@ -147,6 +153,7 @@ class AudioSys {
     this.noiseBuf = buf;
     this.applyVolumes();
     this._startWind();
+    this.preloadVoices();
     return true;
   }
 
@@ -469,6 +476,107 @@ class AudioSys {
       this._tone(this.sfxBus, 'triangle', 659.25, 659.25, t + 0.12, 0.18, 0.24);
       this._tone(this.sfxBus, 'triangle', 783.99, 783.99, t + 0.24, 0.28, 0.26);
       this._tone(this.sfxBus, 'triangle', 1046.5, 1046.5, t + 0.36, 0.45, 0.28);
+    }
+  }
+
+  preloadVoices(): void {
+    if (!this.ctx || typeof fetch !== 'function') return;
+    for (const cue of ALL_VOICE_CUES) {
+      void this._loadVoice(cue);
+    }
+  }
+
+  private _loadVoice(cue: VoiceCueId): Promise<AudioBuffer | null> {
+    const cached = this.voiceBuffers.get(cue);
+    if (cached) return Promise.resolve(cached);
+    const pending = this.voiceLoads.get(cue);
+    if (pending) return pending;
+    const ctx = this.ctx;
+    if (!ctx || typeof fetch !== 'function') return Promise.resolve(null);
+
+    const req = fetch(resolveVoiceAssetUrl(cue))
+      .then((res) => {
+        if (!res.ok) throw new Error(`Voice HTTP ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => {
+        this.voiceBuffers.set(cue, decoded);
+        return decoded;
+      })
+      .catch(() => {
+        this.voiceLoads.delete(cue);
+        return null;
+      });
+    this.voiceLoads.set(cue, req);
+    return req;
+  }
+
+  stopVoice(): void {
+    this.voiceToken++;
+    if (this.activeVoiceSource) {
+      try {
+        this.activeVoiceSource.onended = null;
+        this.activeVoiceSource.stop();
+      } catch {
+        // already stopped
+      }
+      try {
+        this.activeVoiceSource.disconnect();
+      } catch {
+        // ignore
+      }
+      this.activeVoiceSource = null;
+    }
+    if (this.activeVoiceGain) {
+      try {
+        this.activeVoiceGain.disconnect();
+      } catch {
+        // ignore
+      }
+      this.activeVoiceGain = null;
+    }
+  }
+
+  playVoice(cue: VoiceCueId, vol = 1.05): void {
+    if (!this.ctx && !this.init()) return;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+    this.stopVoice();
+    const token = this.voiceToken;
+    const startBuffer = (buffer: AudioBuffer | null) => {
+      if (!buffer || token !== this.voiceToken || !this.ctx || this.ctx.state !== 'running') return;
+      const src = this.ctx.createBufferSource();
+      const g = this.ctx.createGain();
+      src.buffer = buffer;
+      g.gain.value = clamp(vol, 0, 2);
+      src.connect(g);
+      g.connect(this.sfxBus);
+      src.onended = () => {
+        if (this.activeVoiceSource === src) {
+          this.activeVoiceSource = null;
+          this.activeVoiceGain = null;
+        }
+        try {
+          src.disconnect();
+          g.disconnect();
+        } catch {
+          // ignore
+        }
+      };
+      this.activeVoiceSource = src;
+      this.activeVoiceGain = g;
+      src.start(this.ctx.currentTime + 0.01);
+    };
+
+    const cached = this.voiceBuffers.get(cue);
+    if (cached) {
+      startBuffer(cached);
+    } else {
+      void this._loadVoice(cue).then(startBuffer);
     }
   }
 

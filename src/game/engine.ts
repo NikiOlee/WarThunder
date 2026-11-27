@@ -31,6 +31,7 @@ import {
 } from './benchmark';
 import { isMgExhausted } from './machineGun';
 import { audio } from './audio';
+import { resolveVoiceCueForHit } from './voice';
 import { HitCam } from './hitcam';
 import { Minimap } from './minimap';
 import { GameConsole, type ConsoleGameAPI } from './console';
@@ -537,12 +538,23 @@ export function initGame(mountEl: HTMLElement): () => void {
       renderer.shadowMap.type = nextShadowType;
       renderer.shadowMap.needsUpdate = true;
     }
-    if (!isSoftwareGl && (sun.shadow.mapSize.x !== ms || shadowTypeChanged)) {
-      sun.shadow.mapSize.set(ms, ms);
-      if (sun.shadow.map) {
-        sun.shadow.map.dispose();
-        (sun.shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
+    const disposeShadowMap = (light: THREE.DirectionalLight) => {
+      if (light.shadow.map) {
+        light.shadow.map.dispose();
+        (light.shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
       }
+    };
+    if (!isSoftwareGl && (sun.shadow.mapSize.x !== ms || shadowTypeChanged || !sun.castShadow)) {
+      sun.shadow.mapSize.set(ms, ms);
+      disposeShadowMap(sun);
+    }
+    if (!isSoftwareGl && (shadowTypeChanged || !menuShowcase.world.sun.castShadow)) {
+      disposeShadowMap(menuShowcase.world.sun);
+      renderer.shadowMap.needsUpdate = true;
+    }
+    if (!isSoftwareGl && (shadowTypeChanged || !hangarShowcase.world.sun.castShadow)) {
+      disposeShadowMap(hangarShowcase.world.sun);
+      renderer.shadowMap.needsUpdate = true;
     }
     if (bloomPass) bloomPass.strength = settings.bloom;
     world.setGrass(settings.grass);
@@ -678,6 +690,13 @@ export function initGame(mountEl: HTMLElement): () => void {
     applyGraphics();
     smokeClouds.length = 0;
     clearGalixGrenades();
+    playerDeadT = 0;
+    deadEl.style.display = 'none';
+    spectating = false;
+    spectateTarget = null;
+    spectateIdx = 0;
+    $('spectatorBar').classList.add('hidden');
+    hudCache.specVisible = false;
     tank.reset(world.spawnPlayer.x, world.spawnPlayer.z, 0, getSelectedTankId());
     for (const b of bots) b.respawn();
     if (boss) boss.respawn();
@@ -1080,6 +1099,14 @@ export function initGame(mountEl: HTMLElement): () => void {
     menuOrbitPointerId = null;
     document.body.style.cursor = '';
     if (fresh || !battleStarted || matchEnded) newBattle();
+    if (tank.alive) {
+      playerDeadT = 0;
+      deadEl.style.display = 'none';
+      spectating = false;
+      spectateTarget = null;
+      $('spectatorBar').classList.add('hidden');
+      hudCache.specVisible = false;
+    }
     state = 'play';
     hangarOpen = false;
     document.body.classList.remove('menu');
@@ -1134,6 +1161,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     locked = false;
     for (const k in keys) keys[k] = false;
     audio.engineSilence();
+    audio.stopVoice();
     audio.music('off');
     document.body.dataset.state = 'paused';
     ui.show('pause');
@@ -1141,6 +1169,14 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function resumeGame() {
     if (matchEnded) return;
+    if (tank.alive) {
+      playerDeadT = 0;
+      deadEl.style.display = 'none';
+      spectating = false;
+      spectateTarget = null;
+      $('spectatorBar').classList.add('hidden');
+      hudCache.specVisible = false;
+    }
     state = 'play';
     document.body.dataset.state = 'playing';
     ui.show(null);
@@ -1154,15 +1190,33 @@ export function initGame(mountEl: HTMLElement): () => void {
   function toMenu() {
     const wasMatchEnded = matchEnded;
     state = 'menu';
+    hangarOpen = false;
+    idleFrames = 0;
     hideCutsceneOverlay();
+    cutsceneActive = false;
+    cutsceneElapsed = 0;
+    cutsceneBomberSfxPlayed = false;
     if (gcon.open) gcon.close();
     setScoreboardOpen(false);
+    spectating = false;
+    spectateTarget = null;
+    spectateIdx = 0;
+    $('spectatorBar').classList.add('hidden');
+    hudCache.specVisible = false;
+    playerDeadT = 0;
+    deadEl.style.display = 'none';
+    msgT = 0;
+    $('msg').style.opacity = '0';
+    $('msg').textContent = '';
+    hitcam.hide();
+    mode = 'third';
+    zoomIdx = 0;
+    binocFrozen = false;
+    fovCur = settings.fov;
+    menuAngle = 0;
     if (wasMatchEnded) {
       matchEnded = false;
       battleStarted = false;
-      cutsceneActive = false;
-      cutsceneElapsed = 0;
-      cutsceneBomberSfxPlayed = false;
       bombStrikes.length = 0;
       airRaidState = createAirRaidState();
       bombersRetreating = false;
@@ -1178,15 +1232,6 @@ export function initGame(mountEl: HTMLElement): () => void {
       $('victoryBanner').classList.add('hidden');
       $('bossBar').classList.add('hidden');
       hudCache.bossVisible = false;
-      spectating = false;
-      spectateTarget = null;
-      spectateIdx = 0;
-      $('spectatorBar').classList.add('hidden');
-      hudCache.specVisible = false;
-      $('dead').style.display = 'none';
-      $('msg').style.opacity = '0';
-      $('msg').textContent = '';
-      hitcam.hide();
       ballistics.clear();
       smokeClouds.length = 0;
       clearGalixGrenades();
@@ -1197,16 +1242,11 @@ export function initGame(mountEl: HTMLElement): () => void {
         b.respawn({ randomTank: !!(activeMode.randomEnemyTanks && b.team === 'B') });
       }
       if (boss) boss.respawn();
-      mode = 'third';
-      fovCur = settings.fov;
-      menuAngle = 0;
-      camera.fov = 48;
-      camera.updateProjectionMatrix();
     }
     if (!getModeDef(currentModeId).allowCheats) enforceCheatsOff();
     $('bossBar').classList.add('hidden');
     hudCache.bossVisible = false;
-    document.body.classList.remove('play', 'bombardment-active', 'thermal-active', 'cutscene-active');
+    document.body.classList.remove('play', 'bombardment-active', 'thermal-active', 'cutscene-active', 'benchmark-active');
     document.body.classList.add('menu');
     document.body.dataset.state = 'title';
     mouseDown = false;
@@ -1224,11 +1264,17 @@ export function initGame(mountEl: HTMLElement): () => void {
     fallback = false;
     locked = false;
     audio.engineSilence();
+    audio.stopVoice();
     audio.music('menu');
     tank.root.visible = true;
+    camera.fov = camera.aspect < 0.85 ? 58 : 48;
+    camera.updateProjectionMatrix();
     syncMenuTank(getSelectedTankId());
     applyMenuShowcaseLook();
+    applyGraphics();
+    menuCamera(0);
     ui.show('main');
+    if (engineReady) render();
   }
 
   let engineReady = false;
@@ -3001,6 +3047,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     for (const k in keys) keys[k] = false;
     if (document.pointerLockElement) document.exitPointerLock();
     audio.engineSilence();
+    audio.stopVoice();
     audio.musicFadeOut(0.45);
     if (victorySilver > 0) {
       addSilver(victorySilver);
@@ -3268,6 +3315,9 @@ export function initGame(mountEl: HTMLElement): () => void {
       if (r.victim.hp <= 0 && r.victim.alive) {
         r.victim.destroy(false);
         audio.play('bigexplosion', pt);
+        if (r.attacker === tank && r.victim !== tank && state !== 'benchmark') {
+          audio.playVoice('destroy');
+        }
         handleTankDestroyed(r.victim, r.attacker, t('suffixRam'));
       }
     }
@@ -3366,6 +3416,16 @@ export function initGame(mountEl: HTMLElement): () => void {
   }
 
   ballistics.onTankHit((e) => {
+    const voiceCue = resolveVoiceCueForHit({
+      isPlayerOwner: e.owner === tank,
+      isSelfTarget: e.target === tank,
+      isMg: !!e.isMg,
+      result: e.result,
+      destroyed: e.destroyed,
+      isBenchmark: state === 'benchmark',
+    });
+    if (voiceCue) audio.playVoice(voiceCue);
+
     if (e.owner === tank) {
       if (!e.isMg && e.target.team === 'B') {
         recordPlayerHit(e.result === 'pen' || e.result === 'crit' || e.result === 'fuel', e.damage);
@@ -3419,8 +3479,16 @@ export function initGame(mountEl: HTMLElement): () => void {
   function render() {
     const activeScene = hangarOpen ? hangarShowcase.scene : state === 'menu' ? menuShowcase.scene : scene;
     if (renderPass) renderPass.scene = activeScene;
-    if (composer && settings.post && !isSoftwareGl) composer.render();
-    else renderer.render(activeScene, camera);
+    if (composer && settings.post && !isSoftwareGl) {
+      try {
+        composer.render();
+        return;
+      } catch {
+        // fallback to direct renderer on postprocessing error
+      }
+    }
+    renderer.setRenderTarget(null);
+    renderer.render(activeScene, camera);
   }
 
   applyGraphics();
@@ -3526,6 +3594,7 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (document.pointerLockElement) document.exitPointerLock();
     locked = false;
     audio.engineSilence();
+    audio.stopVoice();
     audio.music('off');
 
     if (selectedMap !== 'hills') {
@@ -3602,6 +3671,20 @@ export function initGame(mountEl: HTMLElement): () => void {
     ballistics.clear();
     smokeClouds.length = 0;
     clearGalixGrenades();
+    playerDeadT = 0;
+    deadEl.style.display = 'none';
+    spectating = false;
+    spectateTarget = null;
+    spectateIdx = 0;
+    $('spectatorBar').classList.add('hidden');
+    hudCache.specVisible = false;
+    hitcam.hide();
+    mode = 'third';
+    zoomIdx = 0;
+    binocFrozen = false;
+    fovCur = settings.fov;
+    hangarOpen = false;
+    idleFrames = 0;
     tank.god = false;
     tank.root.visible = true;
 
@@ -3617,20 +3700,27 @@ export function initGame(mountEl: HTMLElement): () => void {
 
     if (restoreFrom === 'pause' && restorePrevStarted) {
       state = 'pause';
+      document.body.classList.remove('menu');
       document.body.classList.add('play');
       document.body.dataset.state = 'paused';
       applyMapLook();
+      if (!cutsceneActive && engineReady) {
+        updateCamera(0);
+        updateTankVisibilityAndLod();
+      }
     } else {
       state = 'menu';
-      document.body.classList.remove('play');
+      document.body.classList.remove('play', 'bombardment-active', 'thermal-active', 'cutscene-active');
       document.body.classList.add('menu');
       document.body.dataset.state = 'title';
       syncMenuTank(getSelectedTankId());
       applyMenuShowcaseLook();
-      camera.fov = 48;
+      camera.fov = camera.aspect < 0.85 ? 58 : 48;
+      camera.updateProjectionMatrix();
       menuCamera(0);
     }
     applyGraphics();
+    if (engineReady) render();
 
     if (!completed) {
       ui.openSettings(restoreFrom, 'graphics');
@@ -3751,6 +3841,7 @@ export function initGame(mountEl: HTMLElement): () => void {
   function stepFrame() {
     if (disposed) return;
     const nowMs = performance.now();
+    if (nowMs < lastPacedMs) lastPacedMs = nowMs;
     if (!isSoftwareGl && settings.fpsLimit > 0 && state !== 'benchmark') {
       const minIntervalMs = 1000 / settings.fpsLimit;
       if (nowMs - lastPacedMs < minIntervalMs - 1.5) {
@@ -4234,6 +4325,8 @@ export function initGame(mountEl: HTMLElement): () => void {
         }
       }
     } else {
+      if (playerDeadT !== 0) playerDeadT = 0;
+      if (deadEl.style.display !== 'none') deadEl.style.display = 'none';
       spectating = false;
       if (hudCache.specVisible) {
         hudCache.specVisible = false;
@@ -4261,6 +4354,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         if (shot.dir.y > 0.08 && isShotIntoSky(shot.dir.y, aim.range, !!world.raycast(shot.pos, shot.dir, 650))) {
           showMsg(t('skyEaster'), '#ffd27a');
           lastSkyMsgTime = simTime;
+          audio.playVoice('skyEaster');
         }
       }
     }
@@ -4276,6 +4370,7 @@ export function initGame(mountEl: HTMLElement): () => void {
         ) {
           showMsg(t('skyEaster'), '#ffd27a');
           lastSkyMsgTime = simTime;
+          audio.playVoice('skyEaster');
         }
       }
     }

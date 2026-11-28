@@ -61,7 +61,7 @@ export default function App() {
         <b id="abilityBadgeState">ГОТОВ</b>
       </div>
       <div id="ability2Badge" className="hud hidden" data-testid="ability2-badge">
-        <span id="ability2BadgeLbl">ШКВАЛ [F]</span>
+        <span id="ability2BadgeLbl">ШКВАЛ [G]</span>
         <b id="ability2BadgeState">ГОТОВ</b>
       </div>
 

@@ -135,7 +135,7 @@ const DICT_RU: TranslationDict = {
   hstatAbilityLeopard: 'Выстрел БПС DM63 (500–550 урона, игнор брони, откат 15 с)',
   hstatAbilityAbrams: 'Тепловизор Gen-2 (15 с, подсветка врагов и уязвимых зон, откат 30 с)',
   hstatAbilityK2: 'Снаряд KSTAM [E]+[ПКМ 1.5 с] (атака в крышу 500 ур. + 10 м сплэш)',
-  hstatAbility2: 'Спецспособность [F]',
+  hstatAbility2: 'Спецспособность [G]',
   hstatAbilityAbramsBarrage: '«Бронебойный шквал» 6 с (+35% скорострельности, +50% пробития, откат 18 с)',
   hstatPassive: 'Пассивно (подвеска)',
   hstatPassiveK2: 'Адаптивная гидропневмоподвеска (нет штрафа в гору, УВН -13°..+24°)',
@@ -618,7 +618,7 @@ const DICT_SR: TranslationDict = {
   hstatAbilityLeopard: 'APFSDS hitac DM63 (500–550 štete, ignoriše oklop, 15 s)',
   hstatAbilityAbrams: 'Termovizija Gen-2 (15 s, isticanje meta i slabih tačaka, 30 s)',
   hstatAbilityK2: 'Granata KSTAM [E]+[DKM 1.5 s] (napad odozgo 500 štete + 10 m)',
-  hstatAbility2: 'Specijalna sposobnost [F]',
+  hstatAbility2: 'Specijalna sposobnost [G]',
   hstatAbilityAbramsBarrage: '«Probojni pljusak» 6 s (+35% brzina punjenja, +50% probojnost, 18 s)',
   hstatPassive: 'Pasivno (vešanje)',
   hstatPassiveK2: 'Adaptivno hidropneumatsko vešanje (bez usporavanja uzbrdo, -13°..+24°)',
@@ -1101,7 +1101,7 @@ const DICT_EN: TranslationDict = {
   hstatAbilityLeopard: 'DM63 APFSDS Round (500–550 dmg, ignores armor, 15 s CD)',
   hstatAbilityAbrams: 'Thermal Sight Gen-2 (15 s, highlights enemies & weakspots, 30 s CD)',
   hstatAbilityK2: 'KSTAM Top-Attack [E]+[RMB 1.5 s] (500 roof dmg + 10 m splash)',
-  hstatAbility2: 'Secondary Ability [F]',
+  hstatAbility2: 'Secondary Ability [G]',
   hstatAbilityAbramsBarrage: 'AP Barrage 6 s (+35% reload speed, +50% penetration, 18 s CD)',
   hstatPassive: 'Passive (Suspension)',
   hstatPassiveK2: 'Adaptive ISU Hydropneumatic (zero uphill penalty, -13°..+24° gun pitch)',
@@ -1606,7 +1606,7 @@ export const TANKS_LOCALIZED: Record<SupportedLanguage, Record<string, TankLocal
       country: 'США',
       gunName: '120-мм гладкоствольная M256 (M829)',
       description:
-        'Модернизированный «Абрамс» с газотурбинным двигателем, урановой лобовой бронёй башни, дальностью 1500 м, уроном 100 ед., тепловизором Gen-2 [E] (подсветка врагов и бензобаков) и способностью [F]: «Бронебойный шквал» (+35% скорострельность, +50% пробитие).',
+        'Модернизированный «Абрамс» с газотурбинным двигателем, урановой лобовой бронёй башни, дальностью 1500 м, уроном 100 ед., тепловизором Gen-2 [E] (подсветка врагов и бензобаков) и способностью [G]: «Бронебойный шквал» (+35% скорострельность, +50% пробитие).',
       mgName: '12.7-мм турель M2HB',
     },
     t14armata: {
@@ -1622,7 +1622,7 @@ export const TANKS_LOCALIZED: Record<SupportedLanguage, Record<string, TankLocal
       country: 'США',
       gunName: '120-мм гладкоствольная M256 (M829A4)',
       description:
-        'Топовая тяжёлая модификация «Абрамса» с усиленными скулами башни NGAP, бортовыми блоками ДЗ ARAT, пушкой M256 на 150 ед. урона (перезарядка 2.5 с, 200 HP), отражающим щитом [E] «КАЗ Trophy» (10 с) и самонаводящимся фугасом [F] AMP (150 ур. + 40 сплэш 5 м).',
+        'Топовая тяжёлая модификация «Абрамса» с усиленными скулами башни NGAP, бортовыми блоками ДЗ ARAT, пушкой M256 на 150 ед. урона (перезарядка 2.5 с, 200 HP), отражающим щитом [E] «КАЗ Trophy» (10 с) и самонаводящимся фугасом [G] AMP (150 ур. + 40 сплэш 5 м).',
       mgName: '12.7-мм CROWS M2HB + 7.62-мм M240',
     },
     maus: {
@@ -1744,7 +1744,7 @@ export const TANKS_LOCALIZED: Record<SupportedLanguage, Record<string, TankLocal
       country: 'SAD',
       gunName: 'Glatkocevni top 120 mm M256 (M829)',
       description:
-        'Napredni «Abrams» sa gasnom turbinom, uranijumskim oklopom kupole, dometom 1500 m, štetom od 100 jed., termovizijom Gen-2 [E] (isticanje meta i rezervoara) i sposobnošću [F]: «Probojni pljusak» (+35% punjenje, +50% probojnost).',
+        'Napredni «Abrams» sa gasnom turbinom, uranijumskim oklopom kupole, dometom 1500 m, štetom od 100 jed., termovizijom Gen-2 [E] (isticanje meta i rezervoara) i sposobnošću [G]: «Probojni pljusak» (+35% punjenje, +50% probojnost).',
       mgName: 'Kupola 12.7 mm M2HB',
     },
     t14armata: {
@@ -1760,7 +1760,7 @@ export const TANKS_LOCALIZED: Record<SupportedLanguage, Record<string, TankLocal
       country: 'SAD',
       gunName: 'Glatkocevni top 120 mm M256 (M829A4)',
       description:
-        'Vrhunska teška modifikacija «Abramsa» sa ojačanim NGAP oklopom kupole, bočnim ARAT blokovima, topom M256 od 150 štete (punjenje 2.5 s, 200 HP), odbijajućim štitom [E] «APS Trophy» (10 s) i navođenim fugasom [F] AMP (150 + 40 splaš 5 m).',
+        'Vrhunska teška modifikacija «Abramsa» sa ojačanim NGAP oklopom kupole, bočnim ARAT blokovima, topom M256 od 150 štete (punjenje 2.5 s, 200 HP), odbijajućim štitom [E] «APS Trophy» (10 s) i navođenim fugasom [G] AMP (150 + 40 splaš 5 m).',
       mgName: '12.7 mm CROWS M2HB + 7.62 mm M240',
     },
     maus: {
@@ -1882,7 +1882,7 @@ export const TANKS_LOCALIZED: Record<SupportedLanguage, Record<string, TankLocal
       country: 'USA',
       gunName: '120 mm smoothbore M256 (M829)',
       description:
-        'Upgraded Abrams with a gas turbine engine, depleted uranium turret armor, 1500 m effective range, 100 dmg DU rounds, [E] Gen-2 Thermal Sight highlighting enemies and fuel weakspots, and [F] AP Barrage (+35% fire rate, +50% penetration).',
+        'Upgraded Abrams with a gas turbine engine, depleted uranium turret armor, 1500 m effective range, 100 dmg DU rounds, [E] Gen-2 Thermal Sight highlighting enemies and fuel weakspots, and [G] AP Barrage (+35% fire rate, +50% penetration).',
       mgName: '12.7 mm M2HB cupola',
     },
     t14armata: {
@@ -1898,7 +1898,7 @@ export const TANKS_LOCALIZED: Record<SupportedLanguage, Record<string, TankLocal
       country: 'USA',
       gunName: '120 mm smoothbore M256 (M829A4)',
       description:
-        'Up-armored Abrams featuring thick NGAP turret cheeks, ARAT side ERA blocks, 150-damage M256 gun (2.5 s reload, 200 HP), [E] Trophy APS Reflect Shield (10 s) bouncing enemy rounds back, and [F] AMP homing HE missile (150 direct + 40 AoE 5 m).',
+        'Up-armored Abrams featuring thick NGAP turret cheeks, ARAT side ERA blocks, 150-damage M256 gun (2.5 s reload, 200 HP), [E] Trophy APS Reflect Shield (10 s) bouncing enemy rounds back, and [G] AMP homing HE missile (150 direct + 40 AoE 5 m).',
       mgName: '12.7 mm CROWS M2HB + 7.62 mm M240',
     },
     maus: {

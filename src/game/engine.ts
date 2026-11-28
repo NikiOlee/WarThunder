@@ -1692,9 +1692,9 @@ export function initGame(mountEl: HTMLElement): () => void {
     else if (e.code === K.comp) ballComp = !ballComp;
     else if (e.code === K.post) setSetting('post', !settings.post);
     else if (e.code === K.ability && mode !== 'binoc') triggerPlayerAbility();
-    else if (e.code === 'KeyF' && mode !== 'binoc' && tank.spec.secondaryAbility) triggerPlayerSecondaryAbility();
+    else if (e.code === 'KeyG' && mode !== 'binoc' && tank.spec.secondaryAbility) triggerPlayerSecondaryAbility();
     else if (e.code === 'KeyR' && mode !== 'binoc') tank.reloadMg();
-    if (e.code === K.mg && mode !== 'binoc' && isMgExhausted(tank.mgState) && !tank.spec.secondaryAbility) {
+    if (e.code === K.mg && mode !== 'binoc' && isMgExhausted(tank.mgState)) {
       showMsg(t('msgMgOutToast'), '#ff6a4a');
     }
   };
@@ -2668,8 +2668,8 @@ export function initGame(mountEl: HTMLElement): () => void {
     if (ability2Visible && ab2Spec && ab2St) {
       const ab2Lbl =
         ab2Spec.type === 'amp_homing'
-          ? t('hudAbility2Amp', { key: 'F' })
-          : t('hudAbility2Barrage', { key: 'F' });
+          ? t('hudAbility2Amp', { key: 'G' })
+          : t('hudAbility2Barrage', { key: 'G' });
       if (ab2Lbl !== hudCache.ability2Lbl) {
         hudCache.ability2Lbl = ab2Lbl;
         el.ability2BadgeLbl.textContent = ab2Lbl;

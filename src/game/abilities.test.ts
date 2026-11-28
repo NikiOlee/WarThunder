@@ -154,7 +154,7 @@ describe('M1A2 SEP Thermal Sight & AP Barrage abilities', () => {
     assert.equal(canActivateAbility(s, abrams.ability), true);
   });
 
-  it('activates AP Barrage [F] boosting reload speed +35% and penetration +50% for 6s', () => {
+  it('activates AP Barrage [G] boosting reload speed +35% and penetration +50% for 6s', () => {
     const abrams = getTankSpec('m1a2sep');
     assert.equal(abrams.secondaryAbility?.type, 'ap_barrage');
     const s = createAbilityState();
@@ -246,7 +246,7 @@ describe('T-14 Armata Afghanit 360° APS ability', () => {
   });
 });
 
-describe('M1A2 SEPv3 Trophy Reflect [E] & AMP Homing [F] abilities', () => {
+describe('M1A2 SEPv3 Trophy Reflect [E] & AMP Homing [G] abilities', () => {
   it('activates Trophy Reflect for 10s with 25s cooldown', () => {
     const sepv3 = getTankSpec('m1a2sepv3');
     assert.equal(sepv3.ability?.type, 'trophy_reflect');

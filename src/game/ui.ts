@@ -1029,7 +1029,7 @@ export function createUI(h: UIHandlers) {
     }
 
     const pushActive = (ab: NonNullable<TankSpec['ability']>, isSecondary = false): void => {
-      const keyStr = isSecondary ? 'F' : abKey;
+      const keyStr = isSecondary ? 'G' : abKey;
       switch (ab.type) {
         case 'galix_overdrive':
           activeCards.push({

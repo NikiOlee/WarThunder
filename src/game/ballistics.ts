@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { BARREL_HITBOX_BOUNDS, resolveHit, resolveMgHit, type HitPart, type HitResolution } from './damage';
 import {
+  computeAmpGuidance,
+  computeAmpLaunchDirection,
   computeAmpSplashDamage,
   computeKstamSplashDamage,
   findNearestEnemyIndex,
@@ -1712,14 +1714,39 @@ export class BallisticsSystem {
     group.position.copy(pos);
     this.scene.add(group, trail);
 
-    const launchDir = this._v.copy(dir).normalize();
-    launchDir.y = Math.max(0.18, launchDir.y + 0.12);
-    launchDir.normalize();
+    const sampleSurfaceY = (x: number, z: number): number => {
+      const groundY = this.world.heightAt(x, z);
+      let topY = groundY;
+      const near = this.world.nearby(x, z, 2);
+      for (let j = 0; j < near.length; j++) {
+        const b = near[j];
+        if (x >= b.min.x - 1.5 && x <= b.max.x + 1.5 && z >= b.min.z - 1.5 && z <= b.max.z + 1.5) {
+          if (b.max.y <= groundY + 26) {
+            topY = Math.max(topY, b.max.y);
+          }
+        }
+      }
+      return topY;
+    };
+
+    const launchVec = computeAmpLaunchDirection(
+      pos.x,
+      pos.y,
+      pos.z,
+      dir.x,
+      dir.y,
+      dir.z,
+      target && target.alive ? target.root.position.x : null,
+      target && target.alive ? target.root.position.y + 1.25 : null,
+      target && target.alive ? target.root.position.z : null,
+      sampleSurfaceY,
+    );
+    const launchDir = this._v.set(launchVec.x, launchVec.y, launchVec.z).normalize();
 
     this.projectiles.push({
       pos: pos.clone(),
       prev: pos.clone(),
-      vel: launchDir.clone().multiplyScalar(135),
+      vel: launchDir.clone().multiplyScalar(132),
       age: 0,
       dist: 0,
       acc: 0,
@@ -2276,18 +2303,34 @@ export class BallisticsSystem {
           const destX = amp.target.root.position.x;
           const destY = amp.target.root.position.y + 1.25;
           const destZ = amp.target.root.position.z;
-          const dx = destX - p.pos.x;
-          const dy = destY - p.pos.y;
-          const dz = destZ - p.pos.z;
-          const dist = Math.hypot(dx, dy, dz);
-          if (dist > 0.01) {
-            const steer = amp.elapsed < 0.16 ? 7.5 : 16;
-            const blend = 1 - Math.exp(-steer * dt);
-            const curDir = this._v.copy(p.vel).normalize();
-            const tgtDir = this._v2.set(dx / dist, dy / dist, dz / dist);
-            curDir.lerp(tgtDir, blend).normalize();
-            p.vel.copy(curDir).multiplyScalar(135);
-          }
+          const guided = computeAmpGuidance({
+            posX: p.pos.x,
+            posY: p.pos.y,
+            posZ: p.pos.z,
+            velX: p.vel.x,
+            velY: p.vel.y,
+            velZ: p.vel.z,
+            targetX: destX,
+            targetY: destY,
+            targetZ: destZ,
+            elapsed: amp.elapsed,
+            dt,
+            sampleSurfaceY: (x, z) => {
+              const groundY = this.world.heightAt(x, z);
+              let topY = groundY;
+              const near = this.world.nearby(x, z, 2);
+              for (let j = 0; j < near.length; j++) {
+                const b = near[j];
+                if (x >= b.min.x - 1.5 && x <= b.max.x + 1.5 && z >= b.min.z - 1.5 && z <= b.max.z + 1.5) {
+                  if (b.max.y <= groundY + 26) {
+                    topY = Math.max(topY, b.max.y);
+                  }
+                }
+              }
+              return topY;
+            },
+          });
+          p.vel.set(guided.velX, guided.velY, guided.velZ);
         }
         p.pos.addScaledVector(p.vel, dt);
         this.fx.emit({
@@ -2331,7 +2374,7 @@ export class BallisticsSystem {
             amp.target.root.position.y + 1.25 - p.pos.y,
             amp.target.root.position.z - p.pos.z,
           );
-          if (distToTarget <= 2.4) {
+          if (distToTarget <= 2.6) {
             if (isTrophyReflectActive(amp.target.abilityState, amp.target.spec.ability)) {
               const pt = p.pos.clone();
               this._emitTrophyReflectFx(pt);
@@ -2353,7 +2396,7 @@ export class BallisticsSystem {
           this._remove(i);
           continue;
         }
-        if (amp.elapsed >= 7) {
+        if (amp.elapsed >= 8.5) {
           this._detonateAmp(p, p.pos.clone(), null);
           this._remove(i);
           continue;

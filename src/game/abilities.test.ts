@@ -16,6 +16,8 @@ import {
   stepKstamLock,
   computeKstamSplashDamage,
   computeAmpSplashDamage,
+  computeAmpLaunchDirection,
+  computeAmpGuidance,
   findNearestEnemyIndex,
   computeGalixArcPosition,
   createSmokeRing,
@@ -25,6 +27,7 @@ import {
   type TankAbilitySpec,
 } from './abilities.ts';
 import { getTankSpec } from './tanks.ts';
+import { heightAt } from './world.ts';
 
 const GALIX_SPEC: TankAbilitySpec = {
   type: 'galix_overdrive',
@@ -291,4 +294,98 @@ describe('M1A2 SEPv3 Trophy Reflect [E] & AMP Homing [G] abilities', () => {
     assert.equal(computeAmpSplashDamage(5.2, 5, 40, false), 0);
     assert.equal(computeAmpSplashDamage(2.0, 5, 40, true), 0);
   });
+
+  it('steers AMP missile cleanly over tall hills and dives onto targets tucked behind crests', () => {
+    const simulateAmpShot = (
+      start: [number, number, number],
+      target: [number, number, number],
+      surfaceAt: (x: number, z: number) => number,
+    ) => {
+      const launch = computeAmpLaunchDirection(
+        start[0],
+        start[1],
+        start[2],
+        0,
+        0,
+        1,
+        target[0],
+        target[1],
+        target[2],
+        surfaceAt,
+      );
+      let px = start[0];
+      let py = start[1];
+      let pz = start[2];
+      let vx = launch.x * 132;
+      let vy = launch.y * 132;
+      let vz = launch.z * 132;
+      let elapsed = 0;
+      const dt = 1 / 60;
+      let hit = false;
+      let groundCrash = false;
+      let maxAltitude = py;
+
+      for (let step = 0; step < 500; step++) {
+        elapsed += dt;
+        const g = computeAmpGuidance({
+          posX: px,
+          posY: py,
+          posZ: pz,
+          velX: vx,
+          velY: vy,
+          velZ: vz,
+          targetX: target[0],
+          targetY: target[1],
+          targetZ: target[2],
+          elapsed,
+          dt,
+          sampleSurfaceY: surfaceAt,
+        });
+        vx = g.velX;
+        vy = g.velY;
+        vz = g.velZ;
+        px += vx * dt;
+        py += vy * dt;
+        pz += vz * dt;
+        maxAltitude = Math.max(maxAltitude, py);
+
+        const distToTarget = Math.hypot(target[0] - px, target[1] - py, target[2] - pz);
+        if (distToTarget <= 2.6) {
+          hit = true;
+          break;
+        }
+        if (py <= surfaceAt(px, pz)) {
+          groundCrash = true;
+          break;
+        }
+      }
+      return { hit, groundCrash, maxAltitude };
+    };
+
+    // Case 1: 32m hill directly between shooter and target
+    const ridgeSurface = (_x: number, z: number) => 32 * Math.exp(-(z * z) / (38 * 38));
+    const res1 = simulateAmpShot([0, 2.2, -130], [0, 1.25, 130], ridgeSurface);
+    assert.equal(res1.groundCrash, false);
+    assert.equal(res1.hit, true);
+    assert.ok(res1.maxAltitude > 35);
+
+    // Case 2: Steep close hill right in front of shooter & enemy tucked 24m behind crest
+    const steepHill = (_x: number, z: number) => 28 * Math.exp(-(z * z) / (22 * 22));
+    const res2 = simulateAmpShot([0, 2.2, -40], [0, ridgeOrHillY(steepHill, 0, 24) + 1.25, 24], steepHill);
+    assert.equal(res2.groundCrash, false);
+    assert.equal(res2.hit, true);
+
+    // Case 3: Real Hills map terrain between south & north approaches
+    const res3 = simulateAmpShot(
+      [15, heightAt(15, -240) + 2.2, -240],
+      [-20, heightAt(-20, 180) + 1.25, 180],
+      heightAt,
+    );
+    assert.equal(res3.groundCrash, false);
+    assert.equal(res3.hit, true);
+  });
 });
+
+function ridgeOrHillY(fn: (x: number, z: number) => number, x: number, z: number): number {
+  return fn(x, z);
+}

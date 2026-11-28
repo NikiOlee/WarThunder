@@ -655,17 +655,17 @@ class AudioSys {
     tg.connect(this.engineBus);
 
     const turbBp = ctx.createBiquadFilter();
-    turbBp.type = 'bandpass';
-    turbBp.frequency.value = 1850;
-    turbBp.Q.value = 1.6;
+    turbBp.type = 'lowpass';
+    turbBp.frequency.value = 620;
+    turbBp.Q.value = 0.7;
     const turbGain = ctx.createGain();
     turbGain.gain.value = 0;
     const turb1 = ctx.createOscillator();
     turb1.type = 'sine';
-    turb1.frequency.value = 1520;
+    turb1.frequency.value = 320;
     const turb2 = ctx.createOscillator();
-    turb2.type = 'triangle';
-    turb2.frequency.value = 3040;
+    turb2.type = 'sine';
+    turb2.frequency.value = 480;
     turb1.connect(turbBp);
     turb2.connect(turbBp);
     turbBp.connect(turbGain);
@@ -674,8 +674,8 @@ class AudioSys {
     const airSrc = this._noise();
     const airBp = ctx.createBiquadFilter();
     airBp.type = 'bandpass';
-    airBp.frequency.value = 2100;
-    airBp.Q.value = 0.75;
+    airBp.frequency.value = 480;
+    airBp.Q.value = 0.55;
     const airGain = ctx.createGain();
     airGain.gain.value = 0;
     airSrc.connect(airBp);
@@ -699,21 +699,22 @@ class AudioSys {
     const t = this.ctx.currentTime;
     const rpm = alive ? 0.18 + 0.52 * clamp(speedN, 0, 1) + 0.22 * Math.abs(throttle) : 0;
     const isTurbine = engineType === 'turbine';
-    const f = 24 + rpm * 46;
+    const f = isTurbine ? 32 + rpm * 50 : 24 + rpm * 46;
     e.o1.frequency.setTargetAtTime(f, t, 0.14);
     e.o2.frequency.setTargetAtTime(f * 0.5, t, 0.14);
-    e.lp.frequency.setTargetAtTime(120 + rpm * 240, t, 0.14);
-    e.g.gain.setTargetAtTime(alive ? (isTurbine ? 0.025 + 0.03 * rpm : 0.08 + 0.1 * rpm) : 0, t, 0.22);
-    e.ng.gain.setTargetAtTime(alive ? (isTurbine ? 0.035 + 0.02 * rpm : 0.07 + 0.04 * rpm) : 0.01, t, 0.3);
-    e.tg.gain.setTargetAtTime(alive ? clamp(speedN, 0, 1) * 0.055 : 0, t, 0.18);
+    e.lp.frequency.setTargetAtTime(isTurbine ? 155 + rpm * 270 : 120 + rpm * 240, t, 0.14);
+    e.g.gain.setTargetAtTime(alive ? (isTurbine ? 0.095 + 0.105 * rpm : 0.08 + 0.1 * rpm) : 0, t, 0.22);
+    e.ng.gain.setTargetAtTime(alive ? (isTurbine ? 0.08 + 0.05 * rpm : 0.07 + 0.04 * rpm) : 0.01, t, 0.3);
+    e.tg.gain.setTargetAtTime(alive ? clamp(speedN, 0, 1) * (isTurbine ? 0.068 : 0.055) : 0, t, 0.18);
 
-    const tFreq = 1380 + rpm * 1550;
-    e.turb1.frequency.setTargetAtTime(tFreq, t, 0.12);
-    e.turb2.frequency.setTargetAtTime(tFreq * 1.92, t, 0.12);
-    e.turbBp.frequency.setTargetAtTime(tFreq * 1.15, t, 0.14);
-    e.turbGain.gain.setTargetAtTime(alive && isTurbine ? 0.045 + 0.075 * rpm : 0, t, 0.16);
-    e.airBp.frequency.setTargetAtTime(1750 + rpm * 2200, t, 0.16);
-    e.airGain.gain.setTargetAtTime(alive && isTurbine ? 0.03 + 0.055 * rpm : 0, t, 0.2);
+    // Warm AGT1500 jet-turbine spool & deep rear exhaust breath (avoids high-pitched vacuum-cleaner whine)
+    const tFreq = 260 + rpm * 410;
+    e.turb1.frequency.setTargetAtTime(tFreq, t, 0.14);
+    e.turb2.frequency.setTargetAtTime(tFreq * 1.5, t, 0.14);
+    e.turbBp.frequency.setTargetAtTime(tFreq * 1.45, t, 0.14);
+    e.turbGain.gain.setTargetAtTime(alive && isTurbine ? 0.012 + 0.032 * rpm : 0, t, 0.18);
+    e.airBp.frequency.setTargetAtTime(380 + rpm * 520, t, 0.18);
+    e.airGain.gain.setTargetAtTime(alive && isTurbine ? 0.016 + 0.03 * rpm : 0, t, 0.22);
   }
 
   engineSilence(): void {

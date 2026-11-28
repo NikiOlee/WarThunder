@@ -363,6 +363,205 @@ export function findNearestEnemyIndex(
   return bestIdx;
 }
 
+export interface AmpGuidanceInput {
+  posX: number;
+  posY: number;
+  posZ: number;
+  velX: number;
+  velY: number;
+  velZ: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  elapsed: number;
+  dt: number;
+  sampleSurfaceY: (x: number, z: number) => number;
+}
+
+export interface AmpGuidanceOutput {
+  velX: number;
+  velY: number;
+  velZ: number;
+  speed: number;
+}
+
+function scanMaxTerrainSlope(
+  posX: number,
+  posY: number,
+  posZ: number,
+  hx: number,
+  hz: number,
+  horizDist: number,
+  sampleSurfaceY: (x: number, z: number) => number,
+): number {
+  const scanEnd = Math.max(4, horizDist - 6);
+  const samples = Math.min(24, Math.max(6, Math.ceil((scanEnd - 4) / 6)));
+  let maxSlope = -Infinity;
+  for (let s = 0; s <= samples; s++) {
+    const d = 4 + ((scanEnd - 4) * s) / samples;
+    const sx = posX + hx * d;
+    const sz = posZ + hz * d;
+    const surfaceY = sampleSurfaceY(sx, sz);
+    const clearance = d < 14 ? 5.5 : 7.0;
+    const reqY = surfaceY + clearance;
+    const slope = (reqY - posY) / Math.max(d, 3);
+    if (slope > maxSlope) maxSlope = slope;
+  }
+  return maxSlope;
+}
+
+export function computeAmpLaunchDirection(
+  posX: number,
+  posY: number,
+  posZ: number,
+  barrelDirX: number,
+  barrelDirY: number,
+  barrelDirZ: number,
+  targetX: number | null,
+  targetY: number | null,
+  targetZ: number | null,
+  sampleSurfaceY?: (x: number, z: number) => number,
+): { x: number; y: number; z: number } {
+  let dx = barrelDirX;
+  let dy = barrelDirY;
+  let dz = barrelDirZ;
+  const bLen = Math.hypot(dx, dy, dz) || 1;
+  dx /= bLen;
+  dy /= bLen;
+  dz /= bLen;
+
+  let minSlope = Math.max(0.38, dy + 0.24);
+  if (targetX !== null && targetY !== null && targetZ !== null) {
+    const tx = targetX - posX;
+    const tz = targetZ - posZ;
+    const horizDist = Math.hypot(tx, tz);
+    if (horizDist > 1) {
+      const hx = tx / horizDist;
+      const hz = tz / horizDist;
+      // Bias initial horizontal direction slightly toward target while keeping barrel feel
+      dx = hx * 0.55 + dx * 0.45;
+      dz = hz * 0.55 + dz * 0.45;
+      const hNorm = Math.hypot(dx, dz) || 1;
+      dx /= hNorm;
+      dz /= hNorm;
+      if (sampleSurfaceY && horizDist > 10) {
+        const crestSlope = scanMaxTerrainSlope(posX, posY, posZ, hx, hz, horizDist, sampleSurfaceY);
+        if (Number.isFinite(crestSlope)) {
+          minSlope = Math.max(minSlope, crestSlope + 0.14);
+        }
+      }
+    }
+  }
+
+  const clampedSlope = Math.min(2.1, Math.max(0.38, minSlope));
+  const hLen = Math.hypot(dx, dz) || 1;
+  const rx = dx / hLen;
+  const rz = dz / hLen;
+  const outLen = Math.hypot(rx, clampedSlope, rz);
+  return {
+    x: rx / outLen,
+    y: clampedSlope / outLen,
+    z: rz / outLen,
+  };
+}
+
+export function computeAmpGuidance(input: AmpGuidanceInput): AmpGuidanceOutput {
+  const {
+    posX,
+    posY,
+    posZ,
+    velX,
+    velY,
+    velZ,
+    targetX,
+    targetY,
+    targetZ,
+    elapsed,
+    dt,
+    sampleSurfaceY,
+  } = input;
+
+  const curSpeed = Math.hypot(velX, velY, velZ) || 130;
+  const curX = velX / curSpeed;
+  const curY = velY / curSpeed;
+  const curZ = velZ / curSpeed;
+
+  const dx = targetX - posX;
+  const dy = targetY - posY;
+  const dz = targetZ - posZ;
+  const horizDist = Math.hypot(dx, dz);
+
+  let tgtX: number;
+  let tgtY: number;
+  let tgtZ: number;
+
+  if (horizDist <= 9.5) {
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 1e-4) {
+      return { velX, velY, velZ, speed: curSpeed };
+    }
+    tgtX = dx / dist;
+    tgtY = dy / dist;
+    tgtZ = dz / dist;
+  } else {
+    const hx = dx / horizDist;
+    const hz = dz / horizDist;
+    const directSlope = dy / horizDist;
+    const crestSlope = scanMaxTerrainSlope(posX, posY, posZ, hx, hz, horizDist, sampleSurfaceY);
+    const loftSlope = elapsed < 0.25 && horizDist > 26 ? Math.min(0.45, 0.2 + horizDist * 0.001) : 0;
+
+    let desiredSlope = Math.max(directSlope, crestSlope, loftSlope);
+
+    // Immediate terrain floor clearance so missile never scrapes hillsides
+    const groundHere = sampleSurfaceY(posX, posZ);
+    const groundAhead = sampleSurfaceY(posX + hx * 5.5, posZ + hz * 5.5);
+    const safeFloorY = Math.max(groundHere, groundAhead) + 5.2;
+    if (posY < safeFloorY) {
+      desiredSlope = Math.max(desiredSlope, (safeFloorY - posY) / 4.2 + 0.25);
+    }
+
+    desiredSlope = Math.max(-2.8, Math.min(2.6, desiredSlope));
+    const dirLen = Math.hypot(hx, desiredSlope, hz);
+    tgtX = hx / dirLen;
+    tgtY = desiredSlope / dirLen;
+    tgtZ = hz / dirLen;
+  }
+
+  const dot = Math.max(-1, Math.min(1, curX * tgtX + curY * tgtY + curZ * tgtZ));
+  let steerRate = elapsed < 0.12 ? 18 : 20;
+  if (horizDist <= 9.5) {
+    steerRate = 38;
+  } else if (tgtY > curY + 0.06) {
+    steerRate = 30;
+  } else if (horizDist < 55) {
+    steerRate = 28;
+  }
+
+  const blend = 1 - Math.exp(-steerRate * Math.max(0, dt));
+  let nx = curX + (tgtX - curX) * blend;
+  let ny = curY + (tgtY - curY) * blend;
+  let nz = curZ + (tgtZ - curZ) * blend;
+  const nLen = Math.hypot(nx, ny, nz) || 1;
+  nx /= nLen;
+  ny /= nLen;
+  nz /= nLen;
+
+  // Modulate speed during sharp hill-crest dive turns so turning radius shrinks and prevents overshooting
+  const sharpTurn = dot < 0.88 || (horizDist < 42 && dot < 0.96);
+  const targetSpeed = sharpTurn
+    ? 82 + 48 * Math.max(0, Math.min(1, (dot - 0.25) / 0.75))
+    : 132;
+  const speedBlend = 1 - Math.exp(-10 * Math.max(0, dt));
+  const speed = curSpeed + (targetSpeed - curSpeed) * speedBlend;
+
+  return {
+    velX: nx * speed,
+    velY: ny * speed,
+    velZ: nz * speed,
+    speed,
+  };
+}
+
 export function computeGalixArcPosition(
   sx: number,
   sy: number,

@@ -1581,7 +1581,6 @@ export function initGame(mountEl: HTMLElement): () => void {
         splashRadius: ab2.splashRadius ?? 5,
         owner: tank,
       });
-      audio.play('ampLaunch', tank.root.position, 0.85, true);
       kick += mode === 'third' ? 0.015 : 0.003;
       shake = mode === 'third' ? 0.12 : 0;
       showMsg(t('msgAmpFired', { target: targetTank.name }), '#ffcb45');

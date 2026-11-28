@@ -54,8 +54,10 @@ import { resolveTankCollisionPair } from './collision';
 import { shouldApplyRockDamage } from './envCollision';
 import { isShotIntoSky, SKY_EASTER_MSG } from './damage';
 import {
+  canActivateAbility,
   createSmokeRing,
   computeGalixArcPosition,
+  findNearestEnemyIndex,
   isThermalActive,
   pruneSmokeClouds,
   stepKstamLock,
@@ -1529,6 +1531,12 @@ export function initGame(mountEl: HTMLElement): () => void {
     } else if (res.type === 'thermal_sight') {
       audio.play('thermal', tank.root.position, 0.85, true);
       showMsg(t('msgThermalActivated'), '#66f4d4');
+    } else if (res.type === 'afghanit_shield') {
+      audio.play('afghanit', tank.root.position, 0.85, true);
+      showMsg(t('msgAfghanitActivated'), '#42f0ff');
+    } else if (res.type === 'trophy_reflect') {
+      audio.play('trophyReflect', tank.root.position, 0.85, true);
+      showMsg(t('msgTrophyReflectActivated'), '#ffcb45');
     } else if (res.type === 'kstam_missile' && res.primed) {
       audio.play('dm63', tank.root.position, 0.55, true);
       showMsg(t('msgKstamPrimed'), '#ffd27a');
@@ -1540,7 +1548,45 @@ export function initGame(mountEl: HTMLElement): () => void {
 
   function triggerPlayerSecondaryAbility() {
     if (state !== 'play' || !tank.alive || spectating || matchEnded || consoleOpen || scoreboardOpen) return;
-    if (!tank.spec.secondaryAbility) return;
+    const ab2 = tank.spec.secondaryAbility;
+    if (!ab2) return;
+    if (ab2.type === 'amp_homing') {
+      if (!canActivateAbility(tank.secondaryAbilityState, ab2)) return;
+      const idx = findNearestEnemyIndex(
+        tank.root.position.x,
+        tank.root.position.z,
+        tank.team,
+        allTanksList.map((tk) => ({
+          alive: tk.alive,
+          team: tk.team,
+          x: tk.root.position.x,
+          z: tk.root.position.z,
+        })),
+      );
+      if (idx < 0) {
+        showMsg(t('msgAmpNoTarget'), '#ffb43c');
+        return;
+      }
+      const res = tank.activateSecondaryAbility();
+      if (!res.activated) return;
+      const targetTank = allTanksList[idx];
+      tank.muzzleWorld(_gm);
+      tank.gunDirection(_gd);
+      ballistics.fireAmp({
+        pos: _gm,
+        dir: _gd,
+        target: targetTank,
+        damage: ab2.damage ?? 150,
+        splashDamage: ab2.splashDamage ?? 40,
+        splashRadius: ab2.splashRadius ?? 5,
+        owner: tank,
+      });
+      audio.play('ampLaunch', tank.root.position, 0.85, true);
+      kick += mode === 'third' ? 0.015 : 0.003;
+      shake = mode === 'third' ? 0.12 : 0;
+      showMsg(t('msgAmpFired', { target: targetTank.name }), '#ffcb45');
+      return;
+    }
     const res = tank.activateSecondaryAbility();
     if (!res.activated) return;
     if (res.type === 'ap_barrage') {
@@ -2556,6 +2602,12 @@ export function initGame(mountEl: HTMLElement): () => void {
       } else if (abSpec.type === 'thermal_sight' && abSt.activeRemaining > 0.01) {
         abMode = 'active';
         abStateShort = t('hudAbilityThermalActive', { t: abSt.activeRemaining.toFixed(1) });
+      } else if (abSpec.type === 'afghanit_shield' && abSt.activeRemaining > 0.01) {
+        abMode = 'active';
+        abStateShort = t('hudAbilityAfghanitActive', { t: abSt.activeRemaining.toFixed(1) });
+      } else if (abSpec.type === 'trophy_reflect' && abSt.activeRemaining > 0.01) {
+        abMode = 'active';
+        abStateShort = t('hudAbilityTrophyReflectActive', { t: abSt.activeRemaining.toFixed(1) });
       } else if ((abSpec.type === 'dm63_apfsds' || abSpec.type === 'kstam_missile') && abSt.primed) {
         abMode = 'primed';
         abStateShort = t('hudAbilityPrimed');
@@ -2573,7 +2625,11 @@ export function initGame(mountEl: HTMLElement): () => void {
             ? t('hudAbilityThermal', { key: abKeyStr })
             : abSpec.type === 'kstam_missile'
               ? t('hudAbilityKstam', { key: abKeyStr })
-              : t('hudAbilityDm63', { key: abKeyStr });
+              : abSpec.type === 'afghanit_shield'
+                ? t('hudAbilityAfghanit', { key: abKeyStr })
+                : abSpec.type === 'trophy_reflect'
+                  ? t('hudAbilityTrophyReflect', { key: abKeyStr })
+                  : t('hudAbilityDm63', { key: abKeyStr });
       if (abLbl !== hudCache.abilityLbl) {
         hudCache.abilityLbl = abLbl;
         el.abilityBadgeLbl.textContent = abLbl;
@@ -2610,7 +2666,10 @@ export function initGame(mountEl: HTMLElement): () => void {
       }
     }
     if (ability2Visible && ab2Spec && ab2St) {
-      const ab2Lbl = t('hudAbility2Barrage', { key: 'F' });
+      const ab2Lbl =
+        ab2Spec.type === 'amp_homing'
+          ? t('hudAbility2Amp', { key: 'F' })
+          : t('hudAbility2Barrage', { key: 'F' });
       if (ab2Lbl !== hudCache.ability2Lbl) {
         hudCache.ability2Lbl = ab2Lbl;
         el.ability2BadgeLbl.textContent = ab2Lbl;
@@ -2767,7 +2826,11 @@ export function initGame(mountEl: HTMLElement): () => void {
               ? t('tBtnAbilityThermal', { state: abStateShort })
               : abSpec.type === 'kstam_missile'
                 ? t('tBtnAbilityKstam', { state: abStateShort })
-                : t('tBtnAbilityDm63', { state: abStateShort });
+                : abSpec.type === 'afghanit_shield'
+                  ? t('tBtnAbilityAfghanit', { state: abStateShort })
+                  : abSpec.type === 'trophy_reflect'
+                    ? t('tBtnAbilityTrophyReflect', { state: abStateShort })
+                    : t('tBtnAbilityDm63', { state: abStateShort });
         if (tAbTxt !== hudCache.tAbilityTxt) {
           hudCache.tAbilityTxt = tAbTxt;
           el.tBtnAbility.textContent = tAbTxt;
@@ -2784,7 +2847,10 @@ export function initGame(mountEl: HTMLElement): () => void {
           el.tBtnAbility2.classList.toggle('active', ab2Mode === 'active');
           el.tBtnAbility2.classList.toggle('cooling', ab2Mode === 'cooling');
         }
-        const tAb2Txt = t('tBtnAbilityBarrage', { state: ab2StateShort });
+        const tAb2Txt =
+          ab2Spec.type === 'amp_homing'
+            ? t('tBtnAbilityAmp', { state: ab2StateShort })
+            : t('tBtnAbilityBarrage', { state: ab2StateShort });
         if (tAb2Txt !== hudCache.tAbility2Txt) {
           hudCache.tAbility2Txt = tAb2Txt;
           el.tBtnAbility2.textContent = tAb2Txt;
@@ -3152,7 +3218,6 @@ export function initGame(mountEl: HTMLElement): () => void {
 
       if (target === tank) {
         recordPlayerDeath();
-        audio.playVoice('playerDeath');
       }
 
       if (owner === tank && target.team === 'B') {
@@ -3476,6 +3541,24 @@ export function initGame(mountEl: HTMLElement): () => void {
       shake = Math.max(shake, 0.14);
     } else if (e.owner === tank) {
       showMsg(t('msgTrophyEnemyBlocked'), '#ffd27a');
+    }
+  });
+
+  ballistics.onShieldIntercept((e) => {
+    if (e.kind === 'afghanit') {
+      if (e.target === tank) {
+        showMsg(t('msgAfghanitIntercept'), '#42f0ff');
+        shake = Math.max(shake, 0.14);
+      } else if (e.owner === tank) {
+        showMsg(t('msgAfghanitEnemyBlocked'), '#ffd27a');
+      }
+    } else if (e.kind === 'trophy_reflect') {
+      if (e.target === tank) {
+        showMsg(t('msgTrophyReflectBlocked'), '#ffcb45');
+        shake = Math.max(shake, 0.14);
+      } else if (e.owner === tank) {
+        showMsg(t('msgTrophyReflectedBack'), '#ff6a4a');
+      }
     }
   });
 

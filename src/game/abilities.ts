@@ -7,12 +7,15 @@ export type TankAbilityType =
   | 'dm63_apfsds'
   | 'thermal_sight'
   | 'ap_barrage'
-  | 'kstam_missile';
+  | 'kstam_missile'
+  | 'afghanit_shield'
+  | 'trophy_reflect'
+  | 'amp_homing';
 
 export interface TankAbilitySpec {
   type: TankAbilityType;
   cooldown: number;        // seconds
-  duration?: number;       // seconds (for overdrive, thermal_sight, ap_barrage)
+  duration?: number;       // seconds (for overdrive, thermal_sight, ap_barrage, afghanit_shield, trophy_reflect)
   speedMult?: number;      // max-speed multiplier while active
   accelMult?: number;      // acceleration multiplier while active
   smokeDuration?: number;  // seconds smoke clouds linger
@@ -23,8 +26,9 @@ export interface TankAbilitySpec {
   reloadMult?: number;     // AP Barrage reload time multiplier (e.g. 0.65 = 35% faster)
   penMult?: number;        // AP Barrage penetration multiplier (e.g. 1.5 = +50%)
   lockDuration?: number;   // KSTAM lock duration (seconds)
-  splashRadius?: number;   // KSTAM AoE splash radius (meters)
-  damage?: number;         // KSTAM fixed direct damage
+  splashRadius?: number;   // KSTAM / AMP AoE splash radius (meters)
+  damage?: number;         // KSTAM / AMP fixed direct damage
+  splashDamage?: number;   // AMP flat AoE splash damage (meters)
 }
 
 export interface TankAbilityState {
@@ -103,7 +107,11 @@ export function canActivateAbility(
   if (!state || !spec) return false;
   if (state.cooldownRemaining > 0.001) return false;
   if (
-    (spec.type === 'galix_overdrive' || spec.type === 'thermal_sight' || spec.type === 'ap_barrage') &&
+    (spec.type === 'galix_overdrive' ||
+      spec.type === 'thermal_sight' ||
+      spec.type === 'ap_barrage' ||
+      spec.type === 'afghanit_shield' ||
+      spec.type === 'trophy_reflect') &&
     state.activeRemaining > 0.001
   ) {
     return false;
@@ -145,6 +153,35 @@ export function activateAbility(
     return {
       activated: true,
       type: 'ap_barrage',
+      spawnSmoke: false,
+      primed: false,
+    };
+  }
+  if (spec.type === 'afghanit_shield') {
+    state.activeRemaining = spec.duration ?? 3;
+    state.cooldownRemaining = spec.cooldown ?? 16;
+    return {
+      activated: true,
+      type: 'afghanit_shield',
+      spawnSmoke: false,
+      primed: false,
+    };
+  }
+  if (spec.type === 'trophy_reflect') {
+    state.activeRemaining = spec.duration ?? 10;
+    state.cooldownRemaining = spec.cooldown ?? 25;
+    return {
+      activated: true,
+      type: 'trophy_reflect',
+      spawnSmoke: false,
+      primed: false,
+    };
+  }
+  if (spec.type === 'amp_homing') {
+    state.cooldownRemaining = spec.cooldown ?? 15;
+    return {
+      activated: true,
+      type: 'amp_homing',
       spawnSmoke: false,
       primed: false,
     };
@@ -240,6 +277,20 @@ export function isThermalActive(
   return Boolean(state && spec && spec.type === 'thermal_sight' && state.activeRemaining > 0);
 }
 
+export function isAfghanitActive(
+  state: TankAbilityState | null | undefined,
+  spec: TankAbilitySpec | undefined,
+): boolean {
+  return Boolean(state && spec && spec.type === 'afghanit_shield' && state.activeRemaining > 0);
+}
+
+export function isTrophyReflectActive(
+  state: TankAbilityState | null | undefined,
+  spec: TankAbilitySpec | undefined,
+): boolean {
+  return Boolean(state && spec && spec.type === 'trophy_reflect' && state.activeRemaining > 0);
+}
+
 export function stepKstamLock(
   currentProgress: number,
   hasTargetInCone: boolean,
@@ -271,6 +322,45 @@ export function computeKstamSplashDamage(
   if (isAllyOrSelf || radius <= 0 || dist > radius || dist < 0) return 0;
   const f = Math.max(0, Math.min(1, 1 - (dist / radius) * 0.65));
   return Math.round(maxSplashDmg * f);
+}
+
+export function computeAmpSplashDamage(
+  dist: number,
+  radius = 5,
+  splashDamage = 40,
+  isAllyOrSelf = false,
+): number {
+  if (isAllyOrSelf || radius <= 0 || dist > radius || dist < 0) return 0;
+  return Math.round(splashDamage);
+}
+
+export interface EnemyPositionCandidate {
+  alive: boolean;
+  team: string;
+  x: number;
+  z: number;
+}
+
+export function findNearestEnemyIndex(
+  originX: number,
+  originZ: number,
+  ownerTeam: string,
+  candidates: readonly EnemyPositionCandidate[],
+): number {
+  let bestIdx = -1;
+  let bestDistSq = Infinity;
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    if (!c.alive || c.team === ownerTeam) continue;
+    const dx = c.x - originX;
+    const dz = c.z - originZ;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < bestDistSq) {
+      bestDistSq = d2;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
 }
 
 export function computeGalixArcPosition(

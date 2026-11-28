@@ -361,6 +361,56 @@ const TANK_SUSPENSION_CHECKS: Array<{
     },
   },
   {
+    id: 'm1a2sepv3',
+    hullHalfWidth: 1.54,
+    fenderBottomY: 1.175,
+    spec: {
+      trackX: 1.9,
+      trackWidth: 0.6,
+      beltThickness: 0.055,
+      wheelY: 0.49,
+      wheelR: 0.41,
+      wheelPositionsZ: [-2.94, -1.98, -1.02, -0.06, 0.9, 1.84, 2.76],
+      idlerZ: 3.48,
+      idlerY: 0.74,
+      idlerR: 0.28,
+      sprocketZ: -3.52,
+      sprocketY: 0.71,
+      sprocketR: 0.3,
+      returnRollersZ: [-2.4, -0.5, 1.4],
+      returnRollerR: 0.11,
+      sprocketTeeth: 12,
+      fenderY: 1.21,
+      mudguardFrontZ: 3.82,
+      mudguardRearZ: -3.78,
+    },
+  },
+  {
+    id: 't14armata',
+    hullHalfWidth: 1.52,
+    fenderBottomY: 1.185,
+    spec: {
+      trackX: 1.88,
+      trackWidth: 0.58,
+      beltThickness: 0.055,
+      wheelY: 0.49,
+      wheelR: 0.41,
+      wheelPositionsZ: [-3.06, -2.04, -1.02, 0.0, 1.02, 2.04, 3.06],
+      idlerZ: 3.84,
+      idlerY: 0.74,
+      idlerR: 0.28,
+      sprocketZ: -3.88,
+      sprocketY: 0.71,
+      sprocketR: 0.3,
+      returnRollersZ: [-2.6, -0.6, 1.4],
+      returnRollerR: 0.11,
+      sprocketTeeth: 12,
+      fenderY: 1.22,
+      mudguardFrontZ: 4.18,
+      mudguardRearZ: -4.16,
+    },
+  },
+  {
     id: 't55',
     hullHalfWidth: 1.45,
     fenderBottomY: 1.115,
@@ -385,7 +435,7 @@ const TANK_SUSPENSION_CHECKS: Array<{
   },
 ];
 
-test('buildTrackContour and createTrackBeltGeometry satisfy clearances and closed outward geometry for all 15 tanks', () => {
+test('buildTrackContour and createTrackBeltGeometry satisfy clearances and closed outward geometry for all 17 tanks', () => {
   for (const entry of TANK_SUSPENSION_CHECKS) {
     const contour = buildTrackContour(entry.spec);
     assert.equal(contour.outerPts.length, contour.innerPts.length);

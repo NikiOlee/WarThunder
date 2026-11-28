@@ -116,7 +116,7 @@ describe('resolveVoiceCueForHit', () => {
     );
   });
 
-  it('maps incoming enemy hits on the player including playerDeath, weWereHit, module damage, nopen, and ricochet', () => {
+  it('omits playerDeath on player destruction while mapping incoming enemy hits to weWereHit, module damage, nopen, and ricochet', () => {
     assert.equal(
       resolveVoiceCueForHit({
         isPlayerOwner: false,
@@ -125,7 +125,7 @@ describe('resolveVoiceCueForHit', () => {
         result: 'pen',
         destroyed: true,
       }),
-      'playerDeath',
+      null,
     );
     assert.equal(
       resolveVoiceCueForHit({
@@ -135,7 +135,7 @@ describe('resolveVoiceCueForHit', () => {
         result: 'fuel',
         destroyed: true,
       }),
-      'playerDeath',
+      null,
     );
     assert.equal(
       resolveVoiceCueForHit({
@@ -145,7 +145,7 @@ describe('resolveVoiceCueForHit', () => {
         result: 'pen',
         destroyed: true,
       }),
-      'playerDeath',
+      null,
     );
     assert.equal(
       resolveVoiceCueForHit({

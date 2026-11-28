@@ -79,7 +79,7 @@ export function resolveVoiceCueForHit(ctx: VoiceHitContext): VoiceCueId | null {
   if (ctx.isPlayerOwner && ctx.isPlayerTarget) return null;
 
   if (ctx.isPlayerTarget) {
-    if (ctx.destroyed) return 'playerDeath';
+    if (ctx.destroyed) return null;
     if (ctx.isMg) return null;
     switch (ctx.result) {
       case 'ricochet':

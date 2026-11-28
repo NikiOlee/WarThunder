@@ -13,7 +13,7 @@ import {
   type SupportedLanguage,
 } from './settings';
 import { audio } from './audio';
-import { getAllTanks, getSelectedTankId, getTankPowerRating, getTankSpec, setSelectedTankId } from './tanks';
+import { getAllTanks, getSelectedTankId, getTankPowerRating, getTankSpec, setSelectedTankId, type TankSpec } from './tanks';
 import { getSilver, isTankOwned, purchaseTank } from './economy';
 import { getAllModes, getModeDef } from './modes';
 import { isLondonMap, isModeOptionLocked } from './bombardment';
@@ -925,6 +925,211 @@ export function createUI(h: UIHandlers) {
     }
   }
 
+  type AbilityIconId =
+    | 'trophy_aps'
+    | 'suspension'
+    | 'unmanned_turret'
+    | 'galix_overdrive'
+    | 'dm63_apfsds'
+    | 'thermal_sight'
+    | 'kstam_missile'
+    | 'ap_barrage'
+    | 'afghanit_shield'
+    | 'trophy_reflect'
+    | 'amp_homing';
+
+  const ABILITY_SVGS: Record<AbilityIconId, string> = {
+    trophy_aps:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17a8 8 0 0 1 16 0"/><path d="M7.5 17a4.5 4.5 0 0 1 9 0"/><circle cx="12" cy="17" r="1.5" fill="currentColor"/><path d="M18.5 5.5 14 10"/><path d="m14 6.5 3.5 3.5"/></svg>',
+    suspension:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 18 18-5"/><path d="M6 12.5 17.5 9l1.5 2.5-11.5 3.5z"/><circle cx="7.5" cy="15.5" r="1.3"/><circle cx="12.5" cy="14" r="1.3"/><circle cx="17.5" cy="12.5" r="1.3"/></svg>',
+    unmanned_turret:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16l-1.5 3h-13z"/><path d="M7 17v-3.5l3-2.5h4l3 2.5V17"/><path d="M12 4v5"/><path d="m9.5 6.5 2.5 2.5 2.5-2.5"/></svg>',
+    galix_overdrive:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14a3.5 3.5 0 0 1 2.2-6.2A4.5 4.5 0 0 1 15.8 7 3.5 3.5 0 0 1 19 14H5z"/><path d="m7 19 3-2.5L7 14"/><path d="m13 19 3-2.5L13 14"/></svg>',
+    dm63_apfsds:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h15"/><path d="m15 9 6 3-6 3"/><path d="m4 9 3 3-3 3"/><path d="M13 5v14" stroke-dasharray="2 2"/></svg>',
+    thermal_sight:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+    kstam_missile:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17C5 8 11 4 15 4c3 0 5 3 5 9"/><path d="m17 11 3 3 3-3"/><rect x="13" y="17" width="8" height="3.5" rx="0.8"/></svg>',
+    ap_barrage:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10l3 2-3 2H4z"/><path d="M4 14h12l3 2-3 2H4z"/><path d="M19 5l2-1M20 12h2M19 19l2 1"/></svg>',
+    afghanit_shield:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2"/></svg>',
+    trophy_reflect:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.8 3 8.5 7 10 4-1.5 7-5.2 7-10V6z"/><path d="M8 13c1.5-2.5 4.5-2.5 7-1"/><path d="m13 9 2.5 2.8-3.2.8"/></svg>',
+    amp_homing:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.2 4.5 4.8.7-3.5 3.4.8 4.8L12 14.2 7.7 16.4l.8-4.8L5 8.2l4.8-.7z"/><circle cx="12" cy="19.5" r="1.5" fill="currentColor"/></svg>',
+  };
+
+  interface HangarAbilityCard {
+    icon: AbilityIconId;
+    title: string;
+    badge: string;
+    desc: string;
+    accent: 'amber' | 'cyan' | 'emerald';
+  }
+
+  function renderHangarAbilityGroup(label: string, cards: HangarAbilityCard[]): string {
+    return `
+      <div class="hangar-ab-group">
+        <div class="hangar-ab-group-lbl">${label}</div>
+        ${cards
+          .map(
+            (card) => `
+          <div class="hangar-ab-card accent-${card.accent}">
+            <div class="hangar-ab-icon">${ABILITY_SVGS[card.icon]}</div>
+            <div class="hangar-ab-body">
+              <div class="hangar-ab-top">
+                <span class="hangar-ab-name">${card.title}</span>
+                <span class="hangar-ab-badge">${card.badge}</span>
+              </div>
+              <div class="hangar-ab-desc">${card.desc}</div>
+            </div>
+          </div>`,
+          )
+          .join('')}
+      </div>
+    `;
+  }
+
+  function renderHangarAbilities(spec: TankSpec): void {
+    const container = $('hangarAbilities');
+    const passiveCards: HangarAbilityCard[] = [];
+    const activeCards: HangarAbilityCard[] = [];
+    const abKey = keyName(settings.keys.ability).toUpperCase();
+
+    if (spec.aps) {
+      passiveCards.push({
+        icon: 'trophy_aps',
+        title: t('hangarAbTrophyApsTitle'),
+        badge: t('hangarAbBadgePassive'),
+        desc: t('hangarAbTrophyApsDesc'),
+        accent: 'cyan',
+      });
+    }
+    if (spec.adaptiveSuspension) {
+      passiveCards.push({
+        icon: 'suspension',
+        title: t('hangarAbSuspensionTitle'),
+        badge: t('hangarAbBadgePassive'),
+        desc: t('hangarAbSuspensionDesc'),
+        accent: 'emerald',
+      });
+    }
+    if (spec.turretDamageMult !== undefined && spec.turretDamageMult < 1) {
+      passiveCards.push({
+        icon: 'unmanned_turret',
+        title: t('hangarAbUnmannedTurretTitle'),
+        badge: t('hangarAbBadgePassive'),
+        desc: t('hangarAbUnmannedTurretDesc', { pct: Math.round((1 - spec.turretDamageMult) * 100) }),
+        accent: 'cyan',
+      });
+    }
+
+    const pushActive = (ab: NonNullable<TankSpec['ability']>, isSecondary = false): void => {
+      const keyStr = isSecondary ? 'F' : abKey;
+      switch (ab.type) {
+        case 'galix_overdrive':
+          activeCards.push({
+            icon: 'galix_overdrive',
+            title: t('hangarAbGalixTitle'),
+            badge: t('hangarAbBadgeKeyCd', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbGalixDesc'),
+            accent: 'cyan',
+          });
+          break;
+        case 'dm63_apfsds':
+          activeCards.push({
+            icon: 'dm63_apfsds',
+            title: t('hangarAbDm63Title'),
+            badge: t('hangarAbBadgeKeyCd', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbDm63Desc'),
+            accent: 'amber',
+          });
+          break;
+        case 'thermal_sight':
+          activeCards.push({
+            icon: 'thermal_sight',
+            title: t('hangarAbThermalTitle'),
+            badge: t('hangarAbBadgeKeyCd', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbThermalDesc'),
+            accent: 'emerald',
+          });
+          break;
+        case 'kstam_missile':
+          activeCards.push({
+            icon: 'kstam_missile',
+            title: t('hangarAbKstamTitle'),
+            badge: t('hangarAbBadgeKstam', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbKstamDesc'),
+            accent: 'amber',
+          });
+          break;
+        case 'ap_barrage':
+          activeCards.push({
+            icon: 'ap_barrage',
+            title: t('hangarAbBarrageTitle'),
+            badge: t('hangarAbBadgeKeyCd', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbBarrageDesc'),
+            accent: 'amber',
+          });
+          break;
+        case 'afghanit_shield':
+          activeCards.push({
+            icon: 'afghanit_shield',
+            title: t('hangarAbAfghanitTitle'),
+            badge: t('hangarAbBadgeKeyCd', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbAfghanitDesc'),
+            accent: 'cyan',
+          });
+          break;
+        case 'trophy_reflect':
+          activeCards.push({
+            icon: 'trophy_reflect',
+            title: t('hangarAbTrophyReflectTitle'),
+            badge: t('hangarAbBadgeKeyCd', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbTrophyReflectDesc'),
+            accent: 'amber',
+          });
+          break;
+        case 'amp_homing':
+          activeCards.push({
+            icon: 'amp_homing',
+            title: t('hangarAbAmpTitle'),
+            badge: t('hangarAbBadgeKeyCd', { key: keyStr, cd: ab.cooldown }),
+            desc: t('hangarAbAmpDesc'),
+            accent: 'amber',
+          });
+          break;
+      }
+    };
+
+    if (spec.ability) pushActive(spec.ability, false);
+    if (spec.secondaryAbility) pushActive(spec.secondaryAbility, true);
+
+    if (passiveCards.length === 0 && activeCards.length === 0) {
+      container.classList.add('hidden');
+      container.innerHTML = '';
+      return;
+    }
+
+    const sections: string[] = [];
+    if (passiveCards.length > 0) {
+      sections.push(renderHangarAbilityGroup(t('hangarAbilitiesPassive'), passiveCards));
+    }
+    if (activeCards.length > 0) {
+      sections.push(renderHangarAbilityGroup(t('hangarAbilitiesActive'), activeCards));
+    }
+
+    container.innerHTML = `
+      <div class="hangar-abilities-title">${t('hangarAbilitiesTitle')}</div>
+      ${sections.join('')}
+    `;
+    container.classList.remove('hidden');
+  }
+
   function renderHangar(): void {
     const listEl = $('hangarList');
     const infoEl = $('hangarInfo');
@@ -1007,27 +1212,6 @@ export function createUI(h: UIHandlers) {
     const priceText =
       spec.priceSilver === 0 ? t('hstatPriceBase') : t('hstatPriceSilver', { n: spec.priceSilver });
 
-    const apsRow = spec.aps
-      ? `<div class="hstat hstat-aps"><span>${t('hstatAps')}</span><b>${t('hstatApsVal')}</b></div>`
-      : '';
-    const abilityKeyMap: Record<string, string> = {
-      galix_overdrive: 'hstatAbilityLeclerc',
-      dm63_apfsds: 'hstatAbilityLeopard',
-      thermal_sight: 'hstatAbilityAbrams',
-      kstam_missile: 'hstatAbilityK2',
-    };
-    const abilityRow = spec.ability
-      ? `<div class="hstat hstat-ability"><span>${t('hstatAbility')}</span><b>${t(
-          abilityKeyMap[spec.ability.type] ?? 'hstatAbilityLeopard',
-        )}</b></div>`
-      : '';
-    const ability2Row = spec.secondaryAbility
-      ? `<div class="hstat hstat-ability"><span>${t('hstatAbility2')}</span><b>${t('hstatAbilityAbramsBarrage')}</b></div>`
-      : '';
-    const passiveRow = spec.adaptiveSuspension
-      ? `<div class="hstat hstat-aps"><span>${t('hstatPassive')}</span><b>${t('hstatPassiveK2')}</b></div>`
-      : '';
-
     $('hangarStats').innerHTML = `
       <div class="hstat"><span>${t('hstatDamage')}</span><b>${t('unitDamage', { dmg: spec.gunDamage })}</b></div>
       <div class="hstat"><span>${t('hstatMaxSpeed')}</span><b>${t('unitSpeedKmh', { spd: spec.maxSpeedKmh })}</b></div>
@@ -1039,14 +1223,12 @@ export function createUI(h: UIHandlers) {
       <div class="hstat"><span>${t('hstatFrontArmor')}</span><b>${frontArmorLabel}</b></div>
       <div class="hstat"><span>${t('hstatFrontDmg')}</span><b>${frontDmgLabel}</b></div>
       <div class="hstat"><span>${t('hstatSideRearDmg')}</span><b>${sideRearDmgLabel}</b></div>
-      ${apsRow}
-      ${abilityRow}
-      ${ability2Row}
-      ${passiveRow}
       <div class="hstat hstat-warn"><span>${t('hstatWeakspot')}</span><b>${t('hstatWeakspotVal')}</b></div>
       <div class="hstat"><span>${t('hstatPowerRating')}</span><b>${t('unitPowerRating', { score: getTankPowerRating(spec) })}</b></div>
       <div class="hstat"><span>${t('hstatPrice')}</span><b>${priceText}</b></div>
     `;
+
+    renderHangarAbilities(spec);
 
     const statusEl = $('hangarEquipStatus');
     const selectBtn = $('bHangarSelect') as HTMLButtonElement;

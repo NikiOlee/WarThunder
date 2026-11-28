@@ -14,9 +14,9 @@ import {
 import { BARREL_HITBOX_BOUNDS, SKY_EASTER_MSG, isPointInBarrelZone, isShotIntoSky, resolveHit } from './damage';
 import { computeHullGroundPose, stepTurretAngles } from './tank';
 
-test('T-55 through M1A2 SEP (Abrams) specs are sorted cheapest/weakest to most expensive/strongest and match balanced prices', () => {
+test('All 16 catalog tanks are sorted by Hangar price and balanced tanks match combat power curve', () => {
   const tanks = getAllTanks();
-  assert.equal(tanks.length, 14);
+  assert.equal(tanks.length, 16);
   assert.equal(tanks[0].id, 't55');
   assert.equal(tanks[0].name, 'Т-55');
   assert.equal(tanks[1].id, 'm60a3');
@@ -35,36 +35,46 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted cheapest/weakest to most e
   assert.equal(tanks[7].name, 'Т-90М');
   assert.equal(tanks[8].id, 'challenger2');
   assert.equal(tanks[8].name, 'Challenger 2');
-  assert.equal(tanks[9].id, 'merkava4');
-  assert.equal(tanks[9].name, 'Merkava Mk.4');
-  assert.equal(tanks[10].id, 'leclerc');
-  assert.equal(tanks[10].name, 'AMX-56 Leclerc');
-  assert.equal(tanks[11].id, 'leopard2a7v');
-  assert.equal(tanks[11].name, 'Leopard 2A7V');
-  assert.equal(tanks[12].id, 'k2');
-  assert.equal(tanks[12].name, 'K2 Black Panther');
-  assert.equal(tanks[13].id, 'm1a2sep');
-  assert.equal(tanks[13].name, 'M1A2 SEP (Abrams)');
+  assert.equal(tanks[9].id, 't14armata');
+  assert.equal(tanks[9].name, 'Т-14 «Армата»');
+  assert.equal(tanks[10].id, 'merkava4');
+  assert.equal(tanks[10].name, 'Merkava Mk.4');
+  assert.equal(tanks[11].id, 'leclerc');
+  assert.equal(tanks[11].name, 'AMX-56 Leclerc');
+  assert.equal(tanks[12].id, 'leopard2a7v');
+  assert.equal(tanks[12].name, 'Leopard 2A7V');
+  assert.equal(tanks[13].id, 'k2');
+  assert.equal(tanks[13].name, 'K2 Black Panther');
+  assert.equal(tanks[14].id, 'm1a2sep');
+  assert.equal(tanks[14].name, 'M1A2 SEP (Abrams)');
+  assert.equal(tanks[15].id, 'm1a2sepv3');
+  assert.equal(tanks[15].name, 'M1A2 SEPv3 Abrams');
 
   assert.equal(tanks[0].priceSilver, 0);
-  assert.equal(tanks[1].priceSilver, MIN_PAID_TANK_PRICE);
-  assert.equal(tanks[tanks.length - 1].priceSilver, MAX_TANK_PRICE);
+  const balancedPaid = tanks.filter((t) => t.id !== 't55' && !t.fixedPrice);
+  assert.equal(balancedPaid[0].priceSilver, MIN_PAID_TANK_PRICE);
+  assert.equal(balancedPaid[balancedPaid.length - 1].priceSilver, MAX_TANK_PRICE);
 
-  const minPaidPower = getTankPowerRating(tanks[1]);
-  const maxPaidPower = getTankPowerRating(tanks[tanks.length - 1]);
   for (let i = 1; i < tanks.length; i++) {
     assert.ok(
       tanks[i - 1].priceSilver < tanks[i].priceSilver,
       `expected ${tanks[i - 1].id} (${tanks[i - 1].priceSilver}) < ${tanks[i].id} (${tanks[i].priceSilver}) in Hangar price order`,
     );
-    assert.ok(
-      getTankPowerRating(tanks[i - 1]) < getTankPowerRating(tanks[i]),
-      `expected ${tanks[i - 1].id} < ${tanks[i].id} in Hangar combat power order`,
-    );
+  }
+
+  const minPaidPower = getTankPowerRating(balancedPaid[0]);
+  const maxPaidPower = getTankPowerRating(balancedPaid[balancedPaid.length - 1]);
+  for (let i = 0; i < balancedPaid.length; i++) {
+    if (i > 0) {
+      assert.ok(
+        getTankPowerRating(balancedPaid[i - 1]) < getTankPowerRating(balancedPaid[i]),
+        `expected ${balancedPaid[i - 1].id} < ${balancedPaid[i].id} in balanced power order`,
+      );
+    }
     assert.equal(
-      tanks[i].priceSilver,
-      computeBalancedPrice(getTankPowerRating(tanks[i]), minPaidPower, maxPaidPower),
-      `${tanks[i].id} price must strictly match balanced combat power formula`,
+      balancedPaid[i].priceSilver,
+      computeBalancedPrice(getTankPowerRating(balancedPaid[i]), minPaidPower, maxPaidPower),
+      `${balancedPaid[i].id} price must strictly match balanced combat power formula`,
     );
   }
 
@@ -224,6 +234,30 @@ test('T-55 through M1A2 SEP (Abrams) specs are sorted cheapest/weakest to most e
   assert.equal(m1a2sep.ability?.type, 'thermal_sight');
   assert.equal(m1a2sep.secondaryAbility?.type, 'ap_barrage');
   assert.ok(m1a2sep.damage.fuel >= m1a2sep.maxHp);
+
+  const t14 = getTankSpec('t14armata');
+  assert.equal(t14.priceSilver, 27000);
+  assert.equal(t14.fixedPrice, true);
+  assert.equal(t14.gunDamage, 125);
+  assert.equal(t14.reload, 1.9);
+  assert.equal(t14.maxHp, 170);
+  assert.equal(t14.maxSpeedKmh, 110);
+  assert.equal(t14.turretDamageMult, 0.65);
+  assert.equal(t14.ability?.type, 'afghanit_shield');
+  assert.equal(t14.ability?.cooldown, 16);
+  assert.equal(t14.ability?.duration, 3);
+
+  const sepv3 = getTankSpec('m1a2sepv3');
+  assert.equal(sepv3.priceSilver, 390000);
+  assert.equal(sepv3.fixedPrice, true);
+  assert.equal(sepv3.gunDamage, 150);
+  assert.equal(sepv3.reload, 2.5);
+  assert.equal(sepv3.maxHp, 200);
+  assert.equal(sepv3.maxSpeedKmh, 91);
+  assert.ok(sepv3.maxSpeedKmh < m1a2sep.maxSpeedKmh);
+  assert.equal(sepv3.engineAudio, 'turbine');
+  assert.equal(sepv3.ability?.type, 'trophy_reflect');
+  assert.equal(sepv3.secondaryAbility?.type, 'amp_homing');
 });
 
 test('Damage depends on attacker gunDamage and target armor zone (Patton and T-62M)', () => {
@@ -441,6 +475,27 @@ test('Leopard 2A7V and AMX-56 Leclerc armor resolution & DM63 APFSDS ignoreArmor
   const dm63Hit = resolveHit('turret', { x: 0, y: 0, z: 1 }, grazeDir, dm63Shell, 1100, 'turret', leo7);
   assert.equal(dm63Hit.result, 'crit');
   assert.equal(dm63Hit.damage, 528);
+});
+
+test('T-14 Armata unmanned turret reduces turret hit damage by 35% while hull takes full damage', () => {
+  const t14 = getTankSpec('t14armata');
+  const sepv3 = getTankSpec('m1a2sepv3');
+  const heavyShell = { muzzleVelocity: sepv3.muzzleVelocity, penetrationMm: sepv3.penetrationMm, gunDamage: sepv3.gunDamage };
+
+  // Side hull hit takes full 150 gun damage, whereas side turret hit is reduced by ~35% (98)
+  const hullSide = resolveHit('hull', { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, heavyShell, 920, 'hull', t14);
+  const turretSide = resolveHit('turret', { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, heavyShell, 920, 'turret', t14);
+  assert.equal(hullSide.result, 'pen');
+  assert.equal(hullSide.damage, 150);
+  assert.equal(turretSide.result, 'pen');
+  assert.equal(turretSide.damage, Math.round(150 * 0.65));
+
+  // Frontal turret vs frontal hull
+  const hullFront = resolveHit('hull', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, heavyShell, 930, 'hull', t14);
+  const turretFront = resolveHit('turret', { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, heavyShell, 930, 'turret', t14);
+  assert.equal(hullFront.result, 'pen');
+  assert.equal(turretFront.result, 'pen');
+  assert.ok(turretFront.damage < hullFront.damage);
 });
 
 test('Frontal 200mm sloped armor on T-55 deals 50 damage vs T-55 gun and resists angled/long-range shots', () => {

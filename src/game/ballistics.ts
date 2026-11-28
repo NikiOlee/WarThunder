@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { BARREL_HITBOX_BOUNDS, resolveHit, resolveMgHit, type HitPart, type HitResolution } from './damage';
-import { computeKstamSplashDamage } from './abilities';
+import {
+  computeAmpSplashDamage,
+  computeKstamSplashDamage,
+  findNearestEnemyIndex,
+  isAfghanitActive,
+  isTrophyReflectActive,
+} from './abilities';
 import { canInterceptProjectile, triggerApsIntercept } from './aps';
 import { audio } from './audio';
 import { BOSS_BASE_DAMAGE } from './tanks';
@@ -356,6 +362,22 @@ const M1A2SEP_HULL_BOXES: HitBox[] = [
   { part: 'fuel', min: new THREE.Vector3(-1.78, 0.94, -3.76), max: new THREE.Vector3(-0.96, 1.62, -1.52) },
   { part: 'fuel', min: new THREE.Vector3(-1.38, 0.94, -3.84), max: new THREE.Vector3(1.38, 1.62, -3.08) },
 ];
+const M1A2SEPV3_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.58, 0.05, -3.78), max: new THREE.Vector3(1.58, 1.72, 3.86) },
+  { part: 'trackL', min: new THREE.Vector3(1.58, 0.03, -3.82), max: new THREE.Vector3(2.38, 1.14, 3.84) },
+  { part: 'trackR', min: new THREE.Vector3(-2.38, 0.03, -3.82), max: new THREE.Vector3(-1.58, 1.14, 3.84) },
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.94, -3.76), max: new THREE.Vector3(1.8, 1.64, -1.52) },
+  { part: 'fuel', min: new THREE.Vector3(-1.8, 0.94, -3.76), max: new THREE.Vector3(-0.96, 1.64, -1.52) },
+  { part: 'fuel', min: new THREE.Vector3(-1.38, 0.94, -3.84), max: new THREE.Vector3(1.38, 1.64, -3.08) },
+];
+const T14_HULL_BOXES: HitBox[] = [
+  { part: 'hull', min: new THREE.Vector3(-1.54, 0.05, -4.1), max: new THREE.Vector3(1.54, 1.68, 4.16) },
+  { part: 'trackL', min: new THREE.Vector3(1.56, 0.03, -4.16), max: new THREE.Vector3(2.26, 1.14, 4.18) },
+  { part: 'trackR', min: new THREE.Vector3(-2.26, 0.03, -4.16), max: new THREE.Vector3(-1.56, 1.14, 4.18) },
+  { part: 'fuel', min: new THREE.Vector3(0.96, 0.94, -3.96), max: new THREE.Vector3(1.84, 1.64, -1.7) },
+  { part: 'fuel', min: new THREE.Vector3(-1.84, 0.94, -3.96), max: new THREE.Vector3(-0.96, 1.64, -1.7) },
+  { part: 'fuel', min: new THREE.Vector3(-1.35, 0.96, -4.24), max: new THREE.Vector3(1.35, 1.66, -3.25) },
+];
 const MAUS_HULL_BOXES: HitBox[] = [
   { part: 'hull', min: new THREE.Vector3(-1.88, 0.05, -4.62), max: new THREE.Vector3(1.88, 2.26, 4.58) },
   { part: 'trackL', min: new THREE.Vector3(1.18, 0.03, -4.35), max: new THREE.Vector3(1.88, 0.92, 4.15) },
@@ -376,6 +398,8 @@ const LECLERC_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.5
 const LEOPARD2A7V_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.66, 0.0, -2.9), max: new THREE.Vector3(1.66, 1.1, 2.38) };
 const K2_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.85), max: new THREE.Vector3(1.58, 0.98, 1.82) };
 const M1A2SEP_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.64, 0.0, -2.92), max: new THREE.Vector3(1.64, 1.14, 1.94) };
+const M1A2SEPV3_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.74, 0.0, -2.96), max: new THREE.Vector3(1.74, 1.16, 2.02) };
+const T14_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.2, 0.0, -2.68), max: new THREE.Vector3(1.2, 1.02, 1.68) };
 const MAUS_TURRET_BOX: HitBox = { part: 'turret', min: new THREE.Vector3(-1.58, 0.0, -2.72), max: new THREE.Vector3(1.58, 1.44, 1.98) };
 
 function getHullBoxesForTank(id: string): HitBox[] {
@@ -408,6 +432,10 @@ function getHullBoxesForTank(id: string): HitBox[] {
       return K2_HULL_BOXES;
     case 'm1a2sep':
       return M1A2SEP_HULL_BOXES;
+    case 'm1a2sepv3':
+      return M1A2SEPV3_HULL_BOXES;
+    case 't14armata':
+      return T14_HULL_BOXES;
     default:
       return HULL_BOXES;
   }
@@ -443,6 +471,10 @@ function getTurretBoxForTank(id: string): HitBox {
       return K2_TURRET_BOX;
     case 'm1a2sep':
       return M1A2SEP_TURRET_BOX;
+    case 'm1a2sepv3':
+      return M1A2SEPV3_TURRET_BOX;
+    case 't14armata':
+      return T14_TURRET_BOX;
     default:
       return TURRET_BOX;
   }
@@ -532,6 +564,13 @@ export interface ApsInterceptEvent {
   cooldown: number;
 }
 
+export interface ShieldInterceptEvent {
+  kind: 'afghanit' | 'trophy_reflect';
+  target: Tank;
+  owner: Tank | null;
+  point: THREE.Vector3;
+}
+
 export interface ImpactEvent {
   point: THREE.Vector3;
   normal: THREE.Vector3;
@@ -557,7 +596,7 @@ export interface ImpactEvent {
 export interface MissEvent {
   owner: Tank | null;
   point: THREE.Vector3;
-  kind: 'ground' | 'obstacle' | 'range' | 'kstam';
+  kind: 'ground' | 'obstacle' | 'range' | 'kstam' | 'amp';
   isMg: boolean;
   hadTankImpact: boolean;
   suppressMissVoice: boolean;
@@ -573,6 +612,16 @@ interface Projectile {
   snapped?: boolean;
   hadTankImpact?: boolean;
   suppressMissVoice?: boolean;
+  reflected?: boolean;
+  reflectCarry?: {
+    target: Tank;
+    part: HitPart;
+    zone: string;
+    ln: THREE.Vector3;
+    ld: THREE.Vector3;
+    lp: THREE.Vector3;
+    ldRoot: THREE.Vector3;
+  };
   group: THREE.Group;
   trail: THREE.Line;
   trailPos: Float32Array;
@@ -599,6 +648,13 @@ interface Projectile {
     splashRadius: number;
     maxSplashDmg: number;
   };
+  amp?: {
+    target: Tank | null;
+    elapsed: number;
+    splashRadius: number;
+    splashDamage: number;
+    directDamage: number;
+  };
 }
 
 interface ShockwaveRing {
@@ -615,6 +671,7 @@ export class BallisticsSystem {
   listeners: Array<(e: ImpactEvent) => void> = [];
   tankListeners: Array<(e: TankHitEvent) => void> = [];
   apsListeners: Array<(e: ApsInterceptEvent) => void> = [];
+  shieldListeners: Array<(e: ShieldInterceptEvent) => void> = [];
   missListeners: Array<(e: MissEvent) => void> = [];
   targets: Tank[] = [];
 
@@ -686,11 +743,208 @@ export class BallisticsSystem {
   onApsIntercept(fn: (e: ApsInterceptEvent) => void): void {
     this.apsListeners.push(fn);
   }
+  onShieldIntercept(fn: (e: ShieldInterceptEvent) => void): void {
+    this.shieldListeners.push(fn);
+  }
   onMiss(fn: (e: MissEvent) => void): void {
     this.missListeners.push(fn);
   }
   addTarget(tank: Tank): void {
     this.targets.push(tank);
+  }
+
+  private _emitAfghanitInterceptFx(pt: THREE.Vector3): void {
+    const fx = this.fx;
+    // Powerful Afghanit counter-munition airburst flash & percussive smoke puff
+    fx.emit({ additive: true, x: pt.x, y: pt.y, z: pt.z, life: 0.24, s0: 5.5, s1: 13.5, r: 0.55, g: 0.96, b: 1, a: 1 });
+    fx.emit({ additive: true, x: pt.x, y: pt.y, z: pt.z, life: 0.16, s0: 3.6, s1: 8.5, r: 1, g: 0.72, b: 0.28, a: 1 });
+    for (let i = 0; i < 20; i++) {
+      const cyan = i % 2 === 0;
+      fx.emit({
+        additive: true,
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        vx: rnd(-20, 20),
+        vy: rnd(-4, 18),
+        vz: rnd(-20, 20),
+        life: rnd(0.28, 0.65),
+        s0: 0.48,
+        s1: 0.14,
+        r: cyan ? 0.35 : 1,
+        g: cyan ? 0.94 : 0.72,
+        b: cyan ? 1 : 0.22,
+        a: 1,
+        grav: -16,
+      });
+    }
+    for (let i = 0; i < 8; i++) {
+      fx.emit({
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        vx: rnd(-5, 5),
+        vy: rnd(1, 6),
+        vz: rnd(-5, 5),
+        life: rnd(0.6, 1.25),
+        s0: 1.0,
+        s1: 3.4,
+        r: 0.78,
+        g: 0.82,
+        b: 0.88,
+        a: 0.5,
+        drag: 1.5,
+      });
+    }
+    this.light.position.copy(pt);
+    this.lightT = 1.05;
+  }
+
+  private _emitTrophyReflectFx(pt: THREE.Vector3): void {
+    const fx = this.fx;
+    fx.emit({ additive: true, x: pt.x, y: pt.y, z: pt.z, life: 0.22, s0: 4.8, s1: 11.5, r: 1, g: 0.85, b: 0.35, a: 1 });
+    fx.emit({ additive: true, x: pt.x, y: pt.y, z: pt.z, life: 0.16, s0: 3.2, s1: 7.2, r: 0.65, g: 0.94, b: 1, a: 0.95 });
+    for (let i = 0; i < 16; i++) {
+      fx.emit({
+        additive: true,
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        vx: rnd(-16, 16),
+        vy: rnd(0, 14),
+        vz: rnd(-16, 16),
+        life: rnd(0.26, 0.58),
+        s0: 0.44,
+        s1: 0.12,
+        r: 1,
+        g: rnd(0.75, 0.95),
+        b: 0.32,
+        a: 1,
+        grav: -14,
+      });
+    }
+    this.light.position.copy(pt);
+    this.lightT = 0.95;
+  }
+
+  private _checkAfghanitIntercept(
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    owner: Tank | null,
+    worldDistSq = Infinity,
+  ): boolean {
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const abz = b.z - a.z;
+    const lenSq = abx * abx + aby * aby + abz * abz;
+    const shieldR = 6.8;
+    const shieldRSq = shieldR * shieldR;
+
+    for (const t of this.targets) {
+      if (!t.alive || t === owner || (owner && t.team === owner.team)) continue;
+      if (!isAfghanitActive(t.abilityState, t.spec.ability)) continue;
+
+      const cx = t.root.position.x;
+      const cy = t.root.position.y + 1.35;
+      const cz = t.root.position.z;
+
+      let u = 0;
+      if (lenSq > 1e-8) {
+        u = ((cx - a.x) * abx + (cy - a.y) * aby + (cz - a.z) * abz) / lenSq;
+        if (u < 0) u = 0;
+        else if (u > 1) u = 1;
+      }
+      const ix = a.x + abx * u;
+      const iy = a.y + aby * u;
+      const iz = a.z + abz * u;
+      const dxC = ix - cx;
+      const dyC = iy - cy;
+      const dzC = iz - cz;
+      if (dxC * dxC + dyC * dyC + dzC * dzC > shieldRSq) continue;
+
+      const dxA = ix - a.x;
+      const dyA = iy - a.y;
+      const dzA = iz - a.z;
+      if (dxA * dxA + dyA * dyA + dzA * dzA > worldDistSq + 1e-4) continue;
+
+      const ipt = new THREE.Vector3(ix, iy, iz);
+      this._emitAfghanitInterceptFx(ipt);
+      audio.play('afghanit', ipt, 1.0, t.isPlayer);
+      for (const fn of this.shieldListeners) {
+        fn({ kind: 'afghanit', target: t, owner, point: ipt });
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private _spawnReflectedProjectile(
+    p: Projectile,
+    hit: NonNullable<ReturnType<BallisticsSystem['_targetHit']>>,
+  ): void {
+    const shooter = p.owner;
+    if (!shooter || !shooter.alive) return;
+    const targetPt = new THREE.Vector3(shooter.root.position.x, shooter.root.position.y + 1.25, shooter.root.position.z);
+    const startPt = hit.point.clone().addScaledVector(hit.normal, 0.35);
+    const dir = targetPt.sub(startPt).normalize();
+    const speed = Math.max(540, p.vel.length() * 0.9);
+
+    const group = new THREE.Group();
+    const streak = new THREE.Mesh(this.streakGeo, this.streakMat);
+    streak.scale.set(1.3, 1.3, 12.5);
+    const core = new THREE.Mesh(this.coreGeo, this.coreMat);
+    core.scale.setScalar(1.2);
+    group.add(streak, core);
+
+    const tp = new Float32Array(TRAIL_N * 3);
+    const tc = new Float32Array(TRAIL_N * 3);
+    for (let i = 0; i < TRAIL_N; i++) {
+      const f = Math.pow(1 - i / (TRAIL_N - 1), 1.4) * 1.4;
+      tc[i * 3] = f * 1.0;
+      tc[i * 3 + 1] = f * 0.88;
+      tc[i * 3 + 2] = f * 0.35;
+      tp[i * 3] = startPt.x;
+      tp[i * 3 + 1] = startPt.y;
+      tp[i * 3 + 2] = startPt.z;
+    }
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(tp, 3).setUsage(THREE.DynamicDrawUsage));
+    tg.setAttribute('color', new THREE.BufferAttribute(tc, 3));
+    const trail = new THREE.Line(
+      tg,
+      new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false }),
+    );
+    trail.frustumCulled = false;
+    group.position.copy(startPt);
+    this.scene.add(group, trail);
+
+    this.projectiles.push({
+      pos: startPt.clone(),
+      prev: startPt.clone(),
+      vel: dir.multiplyScalar(speed),
+      age: 0,
+      dist: 0,
+      acc: 0,
+      reflected: true,
+      suppressMissVoice: true,
+      reflectCarry: {
+        target: shooter,
+        part: hit.part,
+        zone: hit.zone,
+        ln: hit.ln.clone(),
+        ld: hit.ld.clone(),
+        lp: hit.lp.clone(),
+        ldRoot: hit.ldRoot.clone(),
+      },
+      group,
+      trail,
+      trailPos: tp,
+      shell: {
+        ...p.shell,
+        maxRange: Math.max(p.shell.maxRange, 1800),
+      },
+      owner: hit.tank,
+    });
   }
 
   private _emitApsInterceptFx(pt: THREE.Vector3): void {
@@ -1412,6 +1666,231 @@ export class BallisticsSystem {
     }
   }
 
+  fireAmp({
+    pos,
+    dir,
+    target,
+    damage = 150,
+    splashDamage = 40,
+    splashRadius = 5,
+    owner = null,
+  }: {
+    pos: THREE.Vector3;
+    dir: THREE.Vector3;
+    target: Tank | null;
+    damage?: number;
+    splashDamage?: number;
+    splashRadius?: number;
+    owner?: Tank | null;
+  }): void {
+    const group = new THREE.Group();
+    const streak = new THREE.Mesh(this.streakGeo, this.streakMat);
+    streak.scale.set(1.25, 1.25, 10.5);
+    const core = new THREE.Mesh(this.coreGeo, this.coreMat);
+    core.scale.setScalar(1.3);
+    group.add(streak, core);
+
+    const tp = new Float32Array(TRAIL_N * 3);
+    const tc = new Float32Array(TRAIL_N * 3);
+    for (let i = 0; i < TRAIL_N; i++) {
+      const f = Math.pow(1 - i / (TRAIL_N - 1), 1.4) * 1.45;
+      tc[i * 3] = f * 1.0;
+      tc[i * 3 + 1] = f * 0.62;
+      tc[i * 3 + 2] = f * 0.18;
+      tp[i * 3] = pos.x;
+      tp[i * 3 + 1] = pos.y;
+      tp[i * 3 + 2] = pos.z;
+    }
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(tp, 3).setUsage(THREE.DynamicDrawUsage));
+    tg.setAttribute('color', new THREE.BufferAttribute(tc, 3));
+    const trail = new THREE.Line(
+      tg,
+      new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false }),
+    );
+    trail.frustumCulled = false;
+    group.position.copy(pos);
+    this.scene.add(group, trail);
+
+    const launchDir = this._v.copy(dir).normalize();
+    launchDir.y = Math.max(0.18, launchDir.y + 0.12);
+    launchDir.normalize();
+
+    this.projectiles.push({
+      pos: pos.clone(),
+      prev: pos.clone(),
+      vel: launchDir.clone().multiplyScalar(135),
+      age: 0,
+      dist: 0,
+      acc: 0,
+      group,
+      trail,
+      trailPos: tp,
+      shell: {
+        type: 'AMP',
+        caliber: 0.12,
+        muzzleVelocity: 135,
+        penetrationMm: 9999,
+        maxRange: 2500,
+        gunDamage: damage,
+        ignoreArmor: true,
+        fixedDamage: damage,
+        ignoreAps: true,
+      },
+      owner,
+      amp: {
+        target,
+        elapsed: 0,
+        splashRadius,
+        splashDamage,
+        directDamage: damage,
+      },
+    });
+
+    this._muzzleFlash(pos, launchDir);
+    audio.play('cannon', pos, 0.85, !!(owner && owner.isPlayer));
+    audio.play('ampLaunch', pos, 1.0, !!(owner && owner.isPlayer));
+  }
+
+  private _detonateAmp(p: Projectile, pt: THREE.Vector3, directHitTank: Tank | null): void {
+    const fx = this.fx;
+    const owner = p.owner;
+    const amp = p.amp!;
+    this._spawnShockwave(pt);
+    fx.emit({ additive: true, x: pt.x, y: pt.y + 0.5, z: pt.z, life: 0.45, s0: 5.5, s1: 16, r: 1, g: 0.65, b: 0.22, a: 1 });
+    for (let i = 0; i < 20; i++) {
+      fx.emit({
+        additive: true,
+        x: pt.x,
+        y: pt.y + 0.4,
+        z: pt.z,
+        vx: rnd(-16, 16),
+        vy: rnd(2, 18),
+        vz: rnd(-16, 16),
+        life: rnd(0.35, 0.85),
+        s0: 1.8,
+        s1: 0.5,
+        r: 1,
+        g: rnd(0.45, 0.82),
+        b: 0.14,
+        a: 1,
+        drag: 1.3,
+        grav: -14,
+      });
+    }
+    for (let i = 0; i < 10; i++) {
+      fx.emit({
+        x: pt.x + rnd(-1.2, 1.2),
+        y: pt.y + 0.6,
+        z: pt.z + rnd(-1.2, 1.2),
+        vx: rnd(-5, 5),
+        vy: rnd(2, 8),
+        vz: rnd(-5, 5),
+        life: rnd(1.4, 2.6),
+        s0: 2.2,
+        s1: 6.5,
+        r: 0.3,
+        g: 0.27,
+        b: 0.24,
+        a: 0.7,
+        drag: 1.1,
+        grav: 0.4,
+      });
+    }
+    audio.play('ampHit', pt, 1.1, !!(owner && owner.isPlayer));
+    this.light.position.set(pt.x, pt.y + 2.0, pt.z);
+    this.lightT = 1.5;
+
+    let primaryTank = directHitTank;
+    if (!primaryTank) {
+      let bestD = 2.6;
+      for (const t of this.targets) {
+        if (!t.alive) continue;
+        const isAllyOrSelf = t === owner || !!(owner && t.team === owner.team);
+        if (isAllyOrSelf) continue;
+        const d = t.root.position.distanceTo(pt);
+        if (d <= bestD) {
+          bestD = d;
+          primaryTank = t;
+        }
+      }
+    }
+
+    let hitAnyTank = false;
+    const lp = new THREE.Vector3(0, 1.1, 0);
+    const ld = new THREE.Vector3(0, -1, 0);
+
+    const applyAmpDmg = (t: Tank, dmg: number, resultKind: 'crit' | 'pen') => {
+      if (dmg <= 0 || t.god || !t.alive) return;
+      hitAnyTank = true;
+      t.hp -= dmg;
+      let destroyed = false;
+      if (t.hp <= 0 && t.alive) {
+        destroyed = true;
+        t.destroy(resultKind === 'crit');
+        audio.play('bigexplosion', t.root.position);
+      }
+      if (owner && owner.isPlayer) audio.ui('tick');
+      for (const fn of this.tankListeners) {
+        fn({
+          target: t,
+          owner,
+          result: resultKind,
+          damage: dmg,
+          destroyed,
+          isMg: false,
+          point: pt.clone(),
+          zone: 'hull',
+          part: 'hull',
+          side: 'L',
+          lp,
+          ld,
+          detail: {
+            result: resultKind,
+            damage: dmg,
+            base: 25,
+            effective: 25,
+            pen: 9999,
+            angleDeg: 0,
+            side: 'L',
+            zone: 'hull',
+          },
+        });
+      }
+    };
+
+    if (primaryTank && primaryTank.alive) {
+      const isAllyOrSelf = primaryTank === owner || !!(owner && primaryTank.team === owner.team);
+      if (!isAllyOrSelf) {
+        applyAmpDmg(primaryTank, amp.directDamage, 'crit');
+      }
+    }
+
+    // Enemy-only flat splash within 5m
+    for (const t of this.targets) {
+      if (!t.alive || t === primaryTank) continue;
+      const isAllyOrSelf = t === owner || !!(owner && t.team === owner.team);
+      if (isAllyOrSelf) continue;
+      const dist = t.root.position.distanceTo(pt);
+      const splashDmg = computeAmpSplashDamage(dist, amp.splashRadius, amp.splashDamage, isAllyOrSelf);
+      if (splashDmg > 0) {
+        applyAmpDmg(t, splashDmg, 'pen');
+      }
+    }
+
+    if (!hitAnyTank) {
+      const missEv: MissEvent = {
+        owner,
+        point: pt.clone(),
+        kind: 'amp',
+        isMg: false,
+        hadTankImpact: !!p.hadTankImpact,
+        suppressMissVoice: !!p.suppressMissVoice,
+      };
+      for (const fn of this.missListeners) fn(missEv);
+    }
+  }
+
   private _mgMuzzleFlash(p: THREE.Vector3, d: THREE.Vector3): void {
     const fx = this.fx;
     fx.emit({ additive: true, x: p.x, y: p.y, z: p.z, life: 0.045, s0: 1.05, s1: 0.35, r: 1, g: 0.9, b: 0.55, a: 0.95 });
@@ -1731,8 +2210,23 @@ export class BallisticsSystem {
           drag: 1.8,
         });
 
+        if (this._checkAfghanitIntercept(p.prev, p.pos, p.owner)) {
+          this._remove(i);
+          continue;
+        }
+
         const th = this._targetHit(p, p.prev, p.pos);
         if (th && th.kind === 'tank') {
+          if (isTrophyReflectActive(th.tank.abilityState, th.tank.spec.ability)) {
+            this._emitTrophyReflectFx(th.point);
+            audio.play('trophyReflect', th.point, 1.0, th.tank.isPlayer);
+            for (const fn of this.shieldListeners) {
+              fn({ kind: 'trophy_reflect', target: th.tank, owner: p.owner, point: th.point });
+            }
+            this._spawnReflectedProjectile(p, th);
+            this._remove(i);
+            continue;
+          }
           this._tankImpact(p, th);
           this._detonateKstam(p, th.point, th.tank);
           this._remove(i);
@@ -1763,26 +2257,191 @@ export class BallisticsSystem {
         continue;
       }
 
+      if (p.amp) {
+        const amp = p.amp;
+        p.prev.copy(p.pos);
+        amp.elapsed += dt;
+        p.age += dt;
+        if (!amp.target || !amp.target.alive) {
+          const ownerTeam = p.owner?.team ?? 'A';
+          const idx = findNearestEnemyIndex(
+            p.pos.x,
+            p.pos.z,
+            ownerTeam,
+            this.targets.map((t) => ({ alive: t.alive, team: t.team, x: t.root.position.x, z: t.root.position.z })),
+          );
+          amp.target = idx >= 0 ? this.targets[idx] : null;
+        }
+        if (amp.target && amp.target.alive) {
+          const destX = amp.target.root.position.x;
+          const destY = amp.target.root.position.y + 1.25;
+          const destZ = amp.target.root.position.z;
+          const dx = destX - p.pos.x;
+          const dy = destY - p.pos.y;
+          const dz = destZ - p.pos.z;
+          const dist = Math.hypot(dx, dy, dz);
+          if (dist > 0.01) {
+            const steer = amp.elapsed < 0.16 ? 7.5 : 16;
+            const blend = 1 - Math.exp(-steer * dt);
+            const curDir = this._v.copy(p.vel).normalize();
+            const tgtDir = this._v2.set(dx / dist, dy / dist, dz / dist);
+            curDir.lerp(tgtDir, blend).normalize();
+            p.vel.copy(curDir).multiplyScalar(135);
+          }
+        }
+        p.pos.addScaledVector(p.vel, dt);
+        this.fx.emit({
+          additive: true,
+          x: p.pos.x,
+          y: p.pos.y,
+          z: p.pos.z,
+          life: 0.24,
+          s0: 0.85,
+          s1: 0.2,
+          r: 1,
+          g: 0.7,
+          b: 0.25,
+          a: 0.75,
+        });
+
+        if (this._checkAfghanitIntercept(p.prev, p.pos, p.owner)) {
+          this._remove(i);
+          continue;
+        }
+
+        const th = this._targetHit(p, p.prev, p.pos);
+        if (th && th.kind === 'tank') {
+          if (isTrophyReflectActive(th.tank.abilityState, th.tank.spec.ability)) {
+            this._emitTrophyReflectFx(th.point);
+            audio.play('trophyReflect', th.point, 1.0, th.tank.isPlayer);
+            for (const fn of this.shieldListeners) {
+              fn({ kind: 'trophy_reflect', target: th.tank, owner: p.owner, point: th.point });
+            }
+            this._spawnReflectedProjectile(p, th);
+            this._remove(i);
+            continue;
+          }
+          this._detonateAmp(p, th.point, th.tank);
+          this._remove(i);
+          continue;
+        }
+        if (amp.target && amp.target.alive) {
+          const distToTarget = Math.hypot(
+            amp.target.root.position.x - p.pos.x,
+            amp.target.root.position.y + 1.25 - p.pos.y,
+            amp.target.root.position.z - p.pos.z,
+          );
+          if (distToTarget <= 2.4) {
+            if (isTrophyReflectActive(amp.target.abilityState, amp.target.spec.ability)) {
+              const pt = p.pos.clone();
+              this._emitTrophyReflectFx(pt);
+              audio.play('trophyReflect', pt, 1.0, amp.target.isPlayer);
+              for (const fn of this.shieldListeners) {
+                fn({ kind: 'trophy_reflect', target: amp.target, owner: p.owner, point: pt });
+              }
+              this._remove(i);
+              continue;
+            }
+            this._detonateAmp(p, p.pos.clone(), amp.target);
+            this._remove(i);
+            continue;
+          }
+        }
+        const wh = this.world.segmentHit(p.prev, p.pos);
+        if (wh) {
+          this._detonateAmp(p, wh.point, null);
+          this._remove(i);
+          continue;
+        }
+        if (amp.elapsed >= 7) {
+          this._detonateAmp(p, p.pos.clone(), null);
+          this._remove(i);
+          continue;
+        }
+        p.group.position.copy(p.pos);
+        p.group.lookAt(p.pos.x + p.vel.x, p.pos.y + p.vel.y, p.pos.z + p.vel.z);
+        p.group.children[0].scale.z = 10.5;
+        const tp = p.trailPos;
+        tp.copyWithin(3, 0, (TRAIL_N - 1) * 3);
+        tp[0] = p.pos.x;
+        tp[1] = p.pos.y;
+        tp[2] = p.pos.z;
+        p.trail.geometry.attributes.position.needsUpdate = true;
+        continue;
+      }
+
       let hit: ReturnType<BallisticsSystem['_targetHit']> | ReturnType<GameWorld['segmentHit']> | null = null;
       let expiredByRange = false;
       let apsIntercepted = false;
+      let reflectedConsumed = false;
       const maxRange = p.shell.maxRange || DEFAULT_MAX_RANGE;
 
       p.acc = (p.acc || 0) + dt;
-      while (p.acc >= SUBSTEP && !hit && !expiredByRange && !apsIntercepted) {
+      while (p.acc >= SUBSTEP && !hit && !expiredByRange && !apsIntercepted && !reflectedConsumed) {
         const h = SUBSTEP;
         p.acc -= h;
         p.prev.copy(p.pos);
-        const sp = p.vel.length();
-        p.vel.multiplyScalar(Math.max(0, 1 - DRAG_K * sp * h));
-        p.vel.y -= G * h;
+        if (p.reflectCarry && p.reflectCarry.target.alive) {
+          const sp = Math.max(520, p.vel.length());
+          const tx = p.reflectCarry.target.root.position.x - p.pos.x;
+          const ty = p.reflectCarry.target.root.position.y + 1.25 - p.pos.y;
+          const tz = p.reflectCarry.target.root.position.z - p.pos.z;
+          const len = Math.hypot(tx, ty, tz);
+          if (len > 1e-4) {
+            p.vel.set((tx / len) * sp, (ty / len) * sp, (tz / len) * sp);
+          }
+        } else {
+          const sp = p.vel.length();
+          p.vel.multiplyScalar(Math.max(0, 1 - DRAG_K * sp * h));
+          p.vel.y -= G * h;
+        }
+        const stepSpeed = p.vel.length();
         p.pos.addScaledVector(p.vel, h);
         p.age += h;
-        p.dist += sp * h;
+        p.dist += stepSpeed * h;
 
-        const worldHit = this.world.segmentHit(p.prev, p.pos);
+        const worldHit = p.reflectCarry ? null : this.world.segmentHit(p.prev, p.pos);
         const worldDistSq = worldHit ? p.prev.distanceToSquared(worldHit.point) : Infinity;
 
+        // 1. Т-14 «Армата» Active Afghanit Shield intercepts ALL enemy non-MG rounds/missiles (including DM63 & reflected bolts)
+        if (p.shell.type !== 'MG' && this._checkAfghanitIntercept(p.prev, p.pos, p.owner, worldDistSq)) {
+          apsIntercepted = true;
+          break;
+        }
+
+        // 2. If this projectile is a Trophy-reflected bolt returning to original shooter, deliver preserved part hit on arrival
+        if (p.reflectCarry) {
+          const rc = p.reflectCarry;
+          if (!rc.target.alive) {
+            expiredByRange = true;
+            break;
+          }
+          const dx = rc.target.root.position.x - p.pos.x;
+          const dy = rc.target.root.position.y + 1.25 - p.pos.y;
+          const dz = rc.target.root.position.z - p.pos.z;
+          if (dx * dx + dy * dy + dz * dz <= 3.1 * 3.1) {
+            const point = p.pos.clone();
+            const q = rc.target.root.getWorldQuaternion(this._q2);
+            const wn = rc.ln.clone().applyQuaternion(q);
+            hit = {
+              kind: 'tank' as const,
+              t: 0,
+              point,
+              normal: wn,
+              ln: rc.ln.clone(),
+              ld: rc.ld.clone(),
+              part: rc.part,
+              zone: rc.zone,
+              lp: rc.lp.clone(),
+              ldRoot: rc.ldRoot.clone(),
+              tank: rc.target,
+            };
+            break;
+          }
+          continue;
+        }
+
+        // 3. Merkava Mk.4 Passive Trophy APS
         if (p.shell.type !== 'MG' && !p.shell.ignoreAps) {
           for (const t of this.targets) {
             if (!t.spec.aps || !t.apsState) continue;
@@ -1829,19 +2488,31 @@ export class BallisticsSystem {
         const th = this._targetHit(p, p.prev, p.pos);
         if (th && (!hit || th.t < hit.t)) hit = th;
 
+        if (hit && hit.kind === 'tank' && p.shell.type !== 'MG' && !p.reflected && isTrophyReflectActive(hit.tank.abilityState, hit.tank.spec.ability)) {
+          this._emitTrophyReflectFx(hit.point);
+          audio.play('trophyReflect', hit.point, 1.0, hit.tank.isPlayer);
+          for (const fn of this.shieldListeners) {
+            fn({ kind: 'trophy_reflect', target: hit.tank, owner: p.owner, point: hit.point });
+          }
+          this._spawnReflectedProjectile(p, hit);
+          hit = null;
+          reflectedConsumed = true;
+          break;
+        }
+
         if (!hit && p.dist >= maxRange) {
           expiredByRange = true;
         }
       }
 
-      if (apsIntercepted) {
+      if (apsIntercepted || reflectedConsumed) {
         this._remove(i);
         continue;
       }
 
       if (hit && hit.kind === 'tank') {
         const res = this._tankImpact(p, hit);
-        if (res === 'ricochet') {
+        if (res === 'ricochet' && !p.reflectCarry) {
           const n = hit.normal;
           const d = p.vel.dot(n);
           p.vel.addScaledVector(n, -2 * d).multiplyScalar(0.5);

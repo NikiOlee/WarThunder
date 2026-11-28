@@ -403,6 +403,34 @@ class AudioSys {
         this._burst(dst, t + 0.03, 1.4, 1.0, 'bandpass', 960, 180, 0.7);
         break;
       }
+      case 'afghanit': {
+        // Sharp percussive hard-kill counter-blast + radar activation tone
+        this._tone(dst, 'triangle', 2600, 3600, t, 0.035, 0.28);
+        this._tone(dst, 'sine', 220, 58, t + 0.01, 0.22, 0.92);
+        this._burst(dst, t + 0.01, 0.16, 1.05, 'bandpass', 2200, 520, 0.75);
+        this._burst(dst, t + 0.015, 0.06, 0.7, 'highpass', 3800, 3800);
+        break;
+      }
+      case 'trophyReflect': {
+        // Crisp electromagnetic shield chime + ricochet/deflect snap
+        this._tone(dst, 'triangle', 1200, 2600, t, 0.09, 0.34);
+        this._tone(dst, 'sine', 2400, 1650, t + 0.05, 0.24, 0.32);
+        this._burst(dst, t, 0.1, 0.75, 'bandpass', 2900, 1400, 1.2);
+        break;
+      }
+      case 'ampLaunch': {
+        // Guided programmable HE rocket ignition
+        this._tone(dst, 'sine', 180, 62, t, 0.18, 0.72);
+        this._burst(dst, t, 0.36, 0.62, 'bandpass', 2100, 740, 0.9);
+        this._tone(dst, 'sawtooth', 320, 720, t + 0.03, 0.25, 0.22);
+        break;
+      }
+      case 'ampHit': {
+        this._explosion(dst, t, 1.65);
+        this._tone(dst, 'sawtooth', 170, 36, t, 0.45, 0.64);
+        this._burst(dst, t + 0.02, 0.8, 0.85, 'bandpass', 1100, 220, 0.75);
+        break;
+      }
       case 'bomberFlyover': {
         // Heavy twin-engine WWII propeller drone sweeping overhead
         for (const base of [44, 52.5, 88, 105.6]) {

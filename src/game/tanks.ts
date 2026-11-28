@@ -63,6 +63,10 @@ export interface TankSpec {
   stabilized?: boolean;
   engineAudio?: 'diesel' | 'turbine';
   adaptiveSuspension?: boolean;
+  /** Если true, стоимость в серебре фиксирована и не пересчитывается кривой баланса. */
+  fixedPrice?: boolean;
+  /** Множитель входящего урона по необитаемой башне (например 0.65 = -35% урона). */
+  turretDamageMult?: number;
 }
 
 export const DEFAULT_TANK_ID = 't55';
@@ -862,6 +866,139 @@ export const TANK_CATALOG: Record<string, TankSpec> = {
       spread: 0.004,
     },
   },
+  t14armata: {
+    id: 't14armata',
+    name: 'Т-14 «Армата»',
+    role: 'Перспективный ОБТ',
+    country: 'Россия',
+    gunName: '125-мм гладкоствольная 2А82-1М',
+    description:
+      'Длинный 7-катковый корпус с ДЗ «Малахит», кормовыми решётками и низкой необитаемой башней (-35% урона при попадании в башню). Мощная 125-мм пушка наносит 125 ед. урона с перезарядкой 1.9 с, скорость 110 км/ч и активный щит [E] «КАЗ Афганит» на 3 с.',
+    priceSilver: 27000,
+    fixedPrice: true,
+    maxSpeedKmh: 110,
+    maxSpeed: 110 / 3.6,
+    maxReverse: 13.5,
+    traverseRate: 36 * DEG,
+    elevRate: 24 * DEG,
+    elevMin: -8 * DEG,
+    elevMax: 18 * DEG,
+    reload: 1.9,
+    muzzleVelocity: 980,
+    maxRange: 950,
+    caliber: 0.125,
+    penetrationMm: 440,
+    maxHp: 170,
+    gunDamage: 125,
+    frontDamageReduction: 44,
+    frontDamageRange: [20, 28],
+    bossDamageCoef: 2.5,
+    accelBoost: 1.45,
+    pivotBoost: 0.92,
+    stabilized: true,
+    turretDamageMult: 0.65,
+    ability: {
+      type: 'afghanit_shield',
+      cooldown: 16,
+      duration: 3,
+    },
+    armor: {
+      hullFront: 295,
+      hullSide: 105,
+      hullRear: 48,
+      deck: 28,
+      turretFront: 280,
+      turretSide: 130,
+      turretRear: 60,
+      turretTop: 28,
+    },
+    damage: {
+      front: 22,
+      sideRear: 125,
+      fuel: 999,
+    },
+    mg: {
+      name: '12.7-мм Корд + 7.62-мм ПКТМ',
+      damage: 0.995,
+      fireRate: 15,
+      magSize: 220,
+      totalAmmo: 880,
+      reloadTime: 2.4,
+      muzzleVelocity: 950,
+      maxRange: 580,
+      spread: 0.004,
+    },
+  },
+  m1a2sepv3: {
+    id: 'm1a2sepv3',
+    name: 'M1A2 SEPv3 Abrams',
+    role: 'Топовый тяжёлый ОБТ',
+    country: 'США',
+    gunName: '120-мм гладкоствольная M256 (M829A4)',
+    description:
+      'Топовая тяжёлая модификация «Абрамса» с усиленными скулами башни NGAP, бортовыми блоками ДЗ ARAT, пушкой M256 на 150 ед. урона (перезарядка 2.5 с, 200 HP), отражающим щитом [E] «КАЗ Trophy» (10 с) и самонаводящимся фугасом [F] AMP (150 ур. + 40 сплэш 5 м).',
+    priceSilver: 390000,
+    fixedPrice: true,
+    maxSpeedKmh: 91,
+    maxSpeed: 91 / 3.6,
+    maxReverse: 11.5,
+    traverseRate: 44 * DEG,
+    elevRate: 24 * DEG,
+    elevMin: -10 * DEG,
+    elevMax: 20 * DEG,
+    reload: 2.5,
+    muzzleVelocity: 940,
+    maxRange: 1500,
+    caliber: 0.12,
+    penetrationMm: 455,
+    maxHp: 200,
+    gunDamage: 150,
+    frontDamageReduction: 50,
+    frontDamageRange: [12, 19],
+    bossDamageCoef: 2.65,
+    accelBoost: 1.72,
+    pivotBoost: 1.45,
+    stabilized: true,
+    engineAudio: 'turbine',
+    ability: {
+      type: 'trophy_reflect',
+      cooldown: 25,
+      duration: 10,
+    },
+    secondaryAbility: {
+      type: 'amp_homing',
+      cooldown: 15,
+      damage: 150,
+      splashDamage: 40,
+      splashRadius: 5,
+    },
+    armor: {
+      hullFront: 310,
+      hullSide: 115,
+      hullRear: 42,
+      deck: 24,
+      turretFront: 390,
+      turretSide: 165,
+      turretRear: 65,
+      turretTop: 26,
+    },
+    damage: {
+      front: 15,
+      sideRear: 150,
+      fuel: 999,
+    },
+    mg: {
+      name: '12.7-мм CROWS M2HB + 7.62-мм M240',
+      damage: 0.995,
+      fireRate: 16,
+      magSize: 240,
+      totalAmmo: 960,
+      reloadTime: 2.3,
+      muzzleVelocity: 960,
+      maxRange: 600,
+      spread: 0.0038,
+    },
+  },
 };
 
 export const BOSS_TANK_ID = 'maus';
@@ -939,8 +1076,9 @@ export function getTankPowerBreakdown(spec: TankSpec): TankPowerBreakdown {
     spec.armor.turretFront * 0.45 +
     (spec.armor.hullSide + spec.armor.turretSide) * 0.1;
   const apsBonus = spec.aps ? 135 : 0;
+  const unmannedTurretBonus = spec.turretDamageMult && spec.turretDamageMult < 1 ? 80 : 0;
   const survivability =
-    spec.maxHp * (0.8 + frontMitigationRatio * 0.42) + armorRaw * 0.35 + apsBonus;
+    spec.maxHp * (0.8 + frontMitigationRatio * 0.42) + armorRaw * 0.35 + apsBonus + unmannedTurretBonus;
 
   // 2. Firepower: main gun DPM, alpha damage, penetration, shell velocity, range & MG DPS
   const dpm = spec.gunDamage / Math.max(0.1, spec.reload);
@@ -970,6 +1108,12 @@ export function getTankPowerBreakdown(spec: TankSpec): TankPowerBreakdown {
         return 210;
       case 'kstam_missile':
         return 205;
+      case 'trophy_reflect':
+        return 240;
+      case 'amp_homing':
+        return 215;
+      case 'afghanit_shield':
+        return 190;
       case 'galix_overdrive':
         return 165;
       case 'ap_barrage':
@@ -1014,7 +1158,7 @@ export function computeBalancedPrice(
 
 function applyBalancedCatalogPrices(catalog: Record<string, TankSpec>): void {
   const paid = Object.values(catalog)
-    .filter((spec) => spec.id !== DEFAULT_TANK_ID)
+    .filter((spec) => spec.id !== DEFAULT_TANK_ID && !spec.fixedPrice)
     .sort((a, b) => getTankPowerRating(a) - getTankPowerRating(b));
 
   if (catalog[DEFAULT_TANK_ID]) {

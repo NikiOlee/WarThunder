@@ -167,10 +167,15 @@ export function resolveHit(
   }
 
   const baseGunDamage = shell.gunDamage ?? 60;
+  const turretMult =
+    part === 'turret' && spec.turretDamageMult !== undefined && spec.turretDamageMult < 1
+      ? spec.turretDamageMult
+      : 1;
 
   // Frontal penetration: reduced by target's frontal armor protection
   if (isFront) {
-    const frontDmg = computeFrontDamage(baseGunDamage, maxPen, spec);
+    const rawFrontDmg = computeFrontDamage(baseGunDamage, maxPen, spec);
+    const frontDmg = turretMult < 1 ? Math.max(8, Math.round(rawFrontDmg * turretMult)) : rawFrontDmg;
     return {
       result: 'pen',
       damage: frontDmg,
@@ -182,10 +187,12 @@ export function resolveHit(
     };
   }
 
-  // Side / rear / roof penetration: full base damage from the attacker's gun
+  // Side / rear / roof penetration: full base damage from the attacker's gun (reduced on unmanned turrets)
+  const rawSideDmg = Math.round(baseGunDamage);
+  const finalDmg = turretMult < 1 ? Math.max(10, Math.round(rawSideDmg * turretMult)) : rawSideDmg;
   return {
     result: 'pen',
-    damage: Math.round(baseGunDamage),
+    damage: finalDmg,
     base,
     effective,
     pen,

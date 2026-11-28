@@ -11,8 +11,12 @@ import {
   getOverdriveMultipliers,
   getBarrageMultipliers,
   isThermalActive,
+  isAfghanitActive,
+  isTrophyReflectActive,
   stepKstamLock,
   computeKstamSplashDamage,
+  computeAmpSplashDamage,
+  findNearestEnemyIndex,
   computeGalixArcPosition,
   createSmokeRing,
   pruneSmokeClouds,
@@ -215,5 +219,76 @@ describe('K2 Black Panther KSTAM Top-Attack & Splash ability', () => {
     assert.equal(computeKstamSplashDamage(10.5, 10, 280, false), 0);
     assert.equal(computeKstamSplashDamage(2, 10, 280, true), 0);
     assert.equal(computeKstamSplashDamage(0, 10, 280, true), 0);
+  });
+});
+
+describe('T-14 Armata Afghanit 360° APS ability', () => {
+  it('activates for 3s on a 16s cooldown and reports active state cleanly', () => {
+    const t14 = getTankSpec('t14armata');
+    assert.equal(t14.ability?.type, 'afghanit_shield');
+    const s = createAbilityState();
+    assert.equal(isAfghanitActive(s, t14.ability), false);
+
+    const res = activateAbility(s, t14.ability);
+    assert.equal(res.activated, true);
+    assert.equal(res.type, 'afghanit_shield');
+    assert.equal(s.activeRemaining, 3);
+    assert.equal(s.cooldownRemaining, 16);
+    assert.equal(isAfghanitActive(s, t14.ability), true);
+    assert.equal(canActivateAbility(s, t14.ability), false);
+
+    stepAbilityState(s, 3.1);
+    assert.equal(isAfghanitActive(s, t14.ability), false);
+    assert.equal(canActivateAbility(s, t14.ability), false);
+
+    stepAbilityState(s, 13);
+    assert.equal(canActivateAbility(s, t14.ability), true);
+  });
+});
+
+describe('M1A2 SEPv3 Trophy Reflect [E] & AMP Homing [F] abilities', () => {
+  it('activates Trophy Reflect for 10s with 25s cooldown', () => {
+    const sepv3 = getTankSpec('m1a2sepv3');
+    assert.equal(sepv3.ability?.type, 'trophy_reflect');
+    const s = createAbilityState();
+    assert.equal(isTrophyReflectActive(s, sepv3.ability), false);
+
+    const res = activateAbility(s, sepv3.ability);
+    assert.equal(res.activated, true);
+    assert.equal(res.type, 'trophy_reflect');
+    assert.equal(s.activeRemaining, 10);
+    assert.equal(s.cooldownRemaining, 25);
+    assert.equal(isTrophyReflectActive(s, sepv3.ability), true);
+
+    stepAbilityState(s, 10.1);
+    assert.equal(isTrophyReflectActive(s, sepv3.ability), false);
+    assert.equal(canActivateAbility(s, sepv3.ability), false);
+
+    stepAbilityState(s, 15);
+    assert.equal(canActivateAbility(s, sepv3.ability), true);
+  });
+
+  it('launches AMP homing on 15s cooldown, locks nearest alive enemy, and deals 40 AoE splash to enemies only', () => {
+    const sepv3 = getTankSpec('m1a2sepv3');
+    assert.equal(sepv3.secondaryAbility?.type, 'amp_homing');
+    const s = createAbilityState();
+
+    const res = activateAbility(s, sepv3.secondaryAbility);
+    assert.equal(res.activated, true);
+    assert.equal(res.type, 'amp_homing');
+    assert.equal(s.cooldownRemaining, 15);
+
+    const idx = findNearestEnemyIndex(0, 0, 'A', [
+      { alive: true, team: 'A', x: 5, z: 5 },     // ally closer -> ignore
+      { alive: false, team: 'B', x: 8, z: 0 },    // dead enemy -> ignore
+      { alive: true, team: 'B', x: 40, z: 30 },   // enemy dist 50
+      { alive: true, team: 'B', x: 18, z: 0 },    // nearest alive enemy
+    ]);
+    assert.equal(idx, 3);
+
+    assert.equal(computeAmpSplashDamage(0, 5, 40, false), 40);
+    assert.equal(computeAmpSplashDamage(4.9, 5, 40, false), 40);
+    assert.equal(computeAmpSplashDamage(5.2, 5, 40, false), 0);
+    assert.equal(computeAmpSplashDamage(2.0, 5, 40, true), 0);
   });
 });

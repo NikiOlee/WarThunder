@@ -514,6 +514,7 @@ export default function App() {
                 </div>
                 <div id="hangarTankDesc" className="hangar-info-desc" />
                 <div id="hangarStats" className="hangar-stats" />
+                <div id="hangarAbilities" className="hangar-abilities hidden" data-testid="hangar-abilities" />
                 <div className="hangar-info-foot">
                   <div id="hangarEquipStatus" className="hangar-equip-status" />
                   <button type="button" className="btn hangar-select-btn" id="bHangarSelect">

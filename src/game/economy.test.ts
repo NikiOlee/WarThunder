@@ -4,7 +4,7 @@ import { addSilver, computeKillReward, getSilver, isTankOwned, purchaseTank, set
 import { evaluateMatchState, evaluateRoundState, getAllModes, getModeDef, sortScoreboardRows } from './modes';
 import { getSelectedTankId, getTankSpec, setSelectedTankId } from './tanks';
 
-test('T-55 is free (0 silver) and owned by default, while paid tanks scale strictly from 1500 to 120000 silver', () => {
+test('T-55 is free (0 silver) and owned by default, while paid tanks scale up to M1A2 SEPv3 Abrams (390000 silver)', () => {
   const t55 = getTankSpec('t55');
   assert.equal(t55.priceSilver, 0);
   assert.equal(isTankOwned('t55'), true);
@@ -39,11 +39,13 @@ test('T-55 is free (0 silver) and owned by default, while paid tanks scale stric
   checkBuy('m1a1', 12500);
   checkBuy('t90m', 16800);
   checkBuy('challenger2', 19000);
+  checkBuy('t14armata', 27000);
   checkBuy('merkava4', 65600);
   checkBuy('leclerc', 69300);
   checkBuy('leopard2a7v', 76200);
   checkBuy('k2', 105900);
   checkBuy('m1a2sep', 120000);
+  checkBuy('m1a2sepv3', 390000);
 
   setSelectedTankId('t55');
   setSilver(0);

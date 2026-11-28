@@ -16,6 +16,8 @@ import {
   createAbilityState,
   getBarrageMultipliers,
   getOverdriveMultipliers,
+  isAfghanitActive,
+  isTrophyReflectActive,
   resetAbilityState,
   stepAbilityState,
   type AbilityActivationResult,
@@ -146,6 +148,7 @@ function camoTexture(
     | 'american'
     | 'sovietModern'
     | 'russianModern'
+    | 'russianArmata'
     | 'natoGerman'
     | 'usModern'
     | 'chineseModern'
@@ -168,23 +171,25 @@ function camoTexture(
           ? '#414f2c'
           : variant === 'russianModern'
             ? '#3b4a2b'
-            : variant === 'usModern'
-              ? '#4b4e33'
-              : variant === 'chineseModern'
-                ? '#48522e'
-                : variant === 'idfSinai'
-                  ? '#8d8a79'
-                  : variant === 'britishOlive'
-                    ? '#4a5337'
-                    : variant === 'frenchNato'
-                      ? '#3c4d2b'
-                      : variant === 'bundeswehrNato'
-                        ? '#35452a'
-                        : variant === 'desertTan'
-                          ? '#c2ae83'
-                          : variant === 'rokK2'
-                            ? '#4c5838'
-                            : '#4e5b34';
+            : variant === 'russianArmata'
+              ? '#9f8b60'
+              : variant === 'usModern'
+                ? '#4b4e33'
+                : variant === 'chineseModern'
+                  ? '#48522e'
+                  : variant === 'idfSinai'
+                    ? '#8d8a79'
+                    : variant === 'britishOlive'
+                      ? '#4a5337'
+                      : variant === 'frenchNato'
+                        ? '#3c4d2b'
+                        : variant === 'bundeswehrNato'
+                          ? '#35452a'
+                          : variant === 'desertTan'
+                            ? '#c2ae83'
+                            : variant === 'rokK2'
+                              ? '#4c5838'
+                              : '#4e5b34';
   g.fillRect(0, 0, 128, 128);
   const cols =
     variant === 'american'
@@ -195,23 +200,25 @@ function camoTexture(
           ? ['#2d381d', '#586234', '#232c16', '#4a572f']
           : variant === 'russianModern'
             ? ['#242c1a', '#525e37', '#1c2216', '#45512e']
-            : variant === 'usModern'
-              ? ['#34381f', '#616344', '#272a17', '#565a3a']
-              : variant === 'chineseModern'
-                ? ['#2b3419', '#5c6836', '#202714', '#4b5730']
-                : variant === 'idfSinai'
-                  ? ['#7b7867', '#9b9886', '#6e6c5c', '#84826f']
-                  : variant === 'britishOlive'
-                    ? ['#373f28', '#5e6646', '#2d3321', '#525a3c']
-                    : variant === 'frenchNato'
-                      ? ['#5b4029', '#1b1d1a', '#485934', '#2c3820']
-                      : variant === 'bundeswehrNato'
-                        ? ['#593e27', '#1a1c19', '#425233', '#273220']
-                        : variant === 'desertTan'
-                          ? ['#baa579', '#cbb78e', '#b19c70', '#c7b387']
-                          : variant === 'rokK2'
-                            ? ['#a59369', '#493424', '#1d201c', '#576440']
-                            : ['#384324', '#6b6f3f', '#2d371c', '#5e653a'];
+            : variant === 'russianArmata'
+              ? ['#2a3921', '#1a1c19', '#b09b6e', '#344428']
+              : variant === 'usModern'
+                ? ['#34381f', '#616344', '#272a17', '#565a3a']
+                : variant === 'chineseModern'
+                  ? ['#2b3419', '#5c6836', '#202714', '#4b5730']
+                  : variant === 'idfSinai'
+                    ? ['#7b7867', '#9b9886', '#6e6c5c', '#84826f']
+                    : variant === 'britishOlive'
+                      ? ['#373f28', '#5e6646', '#2d3321', '#525a3c']
+                      : variant === 'frenchNato'
+                        ? ['#5b4029', '#1b1d1a', '#485934', '#2c3820']
+                        : variant === 'bundeswehrNato'
+                          ? ['#593e27', '#1a1c19', '#425233', '#273220']
+                          : variant === 'desertTan'
+                            ? ['#baa579', '#cbb78e', '#b19c70', '#c7b387']
+                            : variant === 'rokK2'
+                              ? ['#a59369', '#493424', '#1d201c', '#576440']
+                              : ['#384324', '#6b6f3f', '#2d371c', '#5e653a'];
   for (let i = 0; i < 28; i++) {
     g.fillStyle = cols[i % cols.length];
     g.beginPath();
@@ -340,6 +347,10 @@ export class Tank {
   private _thermalFuelGroup: THREE.Group | null = null;
   private _thermalFuelMat: THREE.MeshBasicMaterial | null = null;
   private _thermalActive = false;
+  private _shieldGroup: THREE.Group | null = null;
+  private _shieldRingMat: THREE.MeshBasicMaterial | null = null;
+  private _shieldDomeMat: THREE.MeshBasicMaterial | null = null;
+  private _shieldAnimT = 0;
   private _lodProxy!: THREE.Group;
   private _lodTurret!: THREE.Group;
   private _lodGun!: THREE.Group;
@@ -401,6 +412,9 @@ export class Tank {
     this._thermalFuelGroup = null;
     this._thermalFuelMat = null;
     this._thermalActive = false;
+    this._shieldGroup = null;
+    this._shieldRingMat = null;
+    this._shieldDomeMat = null;
     this._fineDetails = [];
     this._shadowMeshes = [];
   }
@@ -421,6 +435,9 @@ export class Tank {
     const isLeopard2A7V = this.spec.id === 'leopard2a7v';
     const isK2 = this.spec.id === 'k2';
     const isM1A2Sep = this.spec.id === 'm1a2sep';
+    const isT14 = this.spec.id === 't14armata';
+    const isM1A2SepV3 = this.spec.id === 'm1a2sepv3';
+    const isAbramsModern = isM1A2Sep || isM1A2SepV3;
     const hullTex = isMaus
       ? dunkelgrauTexture()
       : camoTexture(
@@ -434,92 +451,100 @@ export class Tank {
                   ? 'frenchNato'
                   : isK2
                     ? 'rokK2'
-                    : isM1A2Sep
-                      ? 'desertTan'
-                      : isT72B3 || isT90M
-                        ? 'russianModern'
-                        : isT62M
-                          ? 'sovietModern'
-                          : isM1A1
-                            ? 'usModern'
-                            : isZtz96a
-                              ? 'chineseModern'
-                              : isMerkava4
-                                ? 'idfSinai'
-                                : isChallenger2
-                                  ? 'britishOlive'
-                                  : 'soviet',
+                    : isT14
+                      ? 'russianArmata'
+                      : isAbramsModern
+                        ? 'desertTan'
+                        : isT72B3 || isT90M
+                          ? 'russianModern'
+                          : isT62M
+                            ? 'sovietModern'
+                            : isM1A1
+                              ? 'usModern'
+                              : isZtz96a
+                                ? 'chineseModern'
+                                : isMerkava4
+                                  ? 'idfSinai'
+                                  : isChallenger2
+                                    ? 'britishOlive'
+                                    : 'soviet',
         );
     const hullMat = new THREE.MeshStandardMaterial({
       map: hullTex,
       roughness: isMaus
         ? 0.62
-        : isM1A2Sep
+        : isAbramsModern
           ? 0.88
-          : isM60
-            ? 0.82
-            : isMerkava4
-              ? 0.78
-              : isChallenger2 || isLeclerc || isK2
-                ? 0.72
-                : isLeopard2A4 || isLeopard2A7V
-                  ? 0.66
-                  : isT72B3 || isT90M
-                    ? 0.68
-                    : isT62M
-                      ? 0.74
-                      : isM1A1 || isZtz96a
-                        ? 0.7
-                        : 0.78,
+          : isT14
+            ? 0.78
+            : isM60
+              ? 0.82
+              : isMerkava4
+                ? 0.78
+                : isChallenger2 || isLeclerc || isK2
+                  ? 0.72
+                  : isLeopard2A4 || isLeopard2A7V
+                    ? 0.66
+                    : isT72B3 || isT90M
+                      ? 0.68
+                      : isT62M
+                        ? 0.74
+                        : isM1A1 || isZtz96a
+                          ? 0.7
+                          : 0.78,
       metalness: isMaus
         ? 0.38
-        : isM1A2Sep
+        : isAbramsModern
           ? 0.16
-          : isMerkava4
+          : isT14
             ? 0.22
-            : isChallenger2 || isLeclerc || isK2
-              ? 0.24
-              : isLeopard2A4 || isLeopard2A7V
-                ? 0.3
-                : isT72B3 || isT90M
-                  ? 0.28
-                  : isT62M
-                    ? 0.24
-                    : isM1A1 || isZtz96a
-                      ? 0.26
-                      : 0.2,
+            : isMerkava4
+              ? 0.22
+              : isChallenger2 || isLeclerc || isK2
+                ? 0.24
+                : isLeopard2A4 || isLeopard2A7V
+                  ? 0.3
+                  : isT72B3 || isT90M
+                    ? 0.28
+                    : isT62M
+                      ? 0.24
+                      : isM1A1 || isZtz96a
+                        ? 0.26
+                        : 0.2,
       flatShading: true,
     });
     hullMat.color.setRGB(this.tint[0], this.tint[1], this.tint[2]);
     this.hullMat = hullMat;
 
     const darkMat = new THREE.MeshStandardMaterial({
-      color: isMaus ? 0x222529 : isM1A2Sep ? 0x5c523c : isMerkava4 ? 0x35342d : 0x262820,
+      color: isMaus ? 0x222529 : isAbramsModern ? 0x5c523c : isT14 ? 0x242622 : isMerkava4 ? 0x35342d : 0x262820,
       roughness: 0.9,
       metalness: isMaus ? 0.34 : 0.25,
       flatShading: true,
     });
     const metalMat = new THREE.MeshStandardMaterial({
-      color: isMaus ? 0x373a40 : isM1A2Sep ? 0x524c3f : isMerkava4 ? 0x56544b : 0x3b3e37,
+      color: isMaus ? 0x373a40 : isAbramsModern ? 0x524c3f : isMerkava4 ? 0x56544b : 0x3b3e37,
       roughness: 0.42,
       metalness: isMaus ? 0.76 : 0.72,
     });
     const fuelMat = new THREE.MeshStandardMaterial({
-      color: isM1A2Sep
+      color: isAbramsModern
         ? 0xb49f73
-        : isK2
-          ? 0x454f34
-          : isMerkava4
-            ? 0x747161
-            : isChallenger2
-              ? 0x434b31
-              : isLeopard2A7V
-                ? 0x3b482e
-                : isLeclerc
-                  ? 0x3e4b2e
-                  : isM60
-                    ? 0x4d4b31
-                    : 0x45522d,
+        : isT14
+          ? 0x4b533b
+          : isK2
+            ? 0x454f34
+            : isMerkava4
+              ? 0x747161
+              : isChallenger2
+                ? 0x434b31
+                : isLeopard2A7V
+                  ? 0x3b482e
+                  : isLeclerc
+                    ? 0x3e4b2e
+                    : isM60
+                      ? 0x4d4b31
+                      : 0x45522d,
       roughness: 0.52,
       metalness: 0.38,
     });
@@ -2736,9 +2761,9 @@ export class Tank {
       this.binocObj = new THREE.Object3D();
       this.binocObj.position.set(0, 1.95, -0.35);
       tg.add(this.binocObj);
-    } else if (isM1A2Sep) {
-      // M1A2 SEP (Abrams): wide low-slung hull with steep upper glacis, chiseled angular turret with elongated ammo bustle & blow-off panels,
-      // prominent CITV thermal sight, heavy side armor skirts, roof M2HB + M240 turrets, 120mm M256 smoothbore in Desert Tan
+    } else if (isM1A2Sep || isM1A2SepV3) {
+      // M1A2 SEP / M1A2 SEPv3 Abrams: wide low-slung hull, steep upper glacis, chiseled angular turret with ammo bustle & blow-off panels.
+      // SEPv3 adds thickened NGAP frontal turret cheeks, reinforced heavy skirts with ARAT ERA side tiles, Trophy APS radars & interceptor pods, and 120mm M256 with MRS tip.
       const hull = new THREE.Mesh(
         prism(
           [
@@ -2758,17 +2783,34 @@ export class Tank {
       // Driver central periscope, front tow shackles, turbine exhaust deck & rear grille, rear fuel cells
       add(new THREE.BoxGeometry(0.66, 0.12, 0.48), darkMat, 0, 1.69, 2.02);
       add(new THREE.BoxGeometry(2.6, 0.16, 0.28), darkMat, 0, 0.94, 3.66);
+      if (isM1A2SepV3) {
+        // Heavier SEPv3 lower-glacis appliqué armor block & auxiliary APU grille box
+        add(new THREE.BoxGeometry(2.74, 0.26, 0.34), hullMat, 0, 0.78, 3.64);
+        add(new THREE.BoxGeometry(0.84, 0.14, 0.58), darkMat, -0.78, 1.72, -3.22);
+      }
       add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, 1.18, 1.24, 3.45);
       add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, -1.18, 1.24, 3.45);
       add(new THREE.BoxGeometry(2.36, 0.1, 2.08), darkMat, 0, 1.69, -2.42);
       add(new THREE.BoxGeometry(2.3, 0.54, 0.14), darkMat, 0, 1.32, -3.76);
 
-      // Fenders + heavy modular Abrams ballistic side skirts + rear sponson fuel tanks
+      // Fenders + heavy modular Abrams ballistic side skirts + ARAT ERA tiles (SEPv3) + rear sponson fuel tanks
       for (const sx of [-1, 1]) {
         add(new THREE.BoxGeometry(0.6, 0.07, 7.26), hullMat, sx * 1.9, 1.21, 0.02);
-        add(new THREE.BoxGeometry(0.08, 0.54, 7.05), hullMat, sx * 2.24, 0.9, 0.0);
+        add(new THREE.BoxGeometry(isM1A2SepV3 ? 0.11 : 0.08, 0.54, 7.05), hullMat, sx * 2.24, 0.9, 0.0);
         for (let bi = 0; bi < 7; bi++) {
-          add(new THREE.BoxGeometry(0.11, 0.5, 0.92), bi < 3 ? hullMat : darkMat, sx * 2.31, 0.9, 2.7 - bi * 0.94);
+          add(
+            new THREE.BoxGeometry(isM1A2SepV3 ? 0.13 : 0.11, 0.5, 0.92),
+            isM1A2SepV3 || bi < 3 ? hullMat : darkMat,
+            sx * 2.31,
+            0.9,
+            2.7 - bi * 0.94,
+          );
+          if (isM1A2SepV3 && bi < 5) {
+            // Protruding ARAT reactive armor tiles mounted along reinforced side skirts
+            const arat = add(new THREE.BoxGeometry(0.11, 0.34, 0.74), darkMat, sx * 2.41, 0.92, 2.35 - bi * 0.94);
+            arat.rotation.z = -sx * 0.06;
+            add(new THREE.BoxGeometry(0.05, 0.28, 0.68), hullMat, sx * 2.46, 0.92, 2.35 - bi * 0.94);
+          }
         }
         add(new THREE.BoxGeometry(0.32, 0.34, 1.72), fuelMat, sx * 1.68, 1.38, -2.56);
       }
@@ -2823,25 +2865,51 @@ export class Tank {
       );
       tg.add(tBody);
 
-      // Sloped chiseled composite cheeks flanking gun mantlet
+      // Sloped chiseled composite cheeks flanking gun mantlet (SEPv3 uses visibly thicker NGAP cheek modules)
       const cheekGeo = prism(
-        [
-          [-0.1, 0.12],
-          [1.62, 0.12],
-          [1.82, 0.46],
-          [1.02, 1.02],
-          [-0.1, 1.02],
-        ],
-        1.06,
+        isM1A2SepV3
+          ? [
+              [-0.1, 0.12],
+              [1.82, 0.12],
+              [2.02, 0.48],
+              [1.14, 1.06],
+              [-0.1, 1.04],
+            ]
+          : [
+              [-0.1, 0.12],
+              [1.62, 0.12],
+              [1.82, 0.46],
+              [1.02, 1.02],
+              [-0.1, 1.02],
+            ],
+        isM1A2SepV3 ? 1.18 : 1.06,
       );
       for (const sx of [-1, 1]) {
         const ch = new THREE.Mesh(cheekGeo, hullMat);
-        ch.position.set(sx * 0.94, 0, 0.06);
+        ch.position.set(sx * (isM1A2SepV3 ? 0.99 : 0.94), 0, 0.06);
         ch.rotation.y = -sx * 0.14;
         tg.add(ch);
         // Side turret stowage racks & smoke discharger banks
         add(new THREE.BoxGeometry(0.18, 0.58, 2.35), hullMat, sx * 1.62, 0.58, -1.05, tg);
         add(new THREE.BoxGeometry(0.24, 0.24, 0.42), darkMat, sx * 1.64, 0.58, 0.55, tg);
+
+        if (isM1A2SepV3) {
+          // КАЗ «Trophy» on SEPv3 turret flanks: protruding radar arrays & swiveling dual-tube launcher pods
+          const trophyFrontRadar = add(new THREE.BoxGeometry(0.16, 0.28, 0.42), darkMat, sx * 1.76, 0.58, 0.15, tg);
+          trophyFrontRadar.rotation.y = sx * 0.34;
+          const trophyRearRadar = add(new THREE.BoxGeometry(0.16, 0.28, 0.42), darkMat, sx * 1.76, 0.58, -1.55, tg);
+          trophyRearRadar.rotation.y = -sx * 0.34;
+
+          const launcherPod = new THREE.Group();
+          launcherPod.position.set(sx * 1.82, 0.72, -0.68);
+          launcherPod.rotation.y = sx * 0.14;
+          add(new THREE.BoxGeometry(0.28, 0.26, 0.38), hullMat, 0, 0, 0, launcherPod);
+          const tubeGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.38, 8);
+          tubeGeo.rotateZ(Math.PI / 2);
+          add(tubeGeo, metalMat, sx * 0.09, 0.06, 0.1, launcherPod);
+          add(tubeGeo, metalMat, sx * 0.09, 0.06, -0.1, launcherPod);
+          tg.add(launcherPod);
+        }
       }
 
       // Blow-off panels on top of elongated rear ammo bustle + bustle rack
@@ -2870,7 +2938,7 @@ export class Tank {
       add(new THREE.CylinderGeometry(0.024, 0.024, 2.85, 4), metalMat, 1.16, 1.88, -2.35, tg);
       add(new THREE.CylinderGeometry(0.024, 0.024, 2.75, 4), metalMat, -1.16, 1.84, -2.35, tg);
 
-      // Mantlet & 120mm M256 smoothbore cannon with thermal shroud & bore evacuator
+      // Mantlet & 120mm M256 smoothbore cannon with thermal shroud, bore evacuator & muzzle reference sensor
       add(new THREE.BoxGeometry(0.76, 0.56, 0.48), hullMat, 0, 0.49, 1.56, tg);
       this.gunPivot = new THREE.Group();
       this.gunPivot.position.set(0, 0.49, 1.66);
@@ -2912,6 +2980,228 @@ export class Tank {
       tg.add(this.sightObj);
       this.binocObj = new THREE.Object3D();
       this.binocObj.position.set(0, 1.92, -0.35);
+      tg.add(this.binocObj);
+    } else if (isT14) {
+      // Т-14 «Армата»: длинный 7-катковый корпус, ДЗ «Малахит», кормовые решётчатые экраны,
+      // низкая узкая необитаемая башня в защитном кожухе, мортиры КАЗ «Афганит» под башней,
+      // панорамный прицел на верхушке башни и длинная 125-мм пушка 2А82-1М БЕЗ эжектора
+      const hull = new THREE.Mesh(
+        prism(
+          [
+            [-4.06, 0.5],
+            [3.78, 0.5],
+            [4.16, 0.98],
+            [2.48, 1.66],
+            [-3.94, 1.66],
+            [-4.1, 1.18],
+          ],
+          3.04,
+        ),
+        hullMat,
+      );
+      this.hullGroup.add(hull);
+
+      // Front hull «Малахит» ERA blocks + armored crew capsule periscopes & headlights
+      const malakhitGeo = new THREE.BoxGeometry(0.42, 0.14, 0.42);
+      const malakhitSeamGeo = new THREE.BoxGeometry(0.4, 0.04, 0.4);
+      for (const row of [
+        { y: 1.48, z: 2.86 },
+        { y: 1.23, z: 3.48 },
+      ]) {
+        for (const ex of [-1.06, -0.53, 0, 0.53, 1.06]) {
+          const eg = new THREE.Group();
+          eg.position.set(ex, row.y, row.z);
+          eg.rotation.x = 0.4;
+          add(malakhitGeo, hullMat, 0, 0.02, 0, eg);
+          add(malakhitSeamGeo, darkMat, 0, -0.07, 0, eg);
+          this.hullGroup.add(eg);
+        }
+      }
+      add(new THREE.BoxGeometry(0.48, 0.1, 0.4), darkMat, -0.64, 1.69, 2.26);
+      add(new THREE.BoxGeometry(0.48, 0.1, 0.4), darkMat, 0.64, 1.69, 2.26);
+      add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, 1.18, 1.24, 3.84);
+      add(new THREE.BoxGeometry(0.24, 0.16, 0.18), metalMat, -1.18, 1.24, 3.84);
+      // Engine deck louvers
+      add(new THREE.BoxGeometry(2.38, 0.09, 2.25), darkMat, 0, 1.69, -2.52);
+
+      // Fenders, heavy side skirts with front/mid «Малахит» ERA tiles & rear slat/cage armor (решётчатые экраны)
+      for (const sx of [-1, 1]) {
+        add(new THREE.BoxGeometry(0.58, 0.07, 7.98), hullMat, sx * 1.88, 1.22, 0.02);
+        add(new THREE.BoxGeometry(0.07, 0.54, 5.45), darkMat, sx * 2.21, 0.9, 1.08);
+        // Malakhit ERA blocks on forward & center side skirts
+        for (let bi = 0; bi < 6; bi++) {
+          add(new THREE.BoxGeometry(0.13, 0.46, 0.78), hullMat, sx * 2.31, 0.91, 3.35 - bi * 0.86);
+        }
+        // Side slat/cage screens over rear hull engine bay
+        const slatFrameTop = new THREE.BoxGeometry(0.06, 0.05, 2.25);
+        add(slatFrameTop, metalMat, sx * 2.27, 1.14, -2.76);
+        add(slatFrameTop, metalMat, sx * 2.27, 0.68, -2.76);
+        for (let si = 0; si < 9; si++) {
+          add(new THREE.BoxGeometry(0.05, 0.48, 0.03), metalMat, sx * 2.27, 0.91, -1.78 - si * 0.24);
+        }
+        // Internal/sponson rear fuel cells (vulnerable weakspot)
+        add(new THREE.BoxGeometry(0.32, 0.36, 1.85), fuelMat, sx * 1.68, 1.4, -2.72);
+      }
+      // Rear hull slat/cage armor grilles across tail plate
+      add(new THREE.BoxGeometry(2.3, 0.48, 0.14), darkMat, 0, 1.26, -4.1);
+      add(new THREE.BoxGeometry(1.9, 0.34, 0.16), fuelMat, 0, 1.44, -4.12);
+      for (let ry = 0; ry < 4; ry++) {
+        add(new THREE.BoxGeometry(2.96, 0.03, 0.05), metalMat, 0, 0.78 + ry * 0.16, -4.24);
+      }
+      for (let rx = -5; rx <= 5; rx++) {
+        add(new THREE.BoxGeometry(0.03, 0.56, 0.05), metalMat, rx * 0.28, 1.02, -4.24);
+      }
+
+      // 7-road-wheel Armata track assembly
+      const t14Tracks = buildTankTracks(
+        this.hullGroup,
+        {
+          trackX: 1.88,
+          trackWidth: 0.58,
+          beltThickness: 0.055,
+          wheelY: 0.49,
+          wheelR: 0.41,
+          wheelPositionsZ: [-3.06, -2.04, -1.02, 0.0, 1.02, 2.04, 3.06],
+          idlerZ: 3.84,
+          idlerY: 0.74,
+          idlerR: 0.28,
+          sprocketZ: -3.88,
+          sprocketY: 0.71,
+          sprocketR: 0.3,
+          returnRollersZ: [-2.6, -0.6, 1.4],
+          returnRollerR: 0.11,
+          sprocketTeeth: 12,
+          fenderY: 1.22,
+          mudguardFrontZ: 4.18,
+          mudguardRearZ: -4.16,
+        },
+        { hullMat, darkMat, metalMat },
+      );
+      this.tracks.push(...t14Tracks.tracks);
+      this.wheels.push(...t14Tracks.wheels);
+
+      // Narrow, elongated, faceted unmanned turret + protective shroud + Afghanit mortars + roof panoramic sight
+      this.turretGroup = new THREE.Group();
+      this.turretGroup.position.set(0, 1.68, 0.1);
+      this.hullGroup.add(this.turretGroup);
+      const tg = this.turretGroup;
+      add(new THREE.CylinderGeometry(1.26, 1.34, 0.07, 20), darkMat, 0, 0.035, -0.05, tg);
+
+      // Narrow inner unmanned gun cradle core + sleek faceted protective outer shell (кожух)
+      const unmannedCore = new THREE.Mesh(
+        prism(
+          [
+            [-2.58, 0.08],
+            [1.36, 0.08],
+            [1.64, 0.42],
+            [1.12, 0.86],
+            [-2.38, 0.86],
+            [-2.68, 0.48],
+          ],
+          1.98,
+        ),
+        hullMat,
+      );
+      tg.add(unmannedCore);
+
+      // Faceted stealth side cheeks + Malakhit turret ERA panels + protective upper shroud hood
+      const cheekFacetGeo = prism(
+        [
+          [-0.25, 0.1],
+          [1.34, 0.38],
+          [-0.1, 0.8],
+        ],
+        0.58,
+      );
+      for (const sx of [-1, 1]) {
+        const ch = new THREE.Mesh(cheekFacetGeo, hullMat);
+        ch.position.set(sx * 0.78, 0.04, 0.94);
+        ch.rotation.y = -sx * 0.24;
+        tg.add(ch);
+        // Slanted faceted side shroud plates
+        const sideCasing = add(new THREE.BoxGeometry(0.16, 0.58, 3.08), hullMat, sx * 1.07, 0.48, -0.45, tg);
+        sideCasing.rotation.z = sx * 0.18;
+        // Malakhit turret flank ERA tiles
+        for (let ti = 0; ti < 3; ti++) {
+          const tEra = add(new THREE.BoxGeometry(0.1, 0.36, 0.64), darkMat, sx * 1.2, 0.48, 0.42 - ti * 0.74, tg);
+          tEra.rotation.z = sx * 0.18;
+        }
+        // КАЗ «Афганит» angled interceptor mortar clusters mounted UNDER the turret collar
+        const mortarRack = new THREE.Group();
+        mortarRack.position.set(sx * 1.18, 0.12, 0.62);
+        mortarRack.rotation.y = sx * 0.28;
+        add(new THREE.BoxGeometry(0.24, 0.14, 0.62), darkMat, 0, 0, 0, mortarRack);
+        for (let mi = -2; mi <= 2; mi++) {
+          const tube = new THREE.CylinderGeometry(0.042, 0.046, 0.34, 8);
+          tube.rotateX(Math.PI / 2.2);
+          add(tube, metalMat, sx * 0.04, 0.02, mi * 0.11, mortarRack);
+        }
+        tg.add(mortarRack);
+
+        // Afghanit millimeter-wave AESA radar panels on turret bevels
+        const afgRadar = add(new THREE.BoxGeometry(0.12, 0.24, 0.38), darkMat, sx * 1.15, 0.54, 1.04, tg);
+        afgRadar.rotation.y = sx * 0.38;
+      }
+
+      // Rear turret bustle casing & antenna
+      add(new THREE.BoxGeometry(1.88, 0.46, 0.56), darkMat, 0, 0.46, -2.54, tg);
+      add(new THREE.CylinderGeometry(0.024, 0.024, 2.85, 4), metalMat, 0.88, 1.82, -2.18, tg);
+
+      // Prominent central-roof rotating panoramic commander sight mast on the very top of the unmanned turret
+      add(new THREE.CylinderGeometry(0.24, 0.29, 0.28, 12), hullMat, 0, 0.98, -0.18, tg);
+      add(new THREE.CylinderGeometry(0.2, 0.22, 0.26, 12), darkMat, 0, 1.22, -0.18, tg);
+      add(new THREE.BoxGeometry(0.24, 0.16, 0.28), metalMat, 0, 1.24, -0.06, tg);
+      // Gunner multi-channel sight housing beside mantlet
+      add(new THREE.BoxGeometry(0.36, 0.26, 0.42), darkMat, 0.62, 0.88, 0.92, tg);
+
+      // Sloped armored gun mantlet & long 125mm 2А82-1М smoothbore WITHOUT bore evacuator (без эжектора)
+      add(new THREE.BoxGeometry(0.68, 0.5, 0.52), hullMat, 0, 0.44, 1.56, tg);
+      this.gunPivot = new THREE.Group();
+      this.gunPivot.position.set(0, 0.44, 1.68);
+      tg.add(this.gunPivot);
+      this.barrelGroup = new THREE.Group();
+      this.gunPivot.add(this.barrelGroup);
+
+      const barrelGeo = new THREE.CylinderGeometry(0.094, 0.118, 6.22, 14);
+      barrelGeo.rotateX(Math.PI / 2);
+      add(barrelGeo, hullMat, 0, 0, 3.16, this.barrelGroup);
+
+      // Characteristic sleek thermal shroud sleeves (no bulging bore evacuator on 2А82-1М)
+      const sleeve = new THREE.CylinderGeometry(0.156, 0.156, 1.32, 12);
+      sleeve.rotateX(Math.PI / 2);
+      add(sleeve, darkMat, 0, 0, 0.68, this.barrelGroup);
+
+      const shroudMid = new THREE.CylinderGeometry(0.136, 0.136, 2.2, 12);
+      shroudMid.rotateX(Math.PI / 2);
+      add(shroudMid, darkMat, 0, 0, 2.62, this.barrelGroup);
+
+      const shroudFwd = new THREE.CylinderGeometry(0.122, 0.122, 1.95, 12);
+      shroudFwd.rotateX(Math.PI / 2);
+      add(shroudFwd, hullMat, 0, 0, 4.82, this.barrelGroup);
+
+      const mtip = new THREE.CylinderGeometry(0.114, 0.104, 0.24, 12);
+      mtip.rotateX(Math.PI / 2);
+      add(mtip, metalMat, 0, 0, 6.18, this.barrelGroup);
+      add(new THREE.CylinderGeometry(0.02, 0.02, 0.18, 6), metalMat, 0, 0.14, 6.15, this.barrelGroup);
+
+      // Coaxial PKTM beside mantlet
+      const mgPipe = new THREE.CylinderGeometry(0.028, 0.034, 0.96, 8);
+      mgPipe.rotateX(Math.PI / 2);
+      add(mgPipe, metalMat, 0.34, 0.02, 0.68, this.gunPivot);
+
+      this.mgMuzzle = new THREE.Object3D();
+      this.mgMuzzle.position.set(0.34, 0.02, 1.22);
+      this.gunPivot.add(this.mgMuzzle);
+
+      this.muzzle = new THREE.Object3D();
+      this.muzzle.position.set(0, 0, 6.34);
+      this.barrelGroup.add(this.muzzle);
+
+      this.sightObj = new THREE.Object3D();
+      this.sightObj.position.set(0, 1.06, 1.02);
+      tg.add(this.sightObj);
+      this.binocObj = new THREE.Object3D();
+      this.binocObj.position.set(0, 1.9, -0.25);
       tg.add(this.binocObj);
     } else if (isK2) {
       // K2 Black Panther: compact low-profile angular hull, long sharp turret with rear autoloader bustle,
@@ -3276,26 +3566,63 @@ export class Tank {
       this.hullGroup.add(this._thermalFuelGroup);
     }
 
+    // Active defensive perimeter shield aura (Afghanit for T-14 / Trophy Reflect for SEPv3)
+    if (isT14 || isM1A2SepV3) {
+      const shieldHex = isT14 ? 0x42f0ff : 0xffcb45;
+      this._shieldRingMat = new THREE.MeshBasicMaterial({
+        color: shieldHex,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+      });
+      this._shieldDomeMat = new THREE.MeshBasicMaterial({
+        color: shieldHex,
+        transparent: true,
+        opacity: 0.16,
+        wireframe: true,
+        depthWrite: false,
+      });
+      this._shieldGroup = new THREE.Group();
+      this._shieldGroup.visible = false;
+      const ringGeo = new THREE.TorusGeometry(4.6, 0.075, 8, 48);
+      ringGeo.rotateX(Math.PI / 2);
+      const ringMesh = new THREE.Mesh(ringGeo, this._shieldRingMat);
+      ringMesh.position.set(0, 1.18, 0);
+      this._shieldGroup.add(ringMesh);
+      const upperRingGeo = new THREE.TorusGeometry(3.45, 0.045, 6, 36);
+      upperRingGeo.rotateX(Math.PI / 2);
+      const upperRingMesh = new THREE.Mesh(upperRingGeo, this._shieldRingMat);
+      upperRingMesh.position.set(0, 2.32, 0);
+      this._shieldGroup.add(upperRingMesh);
+      const domeGeo = new THREE.SphereGeometry(4.62, 18, 8, 0, Math.PI * 2, 0, Math.PI * 0.45);
+      const domeMesh = new THREE.Mesh(domeGeo, this._shieldDomeMat);
+      domeMesh.position.set(0, 0.45, 0);
+      this._shieldGroup.add(domeMesh);
+      this.hullGroup.add(this._shieldGroup);
+    }
+
     // Lightweight 3-part low-poly LOD proxy for distant tanks (>= 190m effective distance)
     this._lodBaseHex = isMaus
       ? 0x484c52
-      : isM1A2Sep
+      : isAbramsModern
         ? 0xc2ae83
-        : isK2
-          ? 0x4c5838
-          : isMerkava4
-            ? 0x8d8a79
-            : isChallenger2
-              ? 0x4a5337
-              : isLeclerc
-                ? 0x3c4d2b
-                : isLeopard2A7V
-                  ? 0x35452a
-                  : isLeopard2A4
-                    ? 0x435032
-                    : isM60 || isM1A1
-                      ? 0x585c3a
-                      : 0x46542e;
+        : isT14
+          ? 0x5c6348
+          : isK2
+            ? 0x4c5838
+            : isMerkava4
+              ? 0x8d8a79
+              : isChallenger2
+                ? 0x4a5337
+                : isLeclerc
+                  ? 0x3c4d2b
+                  : isLeopard2A7V
+                    ? 0x35452a
+                    : isLeopard2A4
+                      ? 0x435032
+                      : isM60 || isM1A1
+                        ? 0x585c3a
+                        : 0x46542e;
     this._lodMat = new THREE.MeshLambertMaterial({ color: this._lodBaseHex });
     this._lodMat.color.r *= this.tint[0];
     this._lodMat.color.g *= this.tint[1];
@@ -3303,15 +3630,19 @@ export class Tank {
     this._lodProxy = new THREE.Group();
     const hullW = isMaus ? 3.7 : 3.35;
     const hullH = isMaus ? 1.7 : 1.25;
-    const hullL = isMaus ? 8.8 : 6.9;
+    const hullL = isMaus ? 8.8 : isT14 ? 8.1 : 6.9;
     const lodHull = new THREE.Mesh(new THREE.BoxGeometry(hullW, hullH, hullL), this._lodMat);
     lodHull.position.set(0, hullH * 0.5 + 0.38, 0);
     this._lodProxy.add(lodHull);
 
     this._lodTurret = new THREE.Group();
-    this._lodTurret.position.set(0, isMaus ? 2.23 : isK2 ? 1.58 : isM1A2Sep ? 1.71 : 1.66, isMerkava4 ? -0.45 : 0.05);
+    this._lodTurret.position.set(
+      0,
+      isMaus ? 2.23 : isK2 ? 1.58 : isAbramsModern ? 1.71 : isT14 ? 1.68 : 1.66,
+      isMerkava4 ? -0.45 : isT14 ? 0.1 : 0.05,
+    );
     const lodTurBox = new THREE.Mesh(
-      new THREE.BoxGeometry(isMaus ? 2.8 : 2.55, isMaus ? 1.1 : 0.78, isMaus ? 3.8 : 3.1),
+      new THREE.BoxGeometry(isMaus ? 2.8 : isT14 ? 2.05 : 2.55, isMaus ? 1.1 : 0.78, isMaus ? 3.8 : 3.1),
       this._lodMat,
     );
     lodTurBox.position.set(0, 0.42, -0.15);
@@ -3319,10 +3650,10 @@ export class Tank {
 
     this._lodGun = new THREE.Group();
     this._lodGun.position.set(0, 0.44, 1.3);
-    const lodBarrelGeo = new THREE.CylinderGeometry(0.11, 0.13, isMaus ? 5.2 : 4.7, 6);
+    const lodBarrelGeo = new THREE.CylinderGeometry(0.11, 0.13, isMaus || isT14 ? 5.2 : 4.7, 6);
     lodBarrelGeo.rotateX(Math.PI / 2);
     const lodBarrel = new THREE.Mesh(lodBarrelGeo, this._lodMat);
-    lodBarrel.position.set(0, 0, isMaus ? 2.5 : 2.25);
+    lodBarrel.position.set(0, 0, isMaus || isT14 ? 2.5 : 2.25);
     this._lodGun.add(lodBarrel);
     this._lodTurret.add(this._lodGun);
 
@@ -3381,34 +3712,37 @@ export class Tank {
     const isLeclerc = this.spec.id === 'leclerc';
     const isLeopard2A7V = this.spec.id === 'leopard2a7v';
     const isK2 = this.spec.id === 'k2';
-    const isM1A2Sep = this.spec.id === 'm1a2sep';
+    const isM1A2Sep = this.spec.id === 'm1a2sep' || this.spec.id === 'm1a2sepv3';
+    const isT14 = this.spec.id === 't14armata';
     const L = isMaus
       ? 4.4
-      : isLeopard2A7V
-        ? 3.75
-        : isM1A2Sep
-          ? 3.68
-          : isChallenger2
-            ? 3.7
-            : isMerkava4
-              ? 3.62
-              : isK2
-                ? 3.55
-                : isLeopard2A4
+      : isT14
+        ? 4.02
+        : isLeopard2A7V
+          ? 3.75
+          : isM1A2Sep
+            ? 3.68
+            : isChallenger2
+              ? 3.7
+              : isMerkava4
+                ? 3.62
+                : isK2
                   ? 3.55
-                  : isLeclerc
-                    ? 3.5
-                    : isT62M
+                  : isLeopard2A4
+                    ? 3.55
+                    : isLeclerc
                       ? 3.5
-                      : isT72B3
-                        ? 3.4
-                        : isM1A1
-                          ? 3.6
-                          : isZtz96a
-                            ? 3.5
-                            : isT90M
-                              ? 3.45
-                              : 3.2;
+                      : isT62M
+                        ? 3.5
+                        : isT72B3
+                          ? 3.4
+                          : isM1A1
+                            ? 3.6
+                            : isZtz96a
+                              ? 3.5
+                              : isT90M
+                                ? 3.45
+                                : 3.2;
     const W = isMaus ? 1.95 : isM1A2Sep ? 1.85 : 1.8;
     const pose = computeHullGroundPose(x, z, this.heading, L, W, this.world.heightAt);
     this.slope = pose.slope;
@@ -3437,10 +3771,10 @@ export class Tank {
               ? 1.67
               : this.spec.id === 't62m'
                 ? 1.67
-                : this.spec.id === 'm1a1'
+                : this.spec.id === 'm1a1' || this.spec.id === 'm1a2sep' || this.spec.id === 'm1a2sepv3'
                   ? 1.71
-                  : this.spec.id === 'm1a2sep'
-                    ? 1.71
+                  : this.spec.id === 't14armata'
+                    ? 1.68
                     : this.spec.id === 'ztz96a'
                       ? 1.6
                       : this.spec.id === 't90m'
@@ -3767,6 +4101,20 @@ export class Tank {
         });
       }
     }
+    if (this._shieldGroup) {
+      const shieldActive =
+        this.alive &&
+        (isAfghanitActive(this.abilityState, st.ability) || isTrophyReflectActive(this.abilityState, st.ability));
+      this._shieldGroup.visible = shieldActive;
+      if (shieldActive) {
+        this._shieldAnimT += dt;
+        this._shieldGroup.rotation.y += dt * 1.65;
+        const pulse = 0.55 + 0.35 * Math.sin(this._shieldAnimT * 8.5);
+        if (this._shieldRingMat) this._shieldRingMat.opacity = pulse;
+        if (this._shieldDomeMat) this._shieldDomeMat.opacity = 0.08 + pulse * 0.14;
+      }
+    }
+
     this._applyPose();
   }
 
@@ -3890,6 +4238,8 @@ export class Tank {
     this._wreckTilt = 0;
     this._galixAnimT = 0;
     this._overdriveEmitAcc = 0;
+    this._shieldAnimT = 0;
+    if (this._shieldGroup) this._shieldGroup.visible = false;
     this.setThermalHighlight(false, false);
     this.hullMat.color.setRGB(this.tint[0], this.tint[1], this.tint[2]);
     if (this._lodMat) {
